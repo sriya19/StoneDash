@@ -66,6 +66,19 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **`(app)/dashboard/page.tsx`** — placeholder that prints org name, signed-in user, and role, plus a sign-out link. Real content in sub-step 6.
 - **Google OAuth** wired but will surface a provider-not-configured toast until the Supabase project enables the provider. Email+password is the tested path.
 
+### Sub-step 5 — app shell (complete)
+- **`(app)/layout.tsx`** fetches auth, org, membership list, and the `sb_collapsed` cookie, then renders `<Sidebar>` + a scrollable main column with `<Topbar>` above `{children}`.
+- **Sidebar** is a client component that persists its collapsed state via a cookie (`sb_collapsed=1|0`, max-age 1 yr) so SSR and CSR agree. Collapsing swaps the width 240→56 px and hides labels; nav items become tooltips in collapsed mode.
+- **Org switcher** is a Popover + Command combobox (search + select). `switchActiveOrg` server action updates `profiles.active_org_id` after verifying membership; `router.refresh()` re-runs the server layout with the new org. "Create new shop" jumps to `/onboarding`.
+- **Sidebar nav** drives active highlight via `usePathname()`. Active route gets `bg-sidebar-accent` + a tiny `bg-brand` dot on the right edge. Coming-soon items (Inventory, Schedule, Invoices, Team) are disabled buttons wrapped in a Tooltip that reads "<name> — coming soon".
+- **User menu** combines an avatar dropdown (sign-out only for now) and the theme toggle in the sidebar footer. Sign-out is a POST form to `/logout` so GET prefetch doesn't accidentally kill the session.
+- **Theme toggle** is a Sun/Moon icon button with a dropdown of Light / Dark / System, wired through next-themes.
+- **Topbar** (sticky, backdrop-blurred) contains breadcrumbs on the left and the ⌘K search trigger + "+ New" dropdown on the right.
+- **Command palette.** ⌘K / Ctrl+K toggles. Debounced 180 ms to a `globalSearch` server action that queries `orders` (by `order_number` / `project_name` / joined customer name) and `customers` (by `name` / `company`) with `ilike` patterns, capped 8+8, ordered by `updated_at` / `name`. RLS ensures cross-org isolation. Selecting an order routes to `/orders?order=<id>`; selecting a customer routes to `/customers?id=<id>` (real detail sheets in sub-steps 7–8).
+- **New menu** routes `/orders?new=1` and `/customers?new=1`; the target pages will pick up the query param and auto-open their creation dialogs in sub-steps 7–8.
+- **Stub pages** created for `/orders`, `/customers`, `/settings` so the nav links don't 404 while we wait for sub-steps 7–9.
+- **pnpm build** still green across 11 routes.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
