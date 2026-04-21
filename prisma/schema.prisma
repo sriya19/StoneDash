@@ -1,0 +1,248 @@
+// Stone & Design Board — Prisma schema.
+//
+// This schema is the Prisma-side mirror of the Postgres schema defined in
+// /supabase/migrations/0001_init.sql. It is used for:
+//   * TypeScript types (`import type { Order, Customer } from '@prisma/client'`)
+//   * The seed script (/supabase/seed.ts)
+//
+// It is NOT used for app-path reads/writes. App code uses the @supabase/ssr
+// client so that RLS policies enforce tenancy.
+//
+// Source-of-truth rule: Postgres migrations are authoritative. When the two
+// drift, run `pnpm db:pull` and reconcile here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// Enums — mirror the Postgres enum types declared in 0001_init.sql
+// ===========================================================================
+
+enum OrderStage {
+  quote
+  measurement
+  fabrication
+  qc
+  installation
+  invoiced
+  paid
+  cancelled
+
+  @@map("order_stage")
+}
+
+enum OrderPriority {
+  low
+  normal
+  high
+  rush
+
+  @@map("order_priority")
+}
+
+enum MemberRole {
+  owner
+  admin
+  manager
+  field
+
+  @@map("member_role")
+}
+
+enum AttachmentKind {
+  template
+  contract
+  photo
+  invoice
+  other
+
+  @@map("attachment_kind")
+}
+
+// ===========================================================================
+// Tables
+// ===========================================================================
+
+model Organization {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String   @unique
+  logoUrl        String?  @map("logo_url")
+  timezone       String   @default("America/New_York")
+  currency       String   @default("USD")
+  orderPrefix    String   @map("order_prefix")
+  orderSeqStart  Int      @default(1000) @map("order_seq_start")
+  ownerId        String   @map("owner_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  members      OrgMember[]
+  customers    Customer[]
+  orders       Order[]
+  attachments  OrderAttachment[]
+  activity     ActivityLog[]
+  sequence     OrgOrderSeq?
+
+  @@map("organizations")
+}
+
+model Profile {
+  id           String   @id @db.Uuid
+  fullName     String?  @map("full_name")
+  avatarUrl    String?  @map("avatar_url")
+  phone        String?
+  activeOrgId  String?  @map("active_org_id") @db.Uuid
+  theme        String   @default("light")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("profiles")
+}
+
+model OrgMember {
+  id                String     @id @default(uuid()) @db.Uuid
+  orgId             String     @map("org_id") @db.Uuid
+  userId            String?    @map("user_id") @db.Uuid
+  role              MemberRole @default(manager)
+  invitedEmail      String?    @map("invited_email")
+  inviteToken       String?    @unique @map("invite_token")
+  inviteAcceptedAt  DateTime?  @map("invite_accepted_at") @db.Timestamptz
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId], map: "org_members_org_user_idx")
+  @@index([userId])
+  @@index([inviteToken])
+  @@map("org_members")
+}
+
+model Customer {
+  id            String   @id @default(uuid()) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  name          String
+  company       String?
+  email         String?
+  phone         String?
+  addressLine1  String?  @map("address_line1")
+  addressLine2  String?  @map("address_line2")
+  city          String?
+  state         String?
+  postalCode    String?  @map("postal_code")
+  notes         String?
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@index([orgId])
+  @@map("customers")
+}
+
+model Order {
+  id                      String        @id @default(uuid()) @db.Uuid
+  orgId                   String        @map("org_id") @db.Uuid
+  orderNumber             String        @map("order_number")
+  customerId              String?       @map("customer_id") @db.Uuid
+  projectName             String?       @map("project_name")
+  stage                   OrderStage    @default(quote)
+  priority                OrderPriority @default(normal)
+  stoneType               String?       @map("stone_type")
+  edgeProfile             String?       @map("edge_profile")
+  sinkCutouts             Int           @default(0) @map("sink_cutouts")
+  cooktopCutouts          Int           @default(0) @map("cooktop_cutouts")
+  estimatedSqft           Decimal?      @map("estimated_sqft") @db.Decimal
+  quoteAmount             Decimal?      @map("quote_amount") @db.Decimal
+  depositReceived         Decimal       @default(0) @map("deposit_received") @db.Decimal
+  balanceDue              Decimal       @default(0) @map("balance_due") @db.Decimal
+  measuredAt              DateTime?     @map("measured_at") @db.Date
+  fabricationStartDate    DateTime?     @map("fabrication_start_date") @db.Date
+  scheduledInstallDate    DateTime?     @map("scheduled_install_date") @db.Date
+  installedAt             DateTime?     @map("installed_at") @db.Date
+  notes                   String?
+  createdBy               String?       @map("created_by") @db.Uuid
+  assignedTo              String?       @map("assigned_to") @db.Uuid
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime      @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization  Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  stageHistory  OrderStageHistory[]
+  attachments   OrderAttachment[]
+
+  @@unique([orgId, orderNumber])
+  @@index([orgId, stage])
+  @@index([orgId, scheduledInstallDate])
+  @@index([customerId])
+  @@index([assignedTo])
+  @@map("orders")
+}
+
+model OrderStageHistory {
+  id         String      @id @default(uuid()) @db.Uuid
+  orderId    String      @map("order_id") @db.Uuid
+  fromStage  OrderStage? @map("from_stage")
+  toStage    OrderStage  @map("to_stage")
+  changedBy  String?     @map("changed_by") @db.Uuid
+  note       String?
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt(sort: Desc)])
+  @@map("order_stage_history")
+}
+
+model OrderAttachment {
+  id            String         @id @default(uuid()) @db.Uuid
+  orgId         String         @map("org_id") @db.Uuid
+  orderId       String         @map("order_id") @db.Uuid
+  storagePath   String         @map("storage_path")
+  originalName  String?        @map("original_name")
+  mime          String?
+  sizeBytes     BigInt?        @map("size_bytes")
+  kind          AttachmentKind @default(other)
+  uploadedBy    String?        @map("uploaded_by") @db.Uuid
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([orgId])
+  @@map("order_attachments")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  orgId       String   @map("org_id") @db.Uuid
+  actorId     String?  @map("actor_id") @db.Uuid
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id") @db.Uuid
+  action      String
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("activity_log")
+}
+
+model OrgOrderSeq {
+  orgId    String @id @map("org_id") @db.Uuid
+  nextSeq  Int    @map("next_seq")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_order_seq")
+}
