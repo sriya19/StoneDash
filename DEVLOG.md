@@ -79,6 +79,18 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **Stub pages** created for `/orders`, `/customers`, `/settings` so the nav links don't 404 while we wait for sub-steps 7–9.
 - **pnpm build** still green across 11 routes.
 
+### Sub-step 6 — dashboard (complete)
+- **Single orders query, JS aggregate.** The 4 KPIs and the pipeline strip all derive from the same `SELECT id, stage, project_name, scheduled_install_date, quote_amount, balance_due FROM orders` plus the activity feed query — two round-trips total, issued in `Promise.all`. For shops with <10k orders this is faster than 4 separate aggregate queries and simpler to reason about.
+- **Money values** come back as numeric strings from PostgREST; `toNumber()` helper parses defensively. Currency formatted via `Intl.NumberFormat` using the org's `currency` setting, with `maximumFractionDigits: 0` (shop owners read totals, not cents).
+- **KPI definitions:**
+  1. **In fabrication** — count + sum(quote_amount) where `stage = 'fabrication'`.
+  2. **Installs this week** — orders with `scheduled_install_date` in `[today, today+7]` excluding paid/cancelled. Sublabel lists the first 3 project names and "+N more".
+  3. **Awaiting measurement** — `stage IN ('quote','measurement')`. (Spec says "awaiting measurement"; including `quote` surfaces orders where the quote was sent but measurement hasn't happened — more useful operationally.)
+  4. **Outstanding balance** — sum(balance_due) where `stage NOT IN ('paid','cancelled')`.
+- **Pipeline strip** renders all 7 non-cancelled stages with count + summed quote_amount per stage. Each stage is a link to `/orders?stage=<stage>` so the full orders page (sub-step 7) can pre-filter.
+- **Activity feed** reads the last 15 `activity_log` rows, batches a single `profiles.in(actor_ids)` lookup for names, and renders phrase templates keyed on `${entityType}:${action}` (created / stage_changed / updated / deleted / uploaded). Timestamps via `date-fns.formatDistanceToNow`.
+- **No realtime yet.** Per deferred list — the dashboard is a static server render that needs a refresh to pick up new activity. Sub-step 6b could layer Supabase Realtime on top when wanted.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
