@@ -54,6 +54,18 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **`lib/db.ts`** is a Prisma singleton — used only by the seed and any future service-role jobs. Server actions must not import it (RLS would be bypassed).
 - **Not applied yet.** Files exist but nothing has run against a real Supabase project. User action required: create project, paste env vars, install Supabase CLI, `supabase link --project-ref <ref>`, `pnpm db:migrate`, `pnpm db:seed`.
 
+### Sub-step 4 — auth + Supabase clients + onboarding (complete)
+- **Supabase client wrappers (`lib/supabase/{server,client,middleware}.ts`).** Server and middleware factories pull env vars via a small helper that throws early if missing. The server client silently swallows `cookieStore.set` exceptions so RSC renders don't crash — middleware is the canonical place for session refresh.
+- **Row types (`lib/supabase/types.ts`).** Manual snake_case mirrors of each Postgres table, consumed as `.maybeSingle<ProfileRow>()` generics so the JS client returns typed rows without needing `supabase gen types`. Prisma types are kept only for enums.
+- **`middleware.ts`** (project root) runs `updateSession` on every non-asset request, then: protected prefixes without a user → `/login?next=…`; signed-in user hitting `/login` or `/signup` → `/dashboard`. Matcher excludes `_next/static`, `_next/image`, `favicon.ico`, and common image extensions.
+- **`lib/auth.ts`** exposes `getCurrentUserAndOrg()` as the canonical accessor for `(app)` pages — returns `{ userId, email, profile, org, role }` or redirects to `/login` / `/onboarding` as appropriate. `getCurrentUser()` is a thin non-redirecting helper.
+- **`lib/rbac.ts`** wraps the role hierarchy (`owner > admin > manager > field`) and provides `canManageMembers` / `canEditOrganization` / `canManageCustomers` / `canCreateOrder` / `canDeleteOrder` etc. so UI code stays declarative.
+- **Auth routes.** `/login`, `/signup` (both with email+password + Google OAuth buttons), `/callback` (OAuth return → `exchangeCodeForSession`), `/logout` (POST-only, signs out → `/`). Route-group note: `(auth)/callback/route.ts` maps to `/callback`, not `/auth/callback` — initial draft had this wrong and was corrected.
+- **`/onboarding`** (outside `(app)` since it runs before an org exists). Server component verifies user + no active org, client form auto-derives slug from shop name and `order_prefix` from slug until the user types in those fields. Submits to `completeOnboarding` server action which: upserts profile, creates org (empty `order_prefix` is filled by the BEFORE INSERT trigger), inserts owner membership (bootstrap RLS path), sets `active_org_id`, and revalidates the root layout. Returns `{ ok, error, fields? }` for client-side toasting.
+- **`(app)/layout.tsx`** is a gate that calls `getCurrentUserAndOrg()` so every child page inside the group can trust the context. Full shell (sidebar, top bar, cmd-K) lands in sub-step 5.
+- **`(app)/dashboard/page.tsx`** — placeholder that prints org name, signed-in user, and role, plus a sign-out link. Real content in sub-step 6.
+- **Google OAuth** wired but will surface a provider-not-configured toast until the Supabase project enables the provider. Email+password is the tested path.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
