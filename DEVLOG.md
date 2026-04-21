@@ -113,6 +113,17 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **New customer dialog** uses shadcn Dialog + RHF + zod. Open state driven by `?new=1`; "+ New" button in the header links there.
 - **`pnpm build`** — 11 routes, `/customers` at ~186 kB first-load.
 
+### Sub-step 9 — settings + invite (complete)
+- **`lib/supabase/admin.ts`** exposes a service-role client for strictly server-only paths (accepting an invite token, reading member auth-emails for the Members tab). Marked `server-only`; importing from client code fails at build.
+- **Validators + actions (`lib/validators/settings.ts`, `lib/actions/settings.ts`)** — `updateProfile`, `updateOrganization`, `inviteMember` (generates `inv_<hex>` tokens), `updateMemberRole`, `removeMember`, `acceptInvite`.
+- **`/settings` page** uses shadcn Tabs with three tabs: Profile (everyone), Shop (owner/admin), Members (owner/admin). Tab is URL-driven via `?tab=`; RBAC redirects if a user tries to deep-link to a tab they can't access.
+- **Profile tab** — react-hook-form, updates display name / phone / theme. Applies theme via `next-themes.setTheme` immediately so the toggle effect matches what the user picked.
+- **Shop tab** — name / timezone / currency / order prefix / starting sequence. Slug intentionally read-only (migrating slugs breaks stored invite links; deferred). The trigger on `organizations` also gates bad values (slug is lowercase-only).
+- **Members tab** — lists every row in `org_members`. Accepted members show their display name + auth email (fetched via the service-role admin client since RLS on profiles is self-only and auth.users is hidden). Pending invites show the email they were sent to plus a copy-link button that writes `{NEXT_PUBLIC_SITE_URL}/invite/{token}` to the clipboard. Owners can change any non-owner's role and remove them. Owner row and the current-user row can't be removed.
+- **`/invite/[token]`** looks up the invite via the admin client. If no session, offers "Log in" (with `?next=/invite/<token>`) or "Create account". If signed in, shows an Accept button that calls the `acceptInvite` server action which: verifies the token, flips `user_id`/`invite_accepted_at`, clears the token, and sets `profiles.active_org_id` if the user didn't have one.
+- **Token design.** Tokens are 32-hex UUIDs prefixed `inv_`. Good enough for Task 1; DEFERRED: signed/expiring tokens once email delivery is wired.
+- **`pnpm build`** — 12 routes total, `/settings` at ~184 kB first-load; `/invite/[token]` at ~117 kB.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
