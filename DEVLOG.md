@@ -124,6 +124,16 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **Token design.** Tokens are 32-hex UUIDs prefixed `inv_`. Good enough for Task 1; DEFERRED: signed/expiring tokens once email delivery is wired.
 - **`pnpm build`** — 12 routes total, `/settings` at ~184 kB first-load; `/invite/[token]` at ~117 kB.
 
+### Sub-step 10 — seed + README + final pass (complete)
+- Seed was authored in sub-step 3 and remains unchanged; demo login
+  `owner@topmarble.local` / `StoneDemo!2026`.
+- `README.md` covers prereqs, Supabase setup, env vars, local run,
+  scripts table, project structure, add-a-stage / add-a-role / debug-RLS
+  how-tos, and Vercel deployment.
+- **Final quality sweep.** No `any`, no `@ts-ignore`/`@ts-nocheck`, no
+  `console.log` anywhere in committed code. `pnpm typecheck` / `pnpm lint`
+  / `pnpm build` all green.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
