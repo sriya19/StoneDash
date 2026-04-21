@@ -106,6 +106,13 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 - **Deferred within sub-step 7 (for follow-up, not Task 1 blockers):** bulk-change-stage UI (server action is ready), assignee picker (requires a team-members query; field kept as `uuid` text input for now — actually deferred: no assignee picker in this pass), inline edit of `customer_id` / `assigned_to` (kept read-only in the sheet; change via dialog is the workaround).
 - **pnpm build** shows 11 routes; `/orders` first-load JS is ~299 kB (dnd-kit + RHF + zod + dialog surface area — acceptable for a power tool).
 
+### Sub-step 8 — customers (complete)
+- **Validators (`lib/validators/customers.ts`)** + **actions (`lib/actions/customers.ts`)**: `createCustomer`, `updateCustomer` (fully partial patch), `deleteCustomer`. RLS prevents field-role from writing.
+- **Queries (`lib/queries/customers-full.ts`):** `listCustomersWithOrderCount` uses PostgREST embed `orders(id, created_at)` so a single round-trip returns each customer's order rows; JS aggregates count + last-order date. `getCustomerDetail` parallel-fetches the customer and its order rows.
+- **`/customers` page** renders a table (Name / Company / Phone / Email / Order count / Last order). Row click → detail sheet with Orders (linking into `/orders?order=<id>`, closes the sheet on navigation) and Info (inline-edit fields + notes) tabs. Delete gated by `canManageCustomers(role)`.
+- **New customer dialog** uses shadcn Dialog + RHF + zod. Open state driven by `?new=1`; "+ New" button in the header links there.
+- **`pnpm build`** — 11 routes, `/customers` at ~186 kB first-load.
+
 ### Deferred
 - Signed/expiring invite tokens (tracked for when email is wired)
 - Automated tests (explicitly out of scope for Task 1)
