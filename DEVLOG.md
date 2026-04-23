@@ -24,6 +24,19 @@ Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the su
 
 **Not in scope.** Rename of the Postgres enum label alone — not the stage itself or its semantics. Stage transitions before/after remain the same.
 
+### Sub-step 2 — bidirectional stage changes with reason (complete)
+
+**Why.** Orders don't only move forward. Customers reschedule installs, slabs crack, a quote flips back to measurement. The old "Advance stage →" button only went forward, and no history captured *why* a stage changed. Every transition now requires a 3–500 character reason that's recorded in `order_stage_history.note` and shown inline in the Activity feed.
+
+**Shape of the fix.**
+- **`0009_stage_change_with_reason.sql`** introduces a new RPC `change_order_stage(p_order_id, p_to_stage, p_note)`. The RPC validates the note length, calls `set_config('app.stage_change_note', p_note, true)` (transaction-local), then runs the `UPDATE orders`. The already-existing `tg_orders_after_update` now reads that GUC via `current_setting('app.stage_change_note', true)` and writes the note into both `order_stage_history.note` and the `activity_log.metadata.note` JSON.
+- **Pattern note for future triggers:** this session-GUC pattern is a clean way to pass side-channel context (who/why/from-where) from an RPC down into an AFTER trigger without duplicating the trigger's logic or changing its signature. `set_config(..., true)` keeps the value scoped to the enclosing txn — it's invisible to any other request.
+- **Zod `ChangeStageInput.note`** is now strictly required (`.min(3).max(500)`). `UpdateOrderInput.patch.stage` is removed entirely — the only way to move a stage is through `changeStage`, so the audit is never bypassed. The inline FieldEditor for stage on the Overview tab was already gone; the Select-picker now replaces the old "Advance stage →" button.
+- **UI:** `components/app/stage-change-dialog.tsx` is a shared Dialog with an autofocused Textarea and a live char counter. The order detail sheet swaps "Advance stage →" for a `Select` of every stage (current is the default). Picking a different stage opens the dialog; cancel resets the Select back to the current stage. On the kanban board, a drop applies the optimistic move, then opens the same dialog; cancel reverts the optimistic move so the card snaps back.
+- **Activity feed** (`phraseFor` in `activity-feed.tsx`) appends `— "{note}"` to the existing `stage_changed` phrase when `metadata.note` is present.
+
+**Verified.** End-to-end with a script that signed in as the demo user and called the RPC — forward, backward, and empty-note-blocked — all three history rows carried the correct note or were rejected by the function's check. Seed replayed cleanly.
+
 ---
 
 ## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)

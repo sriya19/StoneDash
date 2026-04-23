@@ -7,11 +7,9 @@ import type { OrderPriority, OrderStage } from "@prisma/client";
 import { toast } from "sonner";
 import {
   AlertTriangle,
-  ArrowRight,
   Download,
   FileText,
   ImageIcon,
-  Loader2,
   Trash2,
 } from "lucide-react";
 
@@ -53,6 +51,7 @@ import { STAGE_LABELS, STAGE_ORDER } from "./pipeline-strip";
 import { OrderStageBadge } from "./order-stage-badge";
 import { FileUploader } from "./file-uploader";
 import { ActivityFeed, type ActivityRow } from "./activity-feed";
+import { StageChangeDialog } from "./stage-change-dialog";
 import type { OrderDetailRow } from "@/lib/queries/orders";
 
 export type AttachmentRow = {
@@ -74,11 +73,7 @@ type Props = {
   currency: string;
 };
 
-function nextStage(stage: OrderStage): OrderStage | null {
-  const idx = STAGE_ORDER.indexOf(stage);
-  if (idx < 0 || idx >= STAGE_ORDER.length - 1) return null;
-  return STAGE_ORDER[idx + 1] ?? null;
-}
+const ALL_PICKABLE_STAGES: OrderStage[] = [...STAGE_ORDER, "cancelled"];
 
 function formatMoney(value: string | number | null | undefined, currency: string): string {
   const n = value === null || value === undefined ? 0 : Number(value);
@@ -108,8 +103,10 @@ export function OrderDetailSheet({
   const router = useRouter();
   const searchParams = useSearchParams();
   const open = Boolean(order) && Boolean(searchParams.get("order"));
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [pendingStage, setPendingStage] = useState<OrderStage | null>(null);
+  const [stageDialogBusy, setStageDialogBusy] = useState(false);
 
   function close() {
     const params = new URLSearchParams(searchParams.toString());
@@ -130,17 +127,27 @@ export function OrderDetailSheet({
     });
   }
 
-  function advance(targetStage: OrderStage) {
-    if (!order) return;
-    startTransition(async () => {
-      const result = await changeStage({ id: order.id, toStage: targetStage });
-      if (!result.ok) {
-        toast.error("Couldn't advance stage", { description: result.error });
-        return;
-      }
-      toast.success(`Moved to ${STAGE_LABELS[targetStage]}`);
-      router.refresh();
+  function onStagePicked(next: OrderStage) {
+    if (!order || next === order.stage) return;
+    setPendingStage(next);
+  }
+
+  async function onConfirmStageChange(note: string) {
+    if (!order || !pendingStage) return;
+    setStageDialogBusy(true);
+    const result = await changeStage({
+      id: order.id,
+      toStage: pendingStage,
+      note,
     });
+    setStageDialogBusy(false);
+    if (!result.ok) {
+      toast.error("Couldn't move stage", { description: result.error });
+      return;
+    }
+    toast.success(`Moved to ${STAGE_LABELS[pendingStage]}`);
+    setPendingStage(null);
+    router.refresh();
   }
 
   async function onDownload(path: string) {
@@ -191,7 +198,6 @@ export function OrderDetailSheet({
     );
   }
 
-  const upcoming = nextStage(order.stage);
   const isFieldRole = role === "field";
   const canDelete = canDeleteOrder(role);
 
@@ -212,17 +218,29 @@ export function OrderDetailSheet({
             {order.project_name ?? "Untitled project"}
           </SheetTitle>
           <div className="flex items-center gap-2">
-            {upcoming ? (
-              <Button
-                size="sm"
-                onClick={() => advance(upcoming)}
-                disabled={pending}
-                className="gap-1"
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor="stage-picker"
+                className="text-xs uppercase tracking-wide text-muted-foreground"
               >
-                {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Advance to {STAGE_LABELS[upcoming]} <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : null}
+                Stage
+              </Label>
+              <Select
+                value={pendingStage ?? order.stage}
+                onValueChange={(next) => onStagePicked(next as OrderStage)}
+              >
+                <SelectTrigger id="stage-picker" className="h-8 w-[180px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_PICKABLE_STAGES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {STAGE_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {canDelete ? (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -387,7 +405,7 @@ export function OrderDetailSheet({
             {isFieldRole ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <AlertTriangle className="h-3 w-3" />
-                Field role can only advance stage and update notes.
+                Field role can only change stage and update notes.
               </p>
             ) : null}
           </TabsContent>
@@ -444,6 +462,16 @@ export function OrderDetailSheet({
             <ActivityFeed items={activity} />
           </TabsContent>
         </Tabs>
+
+        <StageChangeDialog
+          open={pendingStage !== null}
+          orderNumber={order.order_number}
+          fromStage={order.stage}
+          toStage={pendingStage ?? order.stage}
+          pending={stageDialogBusy}
+          onConfirm={onConfirmStageChange}
+          onCancel={() => setPendingStage(null)}
+        />
       </SheetContent>
     </Sheet>
   );

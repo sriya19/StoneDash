@@ -87,7 +87,9 @@ export const UpdateOrderInput = z.object({
     .object({
       projectName: optionalString(z.string().trim().max(200)).optional(),
       customerId: optionalString(z.string().uuid()).optional(),
-      stage: OrderStageZ.optional(),
+      // Stage is intentionally NOT editable via updateOrder — all stage
+      // changes must go through changeStage (with a required reason) so
+      // order_stage_history is never written without a note.
       priority: OrderPriorityZ.optional(),
       stoneType: optionalString(z.string().trim().max(200)).optional(),
       edgeProfile: optionalString(z.string().trim().max(200)).optional(),
@@ -114,8 +116,16 @@ export type UpdateOrderInputT = z.input<typeof UpdateOrderInput>;
 export const ChangeStageInput = z.object({
   id: z.string().uuid(),
   toStage: OrderStageZ,
-  note: optionalString(z.string().max(1000)).optional(),
+  // Required. The reason is written into order_stage_history.note and
+  // activity_log.metadata.note via a session GUC the trigger reads.
+  note: z
+    .string()
+    .trim()
+    .min(3, "Reason must be at least 3 characters")
+    .max(500, "Reason is too long (max 500)"),
 });
+
+export type ChangeStageInputT = z.input<typeof ChangeStageInput>;
 
 export const BulkChangeStageInput = z.object({
   ids: z.array(z.string().uuid()).min(1).max(100),

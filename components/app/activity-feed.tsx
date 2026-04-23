@@ -41,7 +41,9 @@ function phraseFor(row: ActivityRow): string {
     case "order:stage_changed": {
       const from = typeof m.from === "string" ? m.from : "";
       const to = typeof m.to === "string" ? m.to : "";
-      return `${who} moved ${orderNumber ?? "an order"} from ${from} → ${to}`;
+      const note = typeof m.note === "string" && m.note.length > 0 ? m.note : null;
+      const base = `${who} moved ${orderNumber ?? "an order"} from ${from} → ${to}`;
+      return note ? `${base} — "${note}"` : base;
     }
     case "order:updated":
       return `${who} updated ${orderNumber ?? "an order"}`;

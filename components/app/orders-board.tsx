@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { changeStage } from "@/lib/actions/orders";
 import type { OrderListRow } from "@/lib/queries/orders";
 import { STAGE_LABELS, STAGE_SHORT_LABELS } from "./pipeline-strip";
+import { StageChangeDialog } from "./stage-change-dialog";
 
 const BOARD_STAGES: OrderStage[] = [
   "quote",
@@ -154,11 +155,20 @@ function BoardColumn({ stage, rows, currency, onOpen }: ColumnProps) {
   );
 }
 
+type PendingMove = {
+  orderId: string;
+  orderNumber: string;
+  fromStage: OrderStage;
+  toStage: OrderStage;
+};
+
 export function OrdersBoard({ rows, currency }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [localRows, setLocalRows] = useState(rows);
   const [, startTransition] = useTransition();
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
@@ -193,26 +203,43 @@ export function OrdersBoard({ rows, currency }: Props) {
     const current = localRows.find((r) => r.id === orderId);
     if (!current || current.stage === nextStage) return;
 
-    // Optimistic
+    // Apply the optimistic move immediately (so the card stays in the
+    // destination column while the dialog is open) and queue the reason
+    // prompt. If the user cancels or the server rejects, we revert below.
     setLocalRows((prev) =>
       prev.map((r) => (r.id === orderId ? { ...r, stage: nextStage } : r)),
     );
-
-    startTransition(async () => {
-      const result = await changeStage({ id: orderId, toStage: nextStage });
-      if (!result.ok) {
-        // Revert on failure
-        setLocalRows((prev) =>
-          prev.map((r) =>
-            r.id === orderId ? { ...r, stage: current.stage } : r,
-          ),
-        );
-        toast.error("Couldn't move order", { description: result.error });
-        return;
-      }
-      toast.success(`Moved ${current.order_number} → ${STAGE_LABELS[nextStage]}`);
-      router.refresh();
+    setPendingMove({
+      orderId,
+      orderNumber: current.order_number,
+      fromStage: current.stage,
+      toStage: nextStage,
     });
+  }
+
+  function revertPendingMove() {
+    if (!pendingMove) return;
+    const { orderId, fromStage } = pendingMove;
+    setLocalRows((prev) =>
+      prev.map((r) => (r.id === orderId ? { ...r, stage: fromStage } : r)),
+    );
+    setPendingMove(null);
+  }
+
+  async function onConfirmMove(note: string) {
+    if (!pendingMove) return;
+    setDialogBusy(true);
+    const { orderId, orderNumber, toStage } = pendingMove;
+    const result = await changeStage({ id: orderId, toStage, note });
+    setDialogBusy(false);
+    if (!result.ok) {
+      toast.error("Couldn't move order", { description: result.error });
+      revertPendingMove();
+      return;
+    }
+    toast.success(`Moved ${orderNumber} → ${STAGE_LABELS[toStage]}`);
+    setPendingMove(null);
+    startTransition(() => router.refresh());
   }
 
   return (
@@ -228,6 +255,17 @@ export function OrdersBoard({ rows, currency }: Props) {
           />
         ))}
       </div>
+      {pendingMove ? (
+        <StageChangeDialog
+          open
+          orderNumber={pendingMove.orderNumber}
+          fromStage={pendingMove.fromStage}
+          toStage={pendingMove.toStage}
+          pending={dialogBusy}
+          onConfirm={onConfirmMove}
+          onCancel={revertPendingMove}
+        />
+      ) : null}
     </DndContext>
   );
 }

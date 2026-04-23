@@ -132,7 +132,8 @@ export async function updateOrder(
   const dbPatch: Record<string, unknown> = {};
   if (patch.projectName !== undefined) dbPatch.project_name = patch.projectName;
   if (patch.customerId !== undefined) dbPatch.customer_id = patch.customerId;
-  if (patch.stage !== undefined) dbPatch.stage = patch.stage;
+  // Stage changes are intentionally not handled here — callers must go
+  // through changeStage() so a reason is recorded.
   if (patch.priority !== undefined) dbPatch.priority = patch.priority;
   if (patch.stoneType !== undefined) dbPatch.stone_type = patch.stoneType;
   if (patch.edgeProfile !== undefined) dbPatch.edge_profile = patch.edgeProfile;
@@ -166,10 +167,15 @@ export async function changeStage(
   }
 
   const supabase = createSupabaseServerClient();
-  const { error } = await supabase
-    .from("orders")
-    .update({ stage: parsed.data.toStage })
-    .eq("id", parsed.data.id);
+  // change_order_stage sets a transaction-local GUC for the note and then
+  // performs the UPDATE. The audit trigger (tg_orders_after_update) reads
+  // the GUC and writes the reason into order_stage_history.note and
+  // activity_log.metadata.note in the same transaction.
+  const { error } = await supabase.rpc("change_order_stage", {
+    p_order_id: parsed.data.id,
+    p_to_stage: parsed.data.toStage,
+    p_note: parsed.data.note,
+  });
   if (error) return { ok: false, error: error.message };
 
   invalidate();
