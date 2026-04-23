@@ -4,6 +4,28 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 2A — Orders UX fixes from real-world use (2026-04-23)
+
+Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the sub-step breakdown.
+
+### Sub-step 1 — rename `qc` → `ready_for_install` (complete)
+
+**Why.** "QC" is fabrication-tool language; shop operators don't think in "quality control". The real stage between fabrication and installation is "Ready for Installation" — pieces cut, polished, wrapped, staged for pickup or loaded on the truck. Rename is about restoring shop-operator vocabulary.
+
+**What changed.**
+- `0008_rename_qc_stage.sql` — `ALTER TYPE order_stage RENAME VALUE 'qc' TO 'ready_for_install'` inside a transaction. Surgical rename on the ENUM; existing rows read as the new name automatically (no data UPDATEs). Verified via DB query: 1 `ready_for_install`, 0 `qc` rows post-seed.
+- Prisma `OrderStage` enum updated; client regenerated.
+- `ORDER_STAGES` (zod enum) and `STAGE_ORDER` (pipeline/board ordering) both updated. Position preserved: between `fabrication` and `installation`.
+- `STAGE_LABELS` gets the full label **"Ready for Installation"**. Introduced a new `STAGE_SHORT_LABELS` map with **"Ready for Install"** for space-constrained contexts (kanban column headers, pipeline strip). Also switched the kanban column headers and pipeline strip labels to use the short map so long stage names don't wrap.
+- Badge color: amber/yellow (`bg-amber-100 text-amber-900` light / `bg-amber-900 text-amber-100` dark) for `ready_for_install`. Had to move `measurement` from amber to violet (the color previously used by `qc`) to keep each stage visually distinct. The amber "waiting/staged" cue now semantically matches the "pieces ready, waiting to go out" mental model — felt right.
+- `supabase/seed.ts` — the one seeded order at `stage: "qc"` became `stage: "ready_for_install"`.
+- Grep verification: zero `'qc'` / `"qc"` hits in `app/`, `components/`, `lib/`, `prisma/`, or `supabase/seed.ts`. Historical migration 0001_init.sql intentionally retains the original string (it defined the enum; reading it doesn't require editing it).
+- **KPI review on the dashboard:** none of the four cards enumerated `qc` by name; all used broad `NOT IN (paid, cancelled)` or specific-stage conditions. Ready-for-install orders correctly flow through "Installs this week" (if scheduled) and are not counted as "In fabrication". No KPI code changes needed.
+
+**Not in scope.** Rename of the Postgres enum label alone — not the stage itself or its semantics. Stage transitions before/after remain the same.
+
+---
+
 ## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)
 
 ### The bug in plain English

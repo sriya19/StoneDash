@@ -4,7 +4,7 @@ export const ORDER_STAGES = [
   "quote",
   "measurement",
   "fabrication",
-  "qc",
+  "ready_for_install",
   "installation",
   "invoiced",
   "paid",

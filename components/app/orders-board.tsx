@@ -18,13 +18,13 @@ import {
 import { cn } from "@/lib/utils";
 import { changeStage } from "@/lib/actions/orders";
 import type { OrderListRow } from "@/lib/queries/orders";
-import { STAGE_LABELS } from "./pipeline-strip";
+import { STAGE_LABELS, STAGE_SHORT_LABELS } from "./pipeline-strip";
 
 const BOARD_STAGES: OrderStage[] = [
   "quote",
   "measurement",
   "fabrication",
-  "qc",
+  "ready_for_install",
   "installation",
   "invoiced",
   "paid",
@@ -133,7 +133,7 @@ function BoardColumn({ stage, rows, currency, onOpen }: ColumnProps) {
     >
       <div className="flex items-center justify-between border-b px-3 py-2 text-xs">
         <span className="font-medium uppercase tracking-wider">
-          {STAGE_LABELS[stage]}
+          {STAGE_SHORT_LABELS[stage]}
         </span>
         <span className="rounded bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground">
           {rows.length}

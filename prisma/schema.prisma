@@ -28,7 +28,7 @@ enum OrderStage {
   quote
   measurement
   fabrication
-  qc
+  ready_for_install
   installation
   invoiced
   paid

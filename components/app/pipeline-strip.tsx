@@ -7,17 +7,33 @@ export const STAGE_ORDER: OrderStage[] = [
   "quote",
   "measurement",
   "fabrication",
-  "qc",
+  "ready_for_install",
   "installation",
   "invoiced",
   "paid",
 ];
 
+// Full display names — used on stage badges, order detail sheet, activity
+// phrases. Shop-operator vocabulary: "Ready for Installation" rather than
+// the fabrication-tool "QC".
 export const STAGE_LABELS: Record<OrderStage, string> = {
   quote: "Quote",
   measurement: "Measurement",
   fabrication: "Fabrication",
-  qc: "QC",
+  ready_for_install: "Ready for Installation",
+  installation: "Install",
+  invoiced: "Invoiced",
+  paid: "Paid",
+  cancelled: "Cancelled",
+};
+
+// Short labels for space-constrained contexts like kanban column headers
+// and the pipeline strip on the dashboard.
+export const STAGE_SHORT_LABELS: Record<OrderStage, string> = {
+  quote: "Quote",
+  measurement: "Measurement",
+  fabrication: "Fabrication",
+  ready_for_install: "Ready for Install",
   installation: "Install",
   invoiced: "Invoiced",
   paid: "Paid",
@@ -69,7 +85,7 @@ export function PipelineStrip({ currency, summaries }: Props) {
               )}
             >
               <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {STAGE_LABELS[stage]}
+                {STAGE_SHORT_LABELS[stage]}
               </span>
               <span className="text-xl font-semibold tabular-nums">
                 {summary.count}

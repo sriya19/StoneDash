@@ -216,7 +216,7 @@ async function main() {
     {
       customerIndex: 4,
       projectName: "Osei kitchen + back bar",
-      stage: "qc",
+      stage: "ready_for_install",
       priority: "normal",
       stoneType: "Absolute Black Granite",
       edgeProfile: "Ogee",
