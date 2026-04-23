@@ -37,6 +37,20 @@ Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the su
 
 **Verified.** End-to-end with a script that signed in as the demo user and called the RPC — forward, backward, and empty-note-blocked — all three history rows carried the correct note or were rejected by the function's check. Seed replayed cleanly.
 
+### Sub-step 3 — image gallery + lightbox on the Files tab (complete)
+
+**Why.** Most attachments are phone photos — slab closeups, template pickups, install-site photos. The previous Files tab was a flat list that made you download each file to see anything. Now the Files tab leads with a thumbnail grid and a lightbox for full-size browsing.
+
+**Approach.**
+- **Batch-signed URLs** — `lib/actions/attachments.ts` gets a `createSignedUrls(paths, ttl = 3600)` helper that calls `supabase.storage.from("order-files").createSignedUrls(…)` in one round-trip. Used by `app/(app)/orders/page.tsx` to pre-sign every photo path on the detail sheet; non-image attachments still use the on-demand `createSignedUrl` on click. Bucket stays private.
+- **Classification** — `mime?.startsWith("image/")` → photo (covers `image/jpeg`, `image/png`, `image/heic`, `image/heif`). Everything else → document.
+- **`FileGallery`** — responsive grid (`grid-cols-2 sm:grid-cols-3 md:grid-cols-4`), square tiles with `object-cover`. Each tile is an `<img>` with an `onError` fallback that renders an `ImageOff` + "Open" download tile in the same slot (this is the Chromium HEIC path — no server-side conversion this pass).
+- **`FileLightbox`** — `fixed inset-0 z-50` overlay, `max-h-[90vh] max-w-[92vw]` image, arrow keys + on-screen chevrons for nav, `Esc` / backdrop click to close, filename + upload date + `n / m` counter at the bottom, Download + Delete + Close in the top-right. Sets `document.body.style.overflow = hidden` while open and restores on unmount.
+- **Field-role** keeps Download; Delete is hidden (`onDelete` omitted) for read-only roles.
+- **Photos with a null signed URL** (sign failure) still appear in the grid as the same HEIC-fallback tile — click opens the download flow rather than crashing the lightbox.
+
+**Deferred.** Server-side HEIC → JPEG (would need `libheif` / `sharp-heif`); client-side decode libraries like `heic2any` (weight not justified for Task 2A). Shop owners on Safari see thumbnails immediately; Chrome users on HEIC see a download tile until we revisit.
+
 ---
 
 ## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)

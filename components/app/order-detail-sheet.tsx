@@ -5,13 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import type { OrderPriority, OrderStage } from "@prisma/client";
 import { toast } from "sonner";
-import {
-  AlertTriangle,
-  Download,
-  FileText,
-  ImageIcon,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, Download, FileText, Trash2 } from "lucide-react";
 
 import {
   Sheet,
@@ -52,6 +46,7 @@ import { OrderStageBadge } from "./order-stage-badge";
 import { FileUploader } from "./file-uploader";
 import { ActivityFeed, type ActivityRow } from "./activity-feed";
 import { StageChangeDialog } from "./stage-change-dialog";
+import { FileGallery, type GalleryPhoto } from "./file-gallery";
 import type { OrderDetailRow } from "@/lib/queries/orders";
 
 export type AttachmentRow = {
@@ -67,6 +62,7 @@ export type AttachmentRow = {
 type Props = {
   order: OrderDetailRow | null;
   attachments: AttachmentRow[];
+  photoUrls: Record<string, string>;
   activity: ActivityRow[];
   orgId: string;
   role: MemberRole;
@@ -95,6 +91,7 @@ function bytesHuman(bytes: number | null): string {
 export function OrderDetailSheet({
   order,
   attachments,
+  photoUrls,
   activity,
   orgId,
   role,
@@ -410,52 +407,79 @@ export function OrderDetailSheet({
             ) : null}
           </TabsContent>
 
-          <TabsContent value="files" className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          <TabsContent value="files" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
             <FileUploader orgId={orgId} orderId={order.id} />
-            {attachments.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground">
-                No files yet.
-              </p>
-            ) : (
-              <ul className="divide-y rounded-md border bg-card">
-                {attachments.map((att) => (
-                  <li key={att.id} className="flex items-center gap-3 px-4 py-3">
-                    {att.mime?.startsWith("image/") ? (
-                      <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {att.original_name ?? att.storage_path.split("/").slice(-1)[0]}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {att.kind} · {bytesHuman(att.size_bytes)} ·{" "}
-                        {format(parseISO(att.created_at), "MMM d, HH:mm")}
-                      </p>
-                    </div>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => onDownload(att.storage_path)}
-                      aria-label="Download"
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                    {!isFieldRole ? (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => onDelete(att.id, att.storage_path)}
-                        aria-label="Delete"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {(() => {
+              const photos = attachments.filter((a) => a.mime?.startsWith("image/"));
+              const documents = attachments.filter(
+                (a) => !a.mime?.startsWith("image/"),
+              );
+              if (attachments.length === 0) {
+                return (
+                  <p className="text-center text-sm text-muted-foreground">
+                    No files yet.
+                  </p>
+                );
+              }
+              const galleryPhotos: GalleryPhoto[] = photos.map((att) => ({
+                id: att.id,
+                path: att.storage_path,
+                url: photoUrls[att.storage_path] ?? null,
+                originalName: att.original_name,
+                mime: att.mime,
+                createdAt: att.created_at,
+              }));
+              return (
+                <>
+                  <FileGallery
+                    photos={galleryPhotos}
+                    onDownload={onDownload}
+                    onDelete={isFieldRole ? undefined : onDelete}
+                  />
+                  {documents.length > 0 ? (
+                    <section className="space-y-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Documents · {documents.length}
+                      </h3>
+                      <ul className="divide-y rounded-md border bg-card">
+                        {documents.map((att) => (
+                          <li key={att.id} className="flex items-center gap-3 px-4 py-3">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">
+                                {att.original_name ?? att.storage_path.split("/").slice(-1)[0]}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {att.kind} · {bytesHuman(att.size_bytes)} ·{" "}
+                                {format(parseISO(att.created_at), "MMM d, HH:mm")}
+                              </p>
+                            </div>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => onDownload(att.storage_path)}
+                              aria-label="Download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            {!isFieldRole ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => onDelete(att.id, att.storage_path)}
+                                aria-label="Delete"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
+                </>
+              );
+            })()}
           </TabsContent>
 
           <TabsContent value="activity" className="flex-1 overflow-y-auto px-6 py-5">

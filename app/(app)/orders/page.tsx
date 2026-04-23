@@ -4,6 +4,7 @@ import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listOrders, getOrderDetail } from "@/lib/queries/orders";
 import { listCustomersLite } from "@/lib/queries/customers";
+import { createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
 import { OrdersFilterBar } from "@/components/app/orders-filter-bar";
 import { OrdersViewToggle } from "@/components/app/orders-view-toggle";
@@ -82,6 +83,7 @@ export default async function OrdersPage({
   let detailOrder = null;
   let attachments: AttachmentRow[] = [];
   let activity: ActivityRow[] = [];
+  let photoUrls: Record<string, string> = {};
   if (detailOrderId) {
     const supabase = createSupabaseServerClient();
     const [orderRow, attachmentRes, activityRes] = await Promise.all([
@@ -126,6 +128,14 @@ export default async function OrdersPage({
       action: row.action,
       metadata: row.metadata,
     }));
+
+    // Batch-sign URLs for every photo attachment so the gallery renders
+    // thumbnails immediately. Non-image attachments (PDFs etc.) still use
+    // the on-demand createSignedUrl path when the user clicks Download.
+    const photoPaths = attachments
+      .filter((a) => a.mime?.startsWith("image/"))
+      .map((a) => a.storage_path);
+    photoUrls = await createSignedUrls(photoPaths, 60 * 60);
   }
 
   return (
@@ -159,6 +169,7 @@ export default async function OrdersPage({
         <OrderDetailSheet
           order={detailOrder}
           attachments={attachments}
+          photoUrls={photoUrls}
           activity={activity}
           orgId={org.id}
           role={role}

@@ -92,3 +92,23 @@ export async function createSignedUrl(
   }
   return { ok: true, url: data.signedUrl };
 }
+
+// Batch signer — one round-trip per N paths. Used by the photo gallery
+// so every thumbnail doesn't do its own network hop. Returns a map from
+// storage path to signed URL (or null for paths that failed to sign).
+export async function createSignedUrls(
+  storagePaths: string[],
+  ttlSeconds = 60 * 60,
+): Promise<Record<string, string>> {
+  if (storagePaths.length === 0) return {};
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase.storage
+    .from("order-files")
+    .createSignedUrls(storagePaths, ttlSeconds);
+  if (error || !data) return {};
+  const result: Record<string, string> = {};
+  for (const row of data) {
+    if (row.path && row.signedUrl) result[row.path] = row.signedUrl;
+  }
+  return result;
+}
