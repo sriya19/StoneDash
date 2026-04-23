@@ -51,6 +51,26 @@ Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the su
 
 **Deferred.** Server-side HEIC → JPEG (would need `libheif` / `sharp-heif`); client-side decode libraries like `heic2any` (weight not justified for Task 2A). Shop owners on Safari see thumbnails immediately; Chrome users on HEIC see a download tile until we revisit.
 
+### Sub-step 4 — surface notes on table + detail sheet (complete)
+
+**Why.** `orders.notes` existed in the schema but was buried at the bottom of the detail sheet as a three-row Textarea. In practice it's the most valuable free-text field on an order — "slab going out Tuesday, call shop before arriving" — and needed to be readable and editable from both the table (fastest path) and the sheet (when you're already there).
+
+**Changes.**
+- **`0010_notes_activity.sql`** splits the update-audit path:
+  - Notes-only change → `activity_log.action = 'notes_updated'`, metadata carries `{ order_number, length_before, length_after }` — no note text, ever.
+  - Mixed edits → existing `'updated'` path with a field diff, but `notes` is excluded from that diff (so full text never leaks even when bundled).
+  - Stage change → unchanged (`'stage_changed'` from 0009).
+- **`lib/queries/orders.ts`** — `getOrderDetail` now returns `{ detail, lastNotesEdit }`. `lastNotesEdit` is the most recent `notes_updated` activity row (actor name + timestamp). One extra `activity_log` query in the existing parallel fetch; one lightweight `profiles` lookup for the actor.
+- **`lib/queries/orders.ts` `OrderListRow`** gains `notes` so the table can render inline without a second round-trip.
+- **`components/app/notes-popover.tsx`** — shared popover (Textarea, 6 rows, maxLength 4000). Save on blur or Cmd/Ctrl+Enter via `updateOrder({ patch: { notes } })`. Optimistic + toast.
+- **Orders table** — new 36px column between Project and Stage, with a `NotesCell` that switches on `hasNotes`:
+  - **No notes:** muted `Plus` icon → opens the Popover.
+  - **Has notes:** `StickyNote` icon in `text-brand` → HoverCard (trimmed to 400 chars, `whitespace-pre-wrap`) on hover; click opens the Popover. Clicks on the cell don't bubble to the row (the row's click opens the full detail sheet, which is what we DON'T want here).
+- **Detail sheet Overview tab** — removed the old bottom Notes field. Added a `NotesCard` at the top of the tab: 6-row auto-growable Textarea, Cmd/Ctrl+Enter to commit, right-aligned footer reads "Last edited by {actor} · {Nm/Nh/Nd ago}" or "Not edited yet". Uses the existing `updateOrder` → AFTER UPDATE trigger flow; the new `notes_updated` activity row drives the "last edited" footer on the next render.
+- **shadcn `hover-card` added** for the table's HoverCard preview.
+
+**Not in scope.** Structured markdown / @-mentions / attachment-from-note (Task 2B considerations at most).
+
 ---
 
 ## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)

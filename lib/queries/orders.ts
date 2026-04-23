@@ -12,6 +12,7 @@ export type OrderListRow = {
   scheduled_install_date: string | null;
   balance_due: string;
   quote_amount: string | null;
+  notes: string | null;
   updated_at: string;
   customer_id: string | null;
   assigned_to: string | null;
@@ -48,7 +49,7 @@ export async function listOrders(filters: OrderListFilters = {}) {
   let query = supabase
     .from("orders")
     .select(
-      "id, order_number, project_name, stage, priority, stone_type, scheduled_install_date, balance_due, quote_amount, updated_at, customer_id, assigned_to, customers(id, name, company)",
+      "id, order_number, project_name, stage, priority, stone_type, scheduled_install_date, balance_due, quote_amount, notes, updated_at, customer_id, assigned_to, customers(id, name, company)",
       { count: "exact" },
     );
 
@@ -93,15 +94,49 @@ export type OrderDetailRow = OrderListRow & {
   created_at: string;
 };
 
-export async function getOrderDetail(id: string): Promise<OrderDetailRow | null> {
+export type LastNotesEdit = {
+  actorName: string | null;
+  at: string;
+};
+
+export async function getOrderDetail(
+  id: string,
+): Promise<{ detail: OrderDetailRow | null; lastNotesEdit: LastNotesEdit | null }> {
   const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("orders")
-    .select(
-      "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, scheduled_install_date, measured_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, customers(id, name, company)",
-    )
-    .eq("id", id)
-    .maybeSingle<OrderDetailRow>();
-  if (error) throw error;
-  return data;
+  const [orderRes, editRes] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, scheduled_install_date, measured_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, customers(id, name, company)",
+      )
+      .eq("id", id)
+      .maybeSingle<OrderDetailRow>(),
+    supabase
+      .from("activity_log")
+      .select("actor_id, created_at")
+      .eq("entity_type", "order")
+      .eq("entity_id", id)
+      .eq("action", "notes_updated")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ actor_id: string | null; created_at: string }>(),
+  ]);
+  if (orderRes.error) throw orderRes.error;
+  if (editRes.error) throw editRes.error;
+
+  let lastNotesEdit: LastNotesEdit | null = null;
+  if (editRes.data) {
+    let actorName: string | null = null;
+    if (editRes.data.actor_id) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", editRes.data.actor_id)
+        .maybeSingle<{ full_name: string | null }>();
+      actorName = profile?.full_name ?? null;
+    }
+    lastNotesEdit = { actorName, at: editRes.data.created_at };
+  }
+
+  return { detail: orderRes.data, lastNotesEdit };
 }

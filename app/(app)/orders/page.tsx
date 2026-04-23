@@ -84,9 +84,10 @@ export default async function OrdersPage({
   let attachments: AttachmentRow[] = [];
   let activity: ActivityRow[] = [];
   let photoUrls: Record<string, string> = {};
+  let lastNotesEdit: Awaited<ReturnType<typeof getOrderDetail>>["lastNotesEdit"] = null;
   if (detailOrderId) {
     const supabase = createSupabaseServerClient();
-    const [orderRow, attachmentRes, activityRes] = await Promise.all([
+    const [detailRes, attachmentRes, activityRes] = await Promise.all([
       getOrderDetail(detailOrderId),
       supabase
         .from("order_attachments")
@@ -103,7 +104,8 @@ export default async function OrdersPage({
         .limit(50)
         .returns<ActivityDbRow[]>(),
     ]);
-    detailOrder = orderRow;
+    detailOrder = detailRes.detail;
+    lastNotesEdit = detailRes.lastNotesEdit;
     attachments = attachmentRes.data ?? [];
 
     const actorIds = Array.from(
@@ -171,6 +173,7 @@ export default async function OrdersPage({
           attachments={attachments}
           photoUrls={photoUrls}
           activity={activity}
+          lastNotesEdit={lastNotesEdit}
           orgId={org.id}
           role={role}
           currency={org.currency}

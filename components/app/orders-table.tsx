@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, StickyNote } from "lucide-react";
 
 import {
   Table,
@@ -14,9 +14,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import type { OrderListRow } from "@/lib/queries/orders";
 import { OrderStageBadge } from "./order-stage-badge";
+import { NotesPopover } from "./notes-popover";
 
 type Props = {
   rows: OrderListRow[];
@@ -134,6 +140,7 @@ export function OrdersTable({
               <TableHead className="w-[110px]">{sortHeader("orderNumber")}</TableHead>
               <TableHead>{sortHeader("customer")}</TableHead>
               <TableHead>{sortHeader("project")}</TableHead>
+              <TableHead className="w-[36px]" aria-label="Notes" />
               <TableHead className="w-[140px]">{sortHeader("stage")}</TableHead>
               <TableHead className="w-[120px]">Stone</TableHead>
               <TableHead className="w-[90px]">{sortHeader("install")}</TableHead>
@@ -161,6 +168,12 @@ export function OrdersTable({
                 </TableCell>
                 <TableCell className="max-w-[280px] truncate">
                   {row.project_name ?? "—"}
+                </TableCell>
+                <TableCell
+                  className="w-[36px] p-0"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <NotesCell orderId={row.id} notes={row.notes} />
                 </TableCell>
                 <TableCell>
                   <OrderStageBadge stage={row.stage} />
@@ -213,5 +226,65 @@ export function OrdersTable({
         </div>
       </div>
     </div>
+  );
+}
+
+function NotesCell({
+  orderId,
+  notes,
+}: {
+  orderId: string;
+  notes: string | null;
+}) {
+  const hasNotes = typeof notes === "string" && notes.trim().length > 0;
+  if (!hasNotes) {
+    return (
+      <NotesPopover
+        orderId={orderId}
+        value=""
+        trigger={
+          <button
+            type="button"
+            aria-label="Add note"
+            className="flex h-8 w-full items-center justify-center text-muted-foreground/40 hover:text-muted-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        }
+      />
+    );
+  }
+
+  const preview = notes.trim().slice(0, 400);
+  const truncated = notes.trim().length > 400;
+
+  return (
+    <HoverCard openDelay={120}>
+      <HoverCardTrigger asChild>
+        <div>
+          <NotesPopover
+            orderId={orderId}
+            value={notes}
+            trigger={
+              <button
+                type="button"
+                aria-label="Edit note"
+                className="flex h-8 w-full items-center justify-center text-brand hover:text-brand/80"
+              >
+                <StickyNote className="h-3.5 w-3.5" />
+              </button>
+            }
+          />
+        </div>
+      </HoverCardTrigger>
+      <HoverCardContent
+        side="top"
+        align="start"
+        className="max-w-[360px] whitespace-pre-wrap text-xs leading-relaxed"
+      >
+        {preview}
+        {truncated ? "…" : null}
+      </HoverCardContent>
+    </HoverCard>
   );
 }

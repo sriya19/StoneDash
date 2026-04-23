@@ -64,6 +64,7 @@ type Props = {
   attachments: AttachmentRow[];
   photoUrls: Record<string, string>;
   activity: ActivityRow[];
+  lastNotesEdit: { actorName: string | null; at: string } | null;
   orgId: string;
   role: MemberRole;
   currency: string;
@@ -93,6 +94,7 @@ export function OrderDetailSheet({
   attachments,
   photoUrls,
   activity,
+  lastNotesEdit,
   orgId,
   role,
   currency,
@@ -275,6 +277,13 @@ export function OrderDetailSheet({
           </TabsList>
 
           <TabsContent value="overview" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <NotesCard
+              value={order.notes ?? ""}
+              lastEdit={lastNotesEdit}
+              disabled={false}
+              onSave={(v) => saveField({ notes: v === "" ? undefined : v })}
+            />
+
             <section className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 Customer
@@ -388,14 +397,6 @@ export function OrderDetailSheet({
                 value={order.priority as OrderPriority}
                 disabled={isFieldRole}
                 onChange={(v) => saveField({ priority: v })}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <NotesEditor
-                value={order.notes ?? ""}
-                onSave={(v) => saveField({ notes: v === "" ? undefined : v })}
               />
             </div>
 
@@ -540,24 +541,72 @@ function FieldEditor({ label, value, type = "text", disabled, onSave }: FieldEdi
   );
 }
 
-function NotesEditor({
+function NotesCard({
   value,
+  lastEdit,
+  disabled,
   onSave,
 }: {
   value: string;
+  lastEdit: { actorName: string | null; at: string } | null;
+  disabled?: boolean;
   onSave: (v: string) => void;
 }) {
   const [local, setLocal] = useState(value);
+
+  function commit() {
+    if (local === value) return;
+    onSave(local);
+  }
+
   return (
-    <Textarea
-      value={local}
-      rows={3}
-      onChange={(event) => setLocal(event.target.value)}
-      onBlur={() => {
-        if (local !== value) onSave(local);
-      }}
-    />
+    <section className="space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+          Notes
+        </Label>
+        {lastEdit ? (
+          <span className="text-[11px] text-muted-foreground">
+            Last edited by {lastEdit.actorName ?? "someone"} ·{" "}
+            {formatDistanceToNowStrict(lastEdit.at)}
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Not edited yet</span>
+        )}
+      </div>
+      <Textarea
+        value={local}
+        rows={6}
+        disabled={disabled}
+        onChange={(event) => setLocal(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            (event.target as HTMLTextAreaElement).blur();
+          }
+        }}
+        placeholder="Shop-floor notes, scheduling quirks, customer preferences…"
+        className="min-h-[8rem] resize-y text-sm"
+      />
+    </section>
   );
+}
+
+function formatDistanceToNowStrict(iso: string): string {
+  try {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(diffMs / 60_000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.round(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return format(parseISO(iso), "MMM d");
+  } catch {
+    return "recently";
+  }
 }
 
 function PrioritySelector({
