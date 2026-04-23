@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { OrderListRow } from "@/lib/queries/orders";
 import { OrderStageBadge } from "./order-stage-badge";
 import { NotesPopover } from "./notes-popover";
+import { InstallDate } from "./install-date";
 
 type Props = {
   rows: OrderListRow[];
@@ -42,15 +43,6 @@ function formatMoney(value: string | null, currency: string): string {
     currency,
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  try {
-    return format(parseISO(value), "MMM d");
-  } catch {
-    return value;
-  }
 }
 
 function formatRelative(value: string): string {
@@ -143,7 +135,7 @@ export function OrdersTable({
               <TableHead className="w-[36px]" aria-label="Notes" />
               <TableHead className="w-[140px]">{sortHeader("stage")}</TableHead>
               <TableHead className="w-[120px]">Stone</TableHead>
-              <TableHead className="w-[90px]">{sortHeader("install")}</TableHead>
+              <TableHead className="w-[160px]">{sortHeader("install")}</TableHead>
               <TableHead className="w-[110px] text-right">{sortHeader("balance")}</TableHead>
               <TableHead className="w-[120px] text-right">{sortHeader("updated")}</TableHead>
             </TableRow>
@@ -181,8 +173,12 @@ export function OrdersTable({
                 <TableCell className="truncate text-xs text-muted-foreground">
                   {row.stone_type ?? "—"}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {formatDate(row.scheduled_install_date)}
+                <TableCell>
+                  <InstallDate
+                    value={row.scheduled_install_date}
+                    stage={row.stage}
+                    size="sm"
+                  />
                 </TableCell>
                 <TableCell
                   className={cn(

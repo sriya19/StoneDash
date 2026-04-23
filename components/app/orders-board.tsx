@@ -3,7 +3,6 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { OrderStage } from "@prisma/client";
-import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -20,6 +19,7 @@ import { changeStage } from "@/lib/actions/orders";
 import type { OrderListRow } from "@/lib/queries/orders";
 import { STAGE_LABELS, STAGE_SHORT_LABELS } from "./pipeline-strip";
 import { StageChangeDialog } from "./stage-change-dialog";
+import { InstallDate } from "./install-date";
 
 const BOARD_STAGES: OrderStage[] = [
   "quote",
@@ -39,15 +39,6 @@ function formatMoney(value: string | null, currency: string): string {
     currency,
     maximumFractionDigits: 0,
   }).format(n);
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  try {
-    return format(parseISO(value), "MMM d");
-  } catch {
-    return value;
-  }
 }
 
 type Props = {
@@ -105,9 +96,18 @@ function DraggableCard({ row, currency, onOpen }: DraggableCardProps) {
       <p className="mt-1 truncate text-xs text-muted-foreground">
         {row.customers?.name ?? "—"}
       </p>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
-        <span>{formatDate(row.scheduled_install_date)}</span>
-        <span className={cn(Number(row.balance_due) > 0 && "text-foreground")}>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <InstallDate
+          value={row.scheduled_install_date}
+          stage={row.stage}
+          size="md"
+        />
+        <span
+          className={cn(
+            "font-mono text-[11px] tabular-nums",
+            Number(row.balance_due) > 0 ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
           {formatMoney(row.balance_due, currency)}
         </span>
       </div>

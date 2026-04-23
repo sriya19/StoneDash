@@ -71,6 +71,25 @@ Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the su
 
 **Not in scope.** Structured markdown / @-mentions / attachment-from-note (Task 2B considerations at most).
 
+### Sub-step 5 — readable install dates on kanban + table (complete)
+
+**Why.** At the shop, the install date on a kanban card was rendered as a tiny grey `MMM d` string — unreadable from across the room, no signal for "due today" vs "overdue" vs "nothing scheduled yet". Couldn't schedule from it.
+
+**What changed.**
+- **New shared component `components/app/install-date.tsx`** — `<InstallDate value={iso|null} stage={OrderStage} size="sm"|"md" />`:
+  - `null` → "— not scheduled", muted.
+  - today → `text-brand` + `font-bold`.
+  - past AND stage ∉ {`installation`, `invoiced`, `paid`, `cancelled`} → `text-destructive` + `font-bold`.
+  - 1–7 days out → `text-foreground` + `font-semibold`.
+  - further out → `text-muted-foreground`.
+  - Format: `format(d, 'EEE, MMM d')`; appends `, yyyy` only if the date isn't in the current year.
+  - Calendar icon prefix.
+- **Kanban card** (`orders-board.tsx`) — swapped the old 11px grey span for `<InstallDate size="md" />`. Kept the balance on the right; removed the local `formatDate` helper and the `date-fns` import (now unused in that file).
+- **Orders table** (`orders-table.tsx`) — Install column uses `<InstallDate size="sm" />`. Widened the column to 160px so "Thu, Apr 30" fits without wrapping. Removed the local `formatDate` helper.
+- **Contrast** — tones use existing `text-brand` / `text-destructive` / `text-foreground` / `text-muted-foreground` tokens, which are already tuned for both light and dark mode.
+
+**Post-install behaviour.** `cancelled` is included in `POST_INSTALL_STAGES` so a cancelled order with a past date doesn't glow red — cancelled jobs shouldn't broadcast "overdue" across the board.
+
 ---
 
 ## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)
