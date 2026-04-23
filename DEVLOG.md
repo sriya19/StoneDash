@@ -4,6 +4,29 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## 2026-04-22 — Seed fix: audit trigger vs. org cascade
+
+### Symptom
+`pnpm db:seed` failed on `prisma.organization.deleteMany()` with
+`Foreign key constraint violated on the constraint: activity_log_org_id_fkey`.
+
+### False lead (worth flagging)
+The user's initial theory was "activity_log.org_id is missing `ON DELETE CASCADE`." I introspected `pg_constraint` directly against the live DB and confirmed **every org-scoped child FK already has CASCADE** (the source in 0001_init.sql matches reality). So dropping and re-adding FKs would have been a no-op that masked the real bug.
+
+### Actual root cause
+The AFTER DELETE audit triggers in `0005_storage_policies.sql` on `orders`, `customers`, and `order_attachments` each `INSERT INTO activity_log (org_id, …)` using `OLD.org_id`. When an organization is cascade-deleted, those triggers fire for every child row, but by the time the trigger's INSERT runs, Postgres has marked the parent organizations row as gone. The INSERT therefore violates `activity_log_org_id_fkey`. The verb in the error message (`insert or update on table "activity_log"`) was the tell — it's an INSERT, not the cascade DELETE, that failed.
+
+### Fix (migration `0006_cascade_audit_fix.sql`)
+1. **Guard each AFTER DELETE audit trigger** with `IF NOT EXISTS (SELECT 1 FROM organizations WHERE id = OLD.org_id) THEN RETURN OLD`. Normal single-entity deletes still write a `'deleted'` audit row; cascade deletes skip the audit (the org and its `activity_log` are being wiped anyway).
+2. **Address the polymorphic-cascade question.** `activity_log.entity_id` is a plain uuid, so it has no FK — individually deleting an order/customer/attachment would otherwise leave dangling activity rows. Added three new `BEFORE DELETE` cleanup triggers that delete matching `activity_log` rows by `(entity_type, entity_id)` before the parent row goes. Combined with the guarded AFTER DELETE, a single-order delete now leaves exactly one trailing `'deleted'` audit row; an org cascade leaves nothing.
+
+### Verification
+- `pnpm db:migrate` applies 0006 cleanly.
+- `pnpm db:seed` now succeeds. Ran it twice back-to-back to confirm idempotence.
+- Added `scripts/fk_audit.ts` (reusable: prints every public-schema FK with its `ON DELETE` action) for future FK sanity-checks.
+
+---
+
 ## 2026-04-20 — Project kickoff
 
 ### Decisions
