@@ -4,6 +4,53 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## 2026-04-22 — Dashboard redirect loop (RLS policy + swallowed error)
+
+### The bug in plain English
+After logging in as the seeded demo owner, Chrome bounced between `/dashboard` and `/onboarding` about 60 times until it throttled and rendered blank. The DB was fine (profile had `active_org_id`, org existed, membership was accepted, everything) so the guard logic itself had to be disagreeing about the same data.
+
+Root cause was two problems stacked together:
+
+1. **An RLS policy that touched `auth.users`.** The `org_members_select` and `org_members_update` policies had an inline subquery — `(SELECT email FROM auth.users WHERE id = auth.uid())` — used to match pending invites by email. The `authenticated` role has no privilege on `auth.users`, so every query against `org_members` from an authenticated caller failed with `permission denied for table users`. Accepted members were getting bounced on the first `OR` term of the policy even though the second term (`user_id = auth.uid()`) would have matched.
+
+2. **Guard code that swallowed `.maybeSingle()` errors.** `getCurrentUserAndOrg` destructured `const { data: member } = …` and branched on `!member`. A real "no row" and "policy exploded" looked identical — both led to `redirect("/onboarding")`. `/onboarding` saw `active_org_id` set → `redirect("/dashboard")`. Loop.
+
+### Why the original RLS design was wrong
+I wrote the policy assuming "as the authenticated user, I can read my own `auth.users.email`" — which is true of many Postgres tables but not `auth.users`. Supabase locks `auth.users` down to the service role specifically because apps should never expose raw auth rows to client queries. The correct source for JWT-scoped claims is `auth.jwt()`, which reads `request.jwt.claims` — no privilege on `auth.users` required, and it returns the same email the session was issued for.
+
+### Fixes (migration 0007 + `lib/supabase/errors.ts`)
+- Replaced both subqueries with `auth.jwt() ->> 'email'`. Same semantics for accepted members; pending-invite email matching works for signed-in invitees.
+- Added `assertNoQueryError(queryName, error)` and threaded it through `getCurrentUserAndOrg` and the onboarding page guard. Any PostgREST error now throws a readable exception instead of silently becoming "no row".
+
+### General rule going forward
+> **RLS policies must never subquery `auth.users` (or anything the `authenticated` role can't `SELECT`). Use `auth.jwt()` claims or a `SECURITY DEFINER` helper function.**
+
+Checklist for future RLS migrations:
+- [ ] Does this policy touch any table the `authenticated` role can't select from?
+  - If yes → rewrite using `auth.jwt()` (for claims like `email`, `sub`, `role`) or wrap the access in a `SECURITY DEFINER` SQL function.
+- [ ] Does the policy have an `OR` chain where one branch might error instead of returning false? (The policy is only as safe as its noisiest branch — Postgres doesn't reliably short-circuit when evaluating for planner purposes.)
+- [ ] Before merging, sign in as a non-admin test user and hit every gated query with the RLS-scoped client (`scripts/diagnose_auth.ts`).
+
+### Audit of remaining silent-error sites
+I also looked for the same `{ data } = await supabase.from(...)` pattern elsewhere. Callers in `lib/actions/**` all check `error` already. Callers in server components that affect **redirect decisions** were updated. The remaining cases are cosmetic — a query failure would leave a list empty instead of crashing — and I left them as-is pending your call on whether to harden them in this PR:
+
+| File | Query | Effect on failure |
+|---|---|---|
+| `app/(app)/layout.tsx:26` | `org_members.select("organizations(...)")` for sidebar switcher | Sidebar switcher would show only the active org (we already have a fallback for that) |
+| `app/(app)/settings/page.tsx:42` | `org_members.select(...)` for the Members tab | Members tab empty |
+| `app/(app)/dashboard/page.tsx:124` | `profiles.in("id", actorIds)` for actor names | Activity feed shows "—" for actor initials |
+| `app/(app)/orders/page.tsx:114` | Same pattern for detail sheet Activity tab | Same |
+| `app/invite/[token]/page.tsx:29` | `org_members.select()` via admin client | Invite page shows "Invite not found" |
+| `lib/actions/settings.ts:186` | `admin.from("profiles").select("active_org_id")` inside `acceptInvite` | Fallback "set active_org_id if missing" always fires (harmless) |
+
+### Unrelated noise (noting for record)
+Startup logs showed `AuthApiError: Invalid Refresh Token: Refresh Token Not Found` 4× on a fresh browser session. That's `@supabase/ssr` trying to refresh a missing session on the first anonymous request to the middleware + protected pages. `getUser()` returns `{ user: null, error }`, our code only reads `user` (null → redirect to `/login`, expected). Not contributing to the loop; harmless log noise.
+
+### New debugging asset
+`scripts/diagnose_auth.ts` — takes `DIAGNOSE_EMAIL` / `DIAGNOSE_PASSWORD` from env, signs in via the anon client, and runs the three queries `getCurrentUserAndOrg` runs. Surfaces errors separately from empty data. Kept in the repo, documented in the README "Debugging" section. This is the first thing to run next time someone says "I logged in but can't see anything."
+
+---
+
 ## 2026-04-22 — Seed fix: audit trigger vs. org cascade
 
 ### Symptom

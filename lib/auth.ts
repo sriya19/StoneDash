@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import type { MemberRole } from "@prisma/client";
 
 import { createSupabaseServerClient } from "./supabase/server";
+import { assertNoQueryError } from "./supabase/errors";
 import type { OrganizationRow, ProfileRow } from "./supabase/types";
 
 export type AuthContext = {
@@ -30,33 +31,39 @@ export async function getCurrentUserAndOrg(): Promise<AuthContext> {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
+  const profileResult = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .maybeSingle<ProfileRow>();
+  assertNoQueryError("profiles.maybeSingle", profileResult.error);
+  const profile = profileResult.data;
 
   if (!profile || !profile.active_org_id) {
     redirect("/onboarding");
   }
 
-  const { data: org } = await supabase
+  const orgResult = await supabase
     .from("organizations")
     .select("*")
     .eq("id", profile.active_org_id)
     .maybeSingle<OrganizationRow>();
+  assertNoQueryError("organizations.maybeSingle", orgResult.error);
+  const org = orgResult.data;
 
   if (!org) {
     redirect("/onboarding");
   }
 
-  const { data: member } = await supabase
+  const memberResult = await supabase
     .from("org_members")
     .select("role")
     .eq("org_id", org.id)
     .eq("user_id", user.id)
     .not("invite_accepted_at", "is", null)
     .maybeSingle<{ role: MemberRole }>();
+  assertNoQueryError("org_members.maybeSingle", memberResult.error);
+  const member = memberResult.data;
 
   if (!member) {
     redirect("/onboarding");

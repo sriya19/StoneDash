@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { OnboardingForm } from "@/components/app/onboarding-form";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { assertNoQueryError } from "@/lib/supabase/errors";
 import type { ProfileRow } from "@/lib/supabase/types";
 
 export const metadata = { title: "Set up your shop · Stone & Design Board" };
@@ -18,11 +19,13 @@ export default async function OnboardingPage() {
     redirect("/login?next=/onboarding");
   }
 
-  const { data: profile } = await supabase
+  const profileResult = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .maybeSingle<ProfileRow>();
+  assertNoQueryError("onboarding:profiles.maybeSingle", profileResult.error);
+  const profile = profileResult.data;
 
   if (profile?.active_org_id) {
     redirect("/dashboard");

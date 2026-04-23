@@ -225,6 +225,47 @@ If a query returns empty data where it shouldn't:
 
 ---
 
+## Debugging
+
+### Auth / RLS / redirect loops
+
+If a user reports redirect loops or blank pages after login, run:
+
+```sh
+DIAGNOSE_EMAIL=user@example.com \
+DIAGNOSE_PASSWORD='their-password' \
+pnpm tsx --env-file=.env.local scripts/diagnose_auth.ts
+```
+
+This signs in as that user via `@supabase/supabase-js` and runs the same
+three queries that `getCurrentUserAndOrg` (`lib/auth.ts`) runs — with
+their JWT attached. The script prints each query's `error` and `data`
+separately, so you can tell in ten seconds whether the gate is breaking
+on **session** (sign-in fails), **data** (query returns no row), or
+**RLS** (query returns an error).
+
+Real-world example: an RLS policy on `org_members` used to subquery
+`auth.users`, which the `authenticated` role has no privilege on.
+`.maybeSingle()` returned `{ data: null, error: 'permission denied …' }`
+and our guard code only read `data` — the error was invisible and the
+dashboard looped. See `supabase/migrations/0007_fix_member_policies.sql`
+for the fix.
+
+### RLS design rule
+
+Never write an RLS policy that subqueries `auth.users` (or anything else
+the `authenticated` role can't `SELECT`). Use `auth.jwt()` claims (e.g.
+`auth.jwt() ->> 'email'`) or a `SECURITY DEFINER` helper function
+instead.
+
+### FK / constraint sanity check
+
+`pnpm tsx --env-file=.env.local scripts/fk_audit.ts` prints every public
+schema foreign key with its `ON DELETE` action, straight from
+`pg_constraint`. Useful when a cascade doesn't behave as expected.
+
+---
+
 ## Deploying to Vercel
 
 1. Push to GitHub.
