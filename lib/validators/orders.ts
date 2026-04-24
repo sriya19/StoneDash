@@ -61,6 +61,7 @@ const CustomerRef = z
 
 export const CreateOrderInput = z.object({
   customer: CustomerRef,
+  contractorId: optionalString(z.string().uuid()).optional(),
   projectName: z.string().trim().min(1, "Project name is required").max(200),
   stoneType: optionalString(z.string().trim().max(200)),
   edgeProfile: optionalString(z.string().trim().max(200)),
@@ -87,6 +88,9 @@ export const UpdateOrderInput = z.object({
     .object({
       projectName: optionalString(z.string().trim().max(200)).optional(),
       customerId: optionalString(z.string().uuid()).optional(),
+      // contractorId can be a uuid (set/change), an empty string (clear),
+      // or absent (don't touch).
+      contractorId: z.union([z.string().uuid(), z.literal("")]).optional(),
       // Stage is intentionally NOT editable via updateOrder — all stage
       // changes must go through changeStage (with a required reason) so
       // order_stage_history is never written without a note.

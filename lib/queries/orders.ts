@@ -15,12 +15,15 @@ export type OrderListRow = {
   notes: string | null;
   updated_at: string;
   customer_id: string | null;
+  contractor_id: string | null;
   assigned_to: string | null;
   customers: { id: string; name: string; company: string | null } | null;
+  contractors: { id: string; name: string } | null;
 };
 
 export type OrderListFilters = {
   stages?: OrderStage[];
+  contractorIds?: string[];
   search?: string;
   page?: number;
   pageSize?: number;
@@ -49,12 +52,16 @@ export async function listOrders(filters: OrderListFilters = {}) {
   let query = supabase
     .from("orders")
     .select(
-      "id, order_number, project_name, stage, priority, stone_type, scheduled_install_date, balance_due, quote_amount, notes, updated_at, customer_id, assigned_to, customers(id, name, company)",
+      "id, order_number, project_name, stage, priority, stone_type, scheduled_install_date, balance_due, quote_amount, notes, updated_at, customer_id, contractor_id, assigned_to, customers(id, name, company), contractors(id, name)",
       { count: "exact" },
     );
 
   if (filters.stages && filters.stages.length > 0) {
     query = query.in("stage", filters.stages);
+  }
+
+  if (filters.contractorIds && filters.contractorIds.length > 0) {
+    query = query.in("contractor_id", filters.contractorIds);
   }
 
   const term = filters.search?.trim();
@@ -107,7 +114,7 @@ export async function getOrderDetail(
     supabase
       .from("orders")
       .select(
-        "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, scheduled_install_date, measured_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, customers(id, name, company)",
+        "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, scheduled_install_date, measured_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, contractor_id, customers(id, name, company), contractors(id, name)",
       )
       .eq("id", id)
       .maybeSingle<OrderDetailRow>(),

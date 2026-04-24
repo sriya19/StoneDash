@@ -90,6 +90,7 @@ export async function createOrder(
       org_id: org.id,
       order_number: orderNumber,
       customer_id: customerId,
+      contractor_id: toStringOrNull(v.contractorId),
       project_name: v.projectName,
       stone_type: toStringOrNull(v.stoneType),
       edge_profile: toStringOrNull(v.edgeProfile),
@@ -132,6 +133,10 @@ export async function updateOrder(
   const dbPatch: Record<string, unknown> = {};
   if (patch.projectName !== undefined) dbPatch.project_name = patch.projectName;
   if (patch.customerId !== undefined) dbPatch.customer_id = patch.customerId;
+  // Empty string → clear (SET NULL on contractor_id). A real uuid sets it.
+  if (patch.contractorId !== undefined) {
+    dbPatch.contractor_id = patch.contractorId === "" ? null : patch.contractorId;
+  }
   // Stage changes are intentionally not handled here — callers must go
   // through changeStage() so a reason is recorded.
   if (patch.priority !== undefined) dbPatch.priority = patch.priority;

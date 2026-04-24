@@ -9,8 +9,11 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  HardHat,
   Loader2,
+  Plus,
   UserPlus,
+  X,
 } from "lucide-react";
 
 import {
@@ -42,11 +45,15 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createOrder } from "@/lib/actions/orders";
+import { createContractor } from "@/lib/actions/contractors";
 import { CreateOrderInput, type CreateOrderInputT } from "@/lib/validators/orders";
+import { PAYMENT_TERMS_SUGGESTIONS } from "@/lib/validators/contractors";
 import type { CustomerListRow } from "@/lib/queries/customers";
+import type { ContractorLite } from "@/lib/queries/contractors";
 
 type Props = {
   customers: CustomerListRow[];
+  contractors: ContractorLite[];
   currency: string;
 };
 
@@ -62,7 +69,7 @@ function moneyFmt(value: number | undefined, currency: string): string {
   }).format(value);
 }
 
-export function NewOrderDialog({ customers, currency }: Props) {
+export function NewOrderDialog({ customers, contractors: initialContractors, currency }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const open = searchParams.get("new") === "1";
@@ -70,11 +77,21 @@ export function NewOrderDialog({ customers, currency }: Props) {
   const [pending, startTransition] = useTransition();
   const [inlineCustomer, setInlineCustomer] = useState(false);
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
+  const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
+  // initialContractors is the SSR snapshot. If the user creates one inline
+  // we append it locally so the picker reflects the change without a round
+  // trip through router.refresh().
+  const [contractors, setContractors] = useState<ContractorLite[]>(initialContractors);
+  const [inlineContractor, setInlineContractor] = useState(false);
+  const [inlineContractorName, setInlineContractorName] = useState("");
+  const [inlineContractorTerms, setInlineContractorTerms] = useState("");
+  const [inlineContractorPending, setInlineContractorPending] = useState(false);
 
   const form = useForm<CreateOrderInputT>({
     resolver: zodResolver(CreateOrderInput),
     defaultValues: {
       customer: { existingCustomerId: undefined, newCustomer: undefined },
+      contractorId: undefined,
       projectName: "",
       stoneType: "",
       edgeProfile: "",
@@ -92,6 +109,60 @@ export function NewOrderDialog({ customers, currency }: Props) {
     },
     mode: "onBlur",
   });
+
+  const selectedContractorId = form.watch("contractorId");
+  const selectedContractor = useMemo(
+    () => contractors.find((c) => c.id === selectedContractorId) ?? null,
+    [contractors, selectedContractorId],
+  );
+
+  function selectContractor(id: string | null) {
+    form.setValue("contractorId", id ?? undefined, { shouldValidate: true });
+    setContractorPopoverOpen(false);
+    setInlineContractor(false);
+  }
+
+  async function submitInlineContractor() {
+    const name = inlineContractorName.trim();
+    if (!name) {
+      toast.error("Contractor name is required");
+      return;
+    }
+    setInlineContractorPending(true);
+    try {
+      const res = await createContractor({
+        name,
+        primaryContact: undefined,
+        phone: undefined,
+        email: undefined,
+        addressLine1: undefined,
+        addressLine2: undefined,
+        city: undefined,
+        state: undefined,
+        postalCode: undefined,
+        paymentTerms: inlineContractorTerms.trim() || undefined,
+        notes: undefined,
+        isActive: true,
+      });
+      if (!res.ok) {
+        toast.error("Couldn't add contractor", { description: res.error });
+        return;
+      }
+      const created: ContractorLite = {
+        id: res.data.id,
+        name,
+        isActive: true,
+      };
+      setContractors((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      selectContractor(created.id);
+      setInlineContractor(false);
+      setInlineContractorName("");
+      setInlineContractorTerms("");
+      toast.success(`Added ${name}`);
+    } finally {
+      setInlineContractorPending(false);
+    }
+  }
 
   const selectedCustomerId = form.watch("customer.existingCustomerId");
   const newCustomer = form.watch("customer.newCustomer");
@@ -284,6 +355,146 @@ export function NewOrderDialog({ customers, currency }: Props) {
                   </div>
                 </div>
               ) : null}
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  <HardHat className="h-3.5 w-3.5" />
+                  Contractor <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Popover
+                    open={contractorPopoverOpen}
+                    onOpenChange={setContractorPopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className="flex-1 justify-between font-normal"
+                      >
+                        {selectedContractor
+                          ? selectedContractor.name
+                          : "No contractor"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[320px] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search contractors…" />
+                        <CommandList>
+                          <CommandEmpty>No matches.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              onSelect={() => selectContractor(null)}
+                              value="__none__ no contractor"
+                            >
+                              <span className="text-muted-foreground">
+                                No contractor
+                              </span>
+                            </CommandItem>
+                          </CommandGroup>
+                          {contractors.length > 0 ? (
+                            <CommandGroup heading="Existing">
+                              {contractors.map((c) => (
+                                <CommandItem
+                                  key={c.id}
+                                  value={c.name}
+                                  onSelect={() => selectContractor(c.id)}
+                                >
+                                  <span className="flex-1 truncate">{c.name}</span>
+                                  {!c.isActive ? (
+                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                      inactive
+                                    </span>
+                                  ) : null}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          ) : null}
+                          <CommandGroup>
+                            <CommandItem
+                              onSelect={() => {
+                                setContractorPopoverOpen(false);
+                                setInlineContractor(true);
+                              }}
+                              className="gap-2"
+                              value="__new__ add new contractor"
+                            >
+                              <Plus className="h-4 w-4" /> Add a new contractor
+                            </CommandItem>
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {selectedContractor ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Clear contractor"
+                      onClick={() => selectContractor(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </div>
+
+                {inlineContractor ? (
+                  <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="nct-name">Contractor name</Label>
+                      <Input
+                        id="nct-name"
+                        value={inlineContractorName}
+                        onChange={(e) => setInlineContractorName(e.target.value)}
+                        placeholder="Ameer Construction"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="nct-terms">Payment terms</Label>
+                      <Input
+                        id="nct-terms"
+                        list="nct-terms-list"
+                        value={inlineContractorTerms}
+                        onChange={(e) => setInlineContractorTerms(e.target.value)}
+                        placeholder="Net 30"
+                      />
+                      <datalist id="nct-terms-list">
+                        {PAYMENT_TERMS_SUGGESTIONS.map((t) => (
+                          <option key={t} value={t} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setInlineContractor(false);
+                          setInlineContractorName("");
+                          setInlineContractorTerms("");
+                        }}
+                        disabled={inlineContractorPending}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={submitInlineContractor}
+                        disabled={inlineContractorPending}
+                        className="gap-1"
+                      >
+                        {inlineContractorPending && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        )}
+                        Add and select
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

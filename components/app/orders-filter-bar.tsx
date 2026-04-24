@@ -20,9 +20,11 @@ import {
 import { cn } from "@/lib/utils";
 import { STAGE_LABELS } from "./pipeline-strip";
 import { ORDER_STAGES } from "@/lib/validators/orders";
+import type { ContractorLite } from "@/lib/queries/contractors";
 
 export const ordersFilterSchema = {
   stage: parseAsArrayOf(parseAsStringEnum<OrderStage>([...ORDER_STAGES])).withDefault([]),
+  contractor: parseAsArrayOf(parseAsString).withDefault([]),
   q: parseAsString.withDefault(""),
   view: parseAsStringEnum(["table", "board"] as const).withDefault("table"),
   sort: parseAsString.withDefault("updated"),
@@ -30,7 +32,11 @@ export const ordersFilterSchema = {
   page: parseAsString.withDefault("1"),
 };
 
-export function OrdersFilterBar() {
+type Props = {
+  contractorOptions: ContractorLite[];
+};
+
+export function OrdersFilterBar({ contractorOptions }: Props) {
   const [state, setState] = useQueryStates(ordersFilterSchema, { shallow: false });
   const [localSearch, setLocalSearch] = useState(state.q);
 
@@ -50,12 +56,20 @@ export function OrdersFilterBar() {
     setState({ stage: next, page: "1" });
   }
 
+  function toggleContractor(id: string) {
+    const next = state.contractor.includes(id)
+      ? state.contractor.filter((c) => c !== id)
+      : [...state.contractor, id];
+    setState({ contractor: next, page: "1" });
+  }
+
   function clearAll() {
-    setState({ stage: [], q: "", page: "1" });
+    setState({ stage: [], contractor: [], q: "", page: "1" });
     setLocalSearch("");
   }
 
-  const anyActive = state.stage.length > 0 || state.q.length > 0;
+  const anyActive =
+    state.stage.length > 0 || state.contractor.length > 0 || state.q.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -107,6 +121,58 @@ export function OrdersFilterBar() {
           })}
         </PopoverContent>
       </Popover>
+      {contractorOptions.length > 0 ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1">
+              Contractor
+              {state.contractor.length > 0 ? (
+                <span className="rounded bg-muted px-1.5 text-xs tabular-nums">
+                  {state.contractor.length}
+                </span>
+              ) : null}
+              <ChevronDown className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 p-1">
+            <div className="max-h-72 overflow-y-auto">
+              {contractorOptions.map((c) => {
+                const checked = state.contractor.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => toggleContractor(c.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent",
+                      checked && "font-medium",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded border",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-muted-foreground/30",
+                      )}
+                    >
+                      {checked ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                    <span className="flex-1 truncate text-left">
+                      {c.name}
+                      {!c.isActive ? (
+                        <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                          inactive
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : null}
       {anyActive ? (
         <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={clearAll}>
           <X className="h-3.5 w-3.5" /> Clear

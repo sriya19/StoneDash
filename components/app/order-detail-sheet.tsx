@@ -5,7 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import type { OrderPriority, OrderStage } from "@prisma/client";
 import { toast } from "sonner";
-import { AlertTriangle, Download, FileText, Trash2 } from "lucide-react";
+import { AlertTriangle, Download, FileText, HardHat, Trash2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import {
   Sheet,
@@ -48,6 +58,7 @@ import { ActivityFeed, type ActivityRow } from "./activity-feed";
 import { StageChangeDialog } from "./stage-change-dialog";
 import { FileGallery, type GalleryPhoto } from "./file-gallery";
 import type { OrderDetailRow } from "@/lib/queries/orders";
+import type { ContractorLite } from "@/lib/queries/contractors";
 
 export type AttachmentRow = {
   id: string;
@@ -68,6 +79,7 @@ type Props = {
   orgId: string;
   role: MemberRole;
   currency: string;
+  contractors: ContractorLite[];
 };
 
 const ALL_PICKABLE_STAGES: OrderStage[] = [...STAGE_ORDER, "cancelled"];
@@ -98,6 +110,7 @@ export function OrderDetailSheet({
   orgId,
   role,
   currency,
+  contractors,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -106,6 +119,7 @@ export function OrderDetailSheet({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [pendingStage, setPendingStage] = useState<OrderStage | null>(null);
   const [stageDialogBusy, setStageDialogBusy] = useState(false);
+  const [contractorPickerOpen, setContractorPickerOpen] = useState(false);
 
   function close() {
     const params = new URLSearchParams(searchParams.toString());
@@ -296,6 +310,85 @@ export function OrderDetailSheet({
                   </span>
                 ) : null}
               </p>
+            </section>
+
+            <section className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Contractor
+              </p>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1 text-sm">
+                  {order.contractors ? (
+                    <Link
+                      href={`/contractors/${order.contractors.id}`}
+                      className="inline-flex items-center gap-1.5 font-medium hover:underline"
+                    >
+                      <HardHat className="h-3.5 w-3.5 text-muted-foreground" />
+                      {order.contractors.name}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">No contractor</span>
+                  )}
+                </div>
+                {!isFieldRole ? (
+                  <Popover
+                    open={contractorPickerOpen}
+                    onOpenChange={setContractorPickerOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="ghost" size="sm">
+                        {order.contractors ? "Change" : "Add contractor"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[280px] p-0" align="end">
+                      <Command>
+                        <CommandInput placeholder="Search contractors…" />
+                        <CommandList>
+                          <CommandEmpty>No matches.</CommandEmpty>
+                          {order.contractors ? (
+                            <CommandGroup>
+                              <CommandItem
+                                value="__clear__ no contractor"
+                                onSelect={() => {
+                                  setContractorPickerOpen(false);
+                                  saveField({ contractorId: "" });
+                                }}
+                              >
+                                <span className="text-muted-foreground">
+                                  Clear contractor
+                                </span>
+                              </CommandItem>
+                            </CommandGroup>
+                          ) : null}
+                          <CommandGroup>
+                            {contractors.map((c) => (
+                              <CommandItem
+                                key={c.id}
+                                value={c.name}
+                                onSelect={() => {
+                                  setContractorPickerOpen(false);
+                                  saveField({ contractorId: c.id });
+                                }}
+                              >
+                                <span className="flex-1 truncate">{c.name}</span>
+                                {c.id === order.contractor_id ? (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                    current
+                                  </span>
+                                ) : !c.isActive ? (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                    inactive
+                                  </span>
+                                ) : null}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+              </div>
             </section>
 
             <FieldEditor

@@ -4,6 +4,7 @@ import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listOrders, getOrderDetail } from "@/lib/queries/orders";
 import { listCustomersLite } from "@/lib/queries/customers";
+import { listContractorsLite } from "@/lib/queries/contractors";
 import { createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
 import { OrdersFilterBar } from "@/components/app/orders-filter-bar";
@@ -19,6 +20,7 @@ import type { ActivityRow } from "@/components/app/activity-feed";
 
 type SearchParams = {
   stage?: string;
+  contractor?: string;
   q?: string;
   view?: string;
   sort?: string;
@@ -47,6 +49,15 @@ function parseStageList(value: string | undefined): OrderStage[] {
   );
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function parseContractorList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => UUID_RE.test(s));
+}
+
 export const metadata = { title: "Orders · Stone & Design Board" };
 
 export default async function OrdersPage({
@@ -58,6 +69,7 @@ export default async function OrdersPage({
 
   const view = searchParams.view === "board" ? "board" : "table";
   const stages = parseStageList(searchParams.stage);
+  const contractorIds = parseContractorList(searchParams.contractor);
   const q = searchParams.q ?? "";
   const sort = searchParams.sort ?? "updated";
   const dir = searchParams.dir === "asc" ? "asc" : "desc";
@@ -66,14 +78,18 @@ export default async function OrdersPage({
 
   const pageSize = boardView ? 500 : 50;
 
-  const { rows, total } = await listOrders({
-    stages,
-    search: q,
-    sort,
-    dir,
-    page: boardView ? 1 : page,
-    pageSize,
-  });
+  const [{ rows, total }, contractorOptions] = await Promise.all([
+    listOrders({
+      stages,
+      contractorIds,
+      search: q,
+      sort,
+      dir,
+      page: boardView ? 1 : page,
+      pageSize,
+    }),
+    listContractorsLite(false),
+  ]);
 
   const showNewDialog = searchParams.new === "1";
   const detailOrderId = searchParams.order ?? null;
@@ -147,7 +163,7 @@ export default async function OrdersPage({
         <OrdersViewToggle />
       </header>
 
-      <OrdersFilterBar />
+      <OrdersFilterBar contractorOptions={contractorOptions} />
 
       {boardView ? (
         <OrdersBoard rows={rows} currency={org.currency} />
@@ -164,7 +180,11 @@ export default async function OrdersPage({
       )}
 
       {showNewDialog ? (
-        <NewOrderDialog customers={customers} currency={org.currency} />
+        <NewOrderDialog
+          customers={customers}
+          contractors={contractorOptions.filter((c) => c.isActive)}
+          currency={org.currency}
+        />
       ) : null}
 
       {detailOrderId ? (
@@ -177,6 +197,7 @@ export default async function OrdersPage({
           orgId={org.id}
           role={role}
           currency={org.currency}
+          contractors={contractorOptions}
         />
       ) : null}
     </div>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { ArrowDown, ArrowUp, Plus, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowUp, HardHat, Plus, StickyNote } from "lucide-react";
 
 import {
   Table,
@@ -134,6 +134,7 @@ export function OrdersTable({
               <TableHead>{sortHeader("project")}</TableHead>
               <TableHead className="w-[36px]" aria-label="Notes" />
               <TableHead className="w-[140px]">{sortHeader("stage")}</TableHead>
+              <TableHead className="w-[140px]">Contractor</TableHead>
               <TableHead className="w-[120px]">Stone</TableHead>
               <TableHead className="w-[160px]">{sortHeader("install")}</TableHead>
               <TableHead className="w-[110px] text-right">{sortHeader("balance")}</TableHead>
@@ -169,6 +170,20 @@ export function OrdersTable({
                 </TableCell>
                 <TableCell>
                   <OrderStageBadge stage={row.stage} />
+                </TableCell>
+                <TableCell className="truncate text-xs">
+                  {row.contractors ? (
+                    <Link
+                      href={`/contractors/${row.contractors.id}`}
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <HardHat className="h-3 w-3" />
+                      {row.contractors.name}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
                 </TableCell>
                 <TableCell className="truncate text-xs text-muted-foreground">
                   {row.stone_type ?? "—"}

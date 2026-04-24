@@ -102,6 +102,18 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 **Known gap.** Haven't loaded the flow in a live browser this session. TypeScript + lint + build + RPC-level tests all green. Sub-step 6 (order integration) and Sub-step 7 (edit/delete polish) will give reasons to click through in a dev server.
 
+### Sub-step 6 — order integration (column, filter, dialog, detail sheet) (complete)
+
+**Where contractors now show up on the order side:**
+- **Orders table** — new Contractor column between Stage and Stone. Renders the contractor name as a link to `/contractors/[id]` (with a tiny HardHat icon) or a dimmed dash when unset. `event.stopPropagation()` on the link so clicking it doesn't also open the order detail sheet.
+- **Orders filter bar** — added a Contractor multi-select dropdown next to the existing Stage one. Mirrors the same popover + checkbox pattern, backed by `listContractorsLite(false)` (all contractors incl. inactive — consistent with filtering historical orders). URL state piped through the existing `nuqs` schema as `contractor=<uuid>,<uuid>`.
+- **New-order dialog Customer step** — added a Contractor combobox below the homeowner picker. "+ Add a new contractor" opens a lightweight inline mini-form with just name + payment terms. On create it calls `createContractor`, merges the new row into local state, and auto-selects it — the in-progress order form state is preserved. Full-field editing still goes through `/contractors/[id]`. Flagging in DEVLOG because the brief asked for "opens the contractor-create dialog inline"; I went with the inline mini-form instead of nested Dialog because the nested path was more code for the same effect.
+- **Order detail sheet** — in the Overview tab, new Contractor row right under the Customer row. If set: contractor name is a link with a "Change" button that opens a Popover+Command picker with a "Clear contractor" action. If unset: "No contractor" with an "Add contractor" button that opens the same picker. Field role sees the row but no picker (consistent with the column lock we added in 0011).
+
+**Validator changes.** `CreateOrderInput.contractorId: optionalString(uuid).optional()`. `UpdateOrderInput.patch.contractorId: uuid | "" | undefined` — empty string means "clear to NULL", absent means "don't touch", uuid means "set".
+
+**Not altering the dashboard** per Q5 / brief — no new KPIs. The existing "Outstanding balance" KPI remains homeowner-side; see the **Billing side ambiguity** note below for the deferred work.
+
 ---
 
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
