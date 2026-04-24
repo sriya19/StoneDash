@@ -79,6 +79,9 @@ The seed creates:
 - Shop: `Top Marble & Granite` (slug `top-marble-granite`,
   order prefix `TM`, starting at `TM-1042`)
 - 8 customers, 10 orders across every stage
+- 3 contractors with distinct payment-terms shapes (Running tab / Net 30 /
+  Net 60), 5 of the 10 orders tagged, 2 payments split across allocations
+  so the contractor detail page has real balances to render
 
 ### 5. Enable Google OAuth (optional)
 
@@ -136,6 +139,8 @@ sign up a fresh account and run through `/onboarding`.
   (app)/dashboard/page.tsx         KPIs + pipeline + activity feed
   (app)/orders/page.tsx            table + board + detail sheet + new dialog
   (app)/customers/page.tsx         table + detail sheet + new dialog
+  (app)/contractors/page.tsx       list + create + balance view
+  (app)/contractors/[id]/page.tsx  header + Jobs / Payments / Details tabs
   (app)/settings/page.tsx          Profile / Shop / Members tabs
 /components
   theme-provider.tsx
@@ -156,7 +161,7 @@ sign up a fresh account and run through `/onboarding`.
 /prisma
   schema.prisma                    TS type mirror of the DB
 /supabase
-  migrations/0001..0005.sql        DDL + RLS + functions + storage
+  migrations/0001..0012.sql        DDL + RLS + functions + storage + contractors
   seed.ts                          demo data (idempotent)
 /middleware.ts                     protects /(app)/**
 ```
@@ -210,6 +215,62 @@ sign up a fresh account and run through `/onboarding`.
 5. **Members UI** — add the role to `ASSIGNABLE_ROLES` in
    `components/app/settings-members.tsx` and the `role` select in the
    invite form.
+
+### Understand the contractor data model
+
+Some customers come in through a general contractor, kitchen-and-bath
+dealer, or builder. The shop ends up talking to **both** the homeowner
+(measurement, install) and the contractor (billing, referral). Two
+relationships, one order.
+
+Three tables + two views make this work:
+
+```
+contractors                      one row per GC / dealer / builder
+orders.contractor_id             nullable FK, ON DELETE SET NULL
+contractor_payments              one row per check / ACH / etc.
+contractor_payment_allocations   payment ↔ order, N:M with amount
+v_order_contractor_paid          per-order: sum(allocations.amount)
+v_contractor_balances            per-contractor: jobs_total, paid, balance
+```
+
+The allocation table exists because one $10k check can cover three
+kitchens — $4k on A, $3.5k on B, $2.5k on C. Without it you can't tell a
+contractor "here's what you still owe on the Springfield kitchen
+specifically," and you can't reconcile partial payments.
+
+**Write-path lockdown.** Direct writes to `contractor_payments` and
+`contractor_payment_allocations` are blocked three ways: `REVOKE INSERT,
+UPDATE, DELETE … FROM authenticated`, RLS `WITH CHECK (false)`, and no
+app code that targets them. Everything goes through three RPCs defined
+in `0012_contractor_payment_rpc.sql`:
+
+- `record_contractor_payment(...)` — insert payment + allocations atomically.
+- `update_contractor_payment(...)` — edit (re-writes allocations in place).
+- `delete_contractor_payment(...)` — cascade-delete the allocations.
+
+All three are `SECURITY DEFINER` (to bypass RLS + the REVOKE), do their
+own `is_org_member + org_role >= manager` check, and enforce
+`sum(alloc.amount) = payment.amount` to 2dp. The audit triggers from
+`0011_contractors.sql` fire inside the RPC transaction, so every row is
+audited atomically with the mutation.
+
+**Homeowner vs. contractor balances.** `orders.balance_due` is the
+homeowner-side figure (`quote_amount - deposit_received`) and is
+untouched by this feature. The contractor detail page computes a
+**separate** contractor-side balance (`quote_amount - sum(allocations)`).
+The two are intentionally not reconciled in Task 2B — a later design pass
+needs to add a `bill_to` enum on orders. See the "Billing side
+ambiguity" note in `DEVLOG.md` for the deferred work.
+
+**Non-owner RLS check.** `scripts/smoke_contractors_rls.ts` signs in as
+a non-member user and asserts (a) the views return zero rows with no
+error and (b) direct INSERT into payment tables is rejected. Run it any
+time you edit the RLS / REVOKE in `0011_contractors.sql`:
+
+```sh
+pnpm tsx --env-file=.env.local scripts/smoke_contractors_rls.ts
+```
 
 ### Debugging RLS
 

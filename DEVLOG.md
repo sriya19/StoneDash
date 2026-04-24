@@ -125,7 +125,58 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 ---
 
-**Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
+### Billing side ambiguity (deferred)
+
+`orders.balance_due` is the **homeowner-side** figure
+(`quote_amount − deposit_received`) regardless of whether a contractor
+is tagged on the order. The contractor detail Jobs tab computes a
+separate **contractor-side** balance (`quote_amount − sum(allocations)`),
+and the two numbers are not reconciled.
+
+**What's actually ambiguous.** In practice, for contractor-referred
+jobs, the **contractor** pays, not the homeowner — so
+`deposit_received` on those orders often won't match what's happening
+financially. Today we don't have a way to express that. A future
+design pass needs to add an explicit `bill_to enum('homeowner',
+'contractor')` on orders:
+
+- `bill_to = 'homeowner'` (default) — balance_due is authoritative,
+  contractor-side balance should always be $0 (if anyone ever
+  allocated a contractor payment against it, that was an error).
+- `bill_to = 'contractor'` — contractor-side balance is
+  authoritative, `balance_due` / `deposit_received` are either
+  blanked or re-scoped to the portion the homeowner paid in
+  parallel (change orders, upgrades, etc.).
+
+At that point:
+- The dashboard "Outstanding balance" KPI can choose a side (or sum
+  both, separately labeled).
+- The order detail sheet can collapse the confusing
+  homeowner-vs-contractor split into one clear "who owes what" row.
+- The contractor balance view can assert `o.bill_to = 'contractor'`
+  so rogue allocations against homeowner-billed orders don't silently
+  warp the totals.
+
+**Until then:** the dashboard KPI stays strictly homeowner-side and
+we do not alter it in Task 2B. Contractor balances live in
+`/contractors` and `/contractors/[id]` and nowhere else. This is the
+correct "don't paper over the ambiguity" move — forcing the data
+model decision before it contaminates a KPI is easier than
+un-contaminating one later.
+
+### Closing — deferred (Task 2B)
+
+- **Contractor portal** — contractor logs in and sees their own jobs +
+  balances. Data shape supports it today (every write carries
+  `contractor_id`, RLS boundaries are org-scoped). Design + auth for
+  that audience is a separate task.
+- **Commission / referral fees** — paying contractors a cut of jobs they
+  send in. No data yet; probably lives on `contractors` or a new
+  `contractor_commissions` table.
+- **Account statements / PDFs** — "print me everything I owe you" for a
+  contractor. Straightforward once the data's in place.
+- **QuickBooks / accounting sync** — explicit out-of-scope from Task 2B.
+- **Bill-to split** — see **Billing side ambiguity** above.
 
 ---
 
