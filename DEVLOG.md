@@ -114,6 +114,15 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 **Not altering the dashboard** per Q5 / brief — no new KPIs. The existing "Outstanding balance" KPI remains homeowner-side; see the **Billing side ambiguity** note below for the deferred work.
 
+### Sub-step 7 — edit / delete payment + activity feed (complete)
+
+**Most of this landed inline in sub-step 5.** The record-payment Sheet already handles the edit case (pre-fill + `update_contractor_payment` RPC), and the Payments tab already has an `AlertDialog` for delete with an impact preview. What was missing: the activity feed didn't know how to phrase the three new entity types, and each allocation row was firing its own audit, tripling feed noise.
+
+**Activity feed updates (`components/app/activity-feed.tsx`):**
+- New `phraseFor` branches for `contractor:created/updated/deleted`, `contractor_payment:created/updated/deleted`. Payment phrases include the amount via a local `moneyPhrase` helper (USD fixed — the feed doesn't know the org currency, and getting it here for one phrase isn't worth the plumbing).
+- Icons: `HardHat` for contractor, `DollarSign` for payment + allocation rows (the latter are hidden but the mapping is ready if we ever show them).
+- **Allocation-row hiding.** A user recording one $6,000 payment with two allocations was producing 3 activity rows. The payment row already tells the story; allocations are implementation detail. A `shouldHide(entity_type)` check in the component filters allocation rows out. The audit row itself still exists in the DB — the UI just doesn't surface it. If we ever need to reconstruct allocation history for a specific order, the raw rows are still there.
+
 ---
 
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
