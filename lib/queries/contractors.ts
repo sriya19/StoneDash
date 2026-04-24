@@ -142,6 +142,168 @@ export async function listContractorsWithBalance(
   });
 }
 
+export type ContractorDetail = {
+  id: string;
+  name: string;
+  primaryContact: string | null;
+  phone: string | null;
+  email: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  paymentTerms: string | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: string;
+  balance: {
+    jobsTotal: number;
+    paidTotal: number;
+    balanceOwed: number;
+    jobCount: number;
+    activeJobCount: number;
+  };
+  paymentCount: number;
+};
+
+type ContractorDetailRow = {
+  id: string;
+  org_id: string;
+  name: string;
+  primary_contact: string | null;
+  phone: string | null;
+  email: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  payment_terms: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export async function getContractorDetail(
+  id: string,
+): Promise<ContractorDetail | null> {
+  const supabase = createSupabaseServerClient();
+  const [contractorRes, balanceRes, paymentCountRes] = await Promise.all([
+    supabase
+      .from("contractors")
+      .select(
+        "id, org_id, name, primary_contact, phone, email, address_line1, address_line2, city, state, postal_code, payment_terms, notes, is_active, created_at",
+      )
+      .eq("id", id)
+      .maybeSingle<ContractorDetailRow>(),
+    supabase
+      .from("v_contractor_balances")
+      .select("jobs_total, paid_total, balance_owed, job_count, active_job_count")
+      .eq("contractor_id", id)
+      .maybeSingle<BalanceRow>(),
+    supabase
+      .from("contractor_payments")
+      .select("id", { count: "exact", head: true })
+      .eq("contractor_id", id),
+  ]);
+  if (contractorRes.error) throw contractorRes.error;
+  if (balanceRes.error) throw balanceRes.error;
+  if (paymentCountRes.error) throw paymentCountRes.error;
+  if (!contractorRes.data) return null;
+
+  const c = contractorRes.data;
+  const b = balanceRes.data;
+  return {
+    id: c.id,
+    name: c.name,
+    primaryContact: c.primary_contact,
+    phone: c.phone,
+    email: c.email,
+    addressLine1: c.address_line1,
+    addressLine2: c.address_line2,
+    city: c.city,
+    state: c.state,
+    postalCode: c.postal_code,
+    paymentTerms: c.payment_terms,
+    notes: c.notes,
+    isActive: c.is_active,
+    createdAt: c.created_at,
+    balance: {
+      jobsTotal: toMoney(b?.jobs_total),
+      paidTotal: toMoney(b?.paid_total),
+      balanceOwed: toMoney(b?.balance_owed),
+      jobCount: toCount(b?.job_count),
+      activeJobCount: toCount(b?.active_job_count),
+    },
+    paymentCount: paymentCountRes.count ?? 0,
+  };
+}
+
+export type ContractorJob = {
+  id: string;
+  orderNumber: string;
+  projectName: string | null;
+  stage: string;
+  quoteAmount: number;
+  paidByContractor: number;
+  contractorBalance: number;
+  scheduledInstallDate: string | null;
+  customerName: string | null;
+};
+
+type ContractorJobRow = {
+  id: string;
+  order_number: string;
+  project_name: string | null;
+  stage: string;
+  quote_amount: string | null;
+  scheduled_install_date: string | null;
+  customers: { id: string; name: string } | null;
+};
+
+export async function listContractorJobs(
+  contractorId: string,
+): Promise<ContractorJob[]> {
+  const supabase = createSupabaseServerClient();
+  const [ordersRes, paidRes] = await Promise.all([
+    supabase
+      .from("orders")
+      .select(
+        "id, order_number, project_name, stage, quote_amount, scheduled_install_date, customers(id, name)",
+      )
+      .eq("contractor_id", contractorId)
+      .order("scheduled_install_date", { ascending: true, nullsFirst: false })
+      .returns<ContractorJobRow[]>(),
+    supabase
+      .from("v_order_contractor_paid")
+      .select("order_id, paid_by_contractor")
+      .returns<{ order_id: string; paid_by_contractor: string }[]>(),
+  ]);
+  if (ordersRes.error) throw ordersRes.error;
+  if (paidRes.error) throw paidRes.error;
+
+  const paidByOrder = new Map(
+    (paidRes.data ?? []).map((p) => [p.order_id, toMoney(p.paid_by_contractor)]),
+  );
+
+  return (ordersRes.data ?? []).map((o) => {
+    const quote = toMoney(o.quote_amount);
+    const paid = paidByOrder.get(o.id) ?? 0;
+    return {
+      id: o.id,
+      orderNumber: o.order_number,
+      projectName: o.project_name,
+      stage: o.stage,
+      quoteAmount: quote,
+      paidByContractor: paid,
+      contractorBalance: quote - paid,
+      scheduledInstallDate: o.scheduled_install_date,
+      customerName: o.customers?.name ?? null,
+    };
+  });
+}
+
 export async function listContractorsLite(
   activeOnly = true,
 ): Promise<ContractorLite[]> {

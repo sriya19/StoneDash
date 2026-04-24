@@ -66,6 +66,18 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 **Not tested in a browser this session.** I've shipped typecheck/lint/build green but haven't loaded the page in a live dev server yet. Functional spot-check happens at sub-step 4 when the detail page gets wired up and there's a reason to click through.
 
+### Sub-step 4 — /contractors/[id] detail page (header, Jobs, Details) (complete)
+
+**The balance owed is the money shot.** 4xl/5xl tabular-nums mono, right-aligned in the header block. Everything else on the page is subordinate. Color follows `balanceClass` from the table so the two views stay in lockstep.
+
+**Jobs tab.** Orders with `contractor_id = this contractor` joined with `v_order_contractor_paid` for the **contractor-side** Paid / Balance columns. This is the Q5 decision from the plan — `orders.balance_due` (homeowner-side) is never shown here. Cancelled jobs live behind a "Show N cancelled jobs" toggle at the bottom; when hidden, the main list is active jobs only.
+
+**Details tab.** One form, one Save button. Tried per-section inline edit and it was more ceremony than clarity — managers edit 2-3 fields per visit, not one at a time. Below the form is a danger zone with Deactivate/Reactivate (toggle) and a Delete button that's disabled until `job_count = 0 AND payment_count = 0`. The spec's "DOES NOT delete or unlink orders" semantics is enforced both at the UI (button disabled) and in the action (defense-in-depth re-check).
+
+**Payments tab is a stub** in this commit — "coming in the next commit". Keeping the tab shell in place so the nav structure is final and sub-step 5 only needs to replace the stub's body.
+
+**`balanceClass` + `formatBalance` are imported into a server component (`contractor-header.tsx`)** from a `"use client"` module (`contractors-table.tsx`). Typecheck + build both pass — Next 14 allows pure-value imports to cross the boundary, the module just ends up in both bundles. If this becomes a bundle-size regret later, factor the helpers into a shared `lib/contractors/format.ts`. Not doing it preemptively.
+
 ---
 
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
