@@ -4,6 +4,40 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 2B — Contractor tracking (2026-04-23)
+
+A new first-class entity so Top Marble can see which customers came through a contractor, tag orders with a contractor, and track balances across all of a contractor's jobs. See `PLAN.md` for the sub-step breakdown and the Q1–Q9 decisions that came out of the review.
+
+### Sub-step 1 — DB schema, views, RLS, RPCs (complete)
+
+**Why.** Before UI, lock the shape of the data. Three tables (`contractors`, `contractor_payments`, `contractor_payment_allocations`) plus one nullable FK on `orders`. Two views expose per-order paid-by-contractor and per-contractor balance so the app reads a fresh number under RLS instead of re-aggregating in the client.
+
+**What shipped.**
+- **`0011_contractors.sql`** — tables + indexes + FK + views + RLS + audit triggers.
+  - `orders.contractor_id` FK is `ON DELETE SET NULL`. Deleting a contractor must not delete jobs — flagged explicitly in the migration header.
+  - `enforce_field_role_columns()` extended to block `contractor_id` changes by field users. Consistent with the 0002 policy that field may only touch `stage` and `notes`.
+  - `v_order_contractor_paid` + `v_contractor_balances` created with **`WITH (security_invoker = true)`**. Default view behaviour in PG 15+ runs as the view owner, which would bypass RLS on the underlying tables and leak cross-org data. `security_invoker = true` makes view queries run under the caller's session, so `orders` / `contractors` / allocations RLS enforces tenancy automatically.
+  - `v_contractor_balances` aggregates from `contractors LEFT JOIN orders (stage <> cancelled) LEFT JOIN v_order_contractor_paid`. No double-counting because `paid` is already one-row-per-order before the outer SUM.
+  - Audit triggers written for contractors, payments, and allocations — same shape as the existing 0005/0006 pattern for customers/orders/attachments. `AFTER DELETE` guards with `IF NOT EXISTS (SELECT 1 FROM organizations …)` so cascade-deletes of an org don't try to INSERT audit rows into the org that's going away.
+- **`0012_contractor_payment_rpc.sql`** — write-path lockdown.
+  - `record_contractor_payment`, `update_contractor_payment`, `delete_contractor_payment`, all `SECURITY DEFINER`. Each does its own auth check (`auth.uid()` is non-null, `is_org_member(org_id)`, `org_role(org_id) IN ('owner','admin','manager')`) because SECURITY DEFINER bypasses RLS.
+  - **RPCs are the only write path.** Belt-and-suspenders lockdown in 0011 adds `RLS WITH CHECK (false)` on INSERT/UPDATE/DELETE for both `contractor_payments` and `contractor_payment_allocations`, **plus** `REVOKE INSERT, UPDATE, DELETE … FROM authenticated, anon`. Either by itself would be enough; together means a future dev dropping one of them still can't accidentally open a direct-write hole.
+  - Sum invariant: the RPC validates `ROUND(sum(alloc.amount), 2) = ROUND(payment.amount, 2)` (both sides are `numeric(12,2)`, so no float tolerance — strict equality at 2dp). Also checks each allocation amount > 0 and each allocation's `order_id` belongs to `p_contractor_id` in the same org. All inserts happen inside the RPC's txn — single round-trip atomicity.
+  - No explicit `INSERT INTO activity_log` in the RPC body. The AFTER INSERT / AFTER DELETE triggers from 0011 fire inside the RPC's transaction, so every mutation is audited atomically with the write. Same pattern as `change_order_stage` from 0009.
+- **Prisma schema** mirrors all three new tables + the `orders.contractorId` column. Views are intentionally not modelled in Prisma — `seed.ts` can insert directly via Prisma; app-path view reads go through the Supabase client, which returns hand-typed rows.
+
+**Verified via `scripts/smoke_contractors_rls.ts`** (non-owner session).
+- `v_contractor_balances` returns **0 rows, no error** for a user who isn't a member of the contractor's org. Silent zero-rows was the scary failure mode to catch; the test asserts it explicitly rather than just "didn't crash."
+- `v_order_contractor_paid` — same assertion.
+- Direct `INSERT INTO contractor_payments` from an authenticated non-member → rejected. This is the test that would catch a future dev who forgot either the REVOKE or the `WITH CHECK (false)`.
+- Direct `INSERT INTO contractor_payment_allocations` → rejected.
+- `SELECT FROM contractors` as non-member → 0 rows, no error (regression canary for the `contractors_select` policy).
+- Script is idempotent: creates one throwaway user + one test contractor, cleans both up at exit, even on failure.
+
+**Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
+
+---
+
 ## Task 2A — Orders UX fixes from real-world use (2026-04-23)
 
 Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the sub-step breakdown.

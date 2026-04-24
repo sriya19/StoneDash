@@ -84,8 +84,10 @@ model Organization {
 
   members      OrgMember[]
   customers    Customer[]
+  contractors  Contractor[]
   orders       Order[]
   attachments  OrderAttachment[]
+  payments     ContractorPayment[]
   activity     ActivityLog[]
   sequence     OrgOrderSeq?
 
@@ -152,6 +154,7 @@ model Order {
   orgId                   String        @map("org_id") @db.Uuid
   orderNumber             String        @map("order_number")
   customerId              String?       @map("customer_id") @db.Uuid
+  contractorId            String?       @map("contractor_id") @db.Uuid
   projectName             String?       @map("project_name")
   stage                   OrderStage    @default(quote)
   priority                OrderPriority @default(normal)
@@ -173,17 +176,83 @@ model Order {
   createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
   updatedAt               DateTime      @default(now()) @map("updated_at") @db.Timestamptz
 
-  organization  Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  customer      Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  organization  Organization                     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customer      Customer?                        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contractor    Contractor?                      @relation(fields: [contractorId], references: [id], onDelete: SetNull)
   stageHistory  OrderStageHistory[]
   attachments   OrderAttachment[]
+  allocations   ContractorPaymentAllocation[]
 
   @@unique([orgId, orderNumber])
   @@index([orgId, stage])
   @@index([orgId, scheduledInstallDate])
   @@index([customerId])
+  @@index([contractorId])
   @@index([assignedTo])
   @@map("orders")
+}
+
+model Contractor {
+  id             String   @id @default(uuid()) @db.Uuid
+  orgId          String   @map("org_id") @db.Uuid
+  name           String
+  primaryContact String?  @map("primary_contact")
+  phone          String?
+  email          String?
+  addressLine1   String?  @map("address_line1")
+  addressLine2   String?  @map("address_line2")
+  city           String?
+  state          String?
+  postalCode     String?  @map("postal_code")
+  paymentTerms   String?  @map("payment_terms")
+  notes          String?
+  isActive       Boolean  @default(true) @map("is_active")
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orders       Order[]
+  payments     ContractorPayment[]
+
+  @@index([orgId])
+  @@map("contractors")
+}
+
+model ContractorPayment {
+  id            String   @id @default(uuid()) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  contractorId  String   @map("contractor_id") @db.Uuid
+  amount        Decimal  @db.Decimal(12, 2)
+  receivedOn    DateTime @map("received_on") @db.Date
+  method        String?
+  reference     String?
+  notes         String?
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contractor   Contractor                    @relation(fields: [contractorId], references: [id], onDelete: Cascade)
+  allocations  ContractorPaymentAllocation[]
+
+  @@index([orgId, contractorId, receivedOn(sort: Desc)])
+  @@map("contractor_payments")
+}
+
+model ContractorPaymentAllocation {
+  id         String   @id @default(uuid()) @db.Uuid
+  paymentId  String   @map("payment_id") @db.Uuid
+  orderId    String   @map("order_id") @db.Uuid
+  amount     Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  payment ContractorPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, orderId])
+  @@index([paymentId])
+  @@index([orderId])
+  @@map("contractor_payment_allocations")
 }
 
 model OrderStageHistory {
