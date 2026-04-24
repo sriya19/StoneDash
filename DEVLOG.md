@@ -52,6 +52,20 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 **Idempotency verified.** `pnpm db:seed` twice in a row produces identical results (existing org + user are deleted first; cascade wipes contractor tables).
 
+### Sub-step 3 — /contractors list + create flow (complete)
+
+**Why.** The list page is the everyday landing — Top Marble pulls up /contractors when the shop needs to know who owes what. Default sort is balance desc so the worst offenders surface at the top.
+
+**Shape.**
+- `components/app/sidebar-nav.tsx` gets a new active entry `Contractors` with the `HardHat` icon, slotted between Customers and the coming-soon stubs.
+- `lib/queries/contractors.ts`: `listContractorsWithBalance` fetches `contractors`, `v_contractor_balances`, and `contractor_payments` in parallel, then stitches in memory. I started with a clever single-query `!inner` join against the view and it fought me — three small parallel queries are cheaper than the workaround.
+- `lib/actions/contractors.ts`: `createContractor` / `updateContractor` / `deleteContractor`. Delete is defense-in-depth: UI gates on `job_count + payment_count = 0`, but the action also re-checks, because any future caller (a CLI, a bulk action) that forgets the gate could silently SET NULL the contractor on live orders via the FK.
+- `components/app/contractors-table.tsx`: columns Name / Primary contact / Phone / Active jobs / Balance owed / Last payment. Sortable query-param columns (balance desc default). Active-only toggle (default on). Two empty states — "no contractors in org" vs "no matches for current filter".
+- **Balance color treatment** factored out of the row renderer into `balanceClass()` + `formatBalance()` so sub-step 4 (header block) and future surfaces (order detail sheet) can import them directly. Positive → foreground. Zero → muted with "All settled" label in-place. Negative → `text-brand` with "Credit $X.XX" prefix.
+- `components/app/new-contractor-dialog.tsx`: shadcn Dialog + RHF with zod resolver. Payment terms is a free-text input backed by a `<datalist>` of the four suggestions (Net 30 / Net 60 / Running tab / COD). On success → redirect to `/contractors/[id]`.
+
+**Not tested in a browser this session.** I've shipped typecheck/lint/build green but haven't loaded the page in a live dev server yet. Functional spot-check happens at sub-step 4 when the detail page gets wired up and there's a reason to click through.
+
 ---
 
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).

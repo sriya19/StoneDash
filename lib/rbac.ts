@@ -29,6 +29,14 @@ export function canManageCustomers(role: MemberRole): boolean {
   return hasAtLeast(role, "manager");
 }
 
+export function canManageContractors(role: MemberRole): boolean {
+  return hasAtLeast(role, "manager");
+}
+
+export function canRecordContractorPayments(role: MemberRole): boolean {
+  return hasAtLeast(role, "manager");
+}
+
 export function canCreateOrder(role: MemberRole): boolean {
   return hasAtLeast(role, "manager");
 }

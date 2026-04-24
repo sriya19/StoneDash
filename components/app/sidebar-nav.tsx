@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
+  HardHat,
   Home,
   Package,
   Receipt,
@@ -30,6 +31,7 @@ export const SIDEBAR_NAV: NavEntry[] = [
   { kind: "active", label: "Dashboard", href: "/dashboard", icon: Home },
   { kind: "active", label: "Orders", href: "/orders", icon: Wrench },
   { kind: "active", label: "Customers", href: "/customers", icon: Users },
+  { kind: "active", label: "Contractors", href: "/contractors", icon: HardHat },
   { kind: "coming_soon", label: "Inventory", icon: Package },
   { kind: "coming_soon", label: "Schedule", icon: CalendarDays },
   { kind: "coming_soon", label: "Invoices", icon: Receipt },
