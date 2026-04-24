@@ -78,6 +78,30 @@ These five-figure totals are the regression spot-check — if `pnpm db:seed` re-
 
 **`balanceClass` + `formatBalance` are imported into a server component (`contractor-header.tsx`)** from a `"use client"` module (`contractors-table.tsx`). Typecheck + build both pass — Next 14 allows pure-value imports to cross the boundary, the module just ends up in both bundles. If this becomes a bundle-size regret later, factor the helpers into a shared `lib/contractors/format.ts`. Not doing it preemptively.
 
+### Sub-step 5 — record-payment flow + Payments tab (complete)
+
+**The feature this whole task is about.** One check comes in for $6,000; it covers three kitchens. Without the allocation table everything before this point is just list-plumbing.
+
+**Sheet (not Dialog).** The allocation list needs room to breathe — on a contractor with five or six open jobs, a Dialog is claustrophobic. Right-side Sheet at `sm:max-w-xl`, scrolling body, sticky footer for Cancel + submit.
+
+**Shape.**
+- Top half: amount / received-on / method / reference / notes. Method is a hard enum (check / ach / cash / card / other) because we want consistent reporting later; `PAYMENT_METHOD_LABELS` decouples display from DB value.
+- Bottom half: an allocation list. Each row has a checkbox, order metadata, a balance hint, and an amount input. Sorted by order number (which correlates with creation order — install-date sort fires if/when scheduled).
+- **Auto-allocate oldest first** walks top-down, fills each row up to its `contractorBalance`, stops when the amount is consumed. If the total amount exceeds the sum of balances, the user gets a warning toast and edits manually.
+- **Live running totals** — Applied / Remaining / Over. Green when `abs(applied - amount) < 0.005`, red when over. Submit disabled until green.
+- Edit mode: seed the rows with prior allocations. An order that was allocated to but has now been fully paid by other means still shows up (defensive — shouldn't happen given cascade semantics, but if it does we fail loud, not silent).
+
+**Payments tab.** Timeline of payments newest-first. Each card shows the amount + date + method + reference in the header line, the allocation list below (with links to `/orders?order=<id>`), and a notes line if present. Edit / Delete buttons route back into the sheet.
+
+**Delete preview** — the `AlertDialog` body enumerates each order whose contractor-side balance will increase, and by how much. Grounded concrete: "TM-1044 — +$4,500" instead of a generic "are you sure".
+
+**End-to-end RPC test run before commit** (throwaway script, not committed):
+- Signed in as demo owner, called `record_contractor_payment` with a matched sum → returns new payment id.
+- Called it again with mismatched sum → RPC raises `allocation sum (99) does not equal payment amount (100)` as expected.
+- Called `delete_contractor_payment` → cleans up. All three calls hit the same code path the server action uses.
+
+**Known gap.** Haven't loaded the flow in a live browser this session. TypeScript + lint + build + RPC-level tests all green. Sub-step 6 (order integration) and Sub-step 7 (edit/delete polish) will give reasons to click through in a dev server.
+
 ---
 
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).

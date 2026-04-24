@@ -5,7 +5,9 @@ import { ArrowLeft } from "lucide-react";
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import {
   getContractorDetail,
+  getContractorPayment,
   listContractorJobs,
+  listContractorPayments,
 } from "@/lib/queries/contractors";
 import {
   canManageContractors,
@@ -16,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ContractorHeader } from "@/components/app/contractor-header";
 import { ContractorJobsTab } from "@/components/app/contractor-jobs-tab";
 import { ContractorDetailsTab } from "@/components/app/contractor-details-tab";
+import { ContractorPaymentsTab } from "@/components/app/contractor-payments-tab";
+import { RecordPaymentSheet } from "@/components/app/record-payment-sheet";
 
 type Params = { id: string };
 type SearchParams = { tab?: string; payment?: string };
@@ -36,7 +40,18 @@ export default async function ContractorDetailPage({
   const contractor = await getContractorDetail(params.id);
   if (!contractor) notFound();
 
-  const jobs = await listContractorJobs(params.id);
+  const [jobs, payments] = await Promise.all([
+    listContractorJobs(params.id),
+    listContractorPayments(params.id),
+  ]);
+
+  const paymentParam = searchParams.payment ?? null;
+  const editingPayment =
+    paymentParam && paymentParam !== "new"
+      ? await getContractorPayment(paymentParam)
+      : null;
+  const showPaymentSheet =
+    canPay && (paymentParam === "new" || editingPayment !== null);
 
   const tab = searchParams.tab === "payments" || searchParams.tab === "details"
     ? searchParams.tab
@@ -80,15 +95,28 @@ export default async function ContractorDetailPage({
         </TabsContent>
 
         <TabsContent value="payments">
-          <div className="rounded-xl border bg-card p-12 text-center text-sm text-muted-foreground">
-            Payments tab — coming in the next commit.
-          </div>
+          <ContractorPaymentsTab
+            contractorId={contractor.id}
+            payments={payments}
+            currency={org.currency}
+            canEdit={canPay}
+          />
         </TabsContent>
 
         <TabsContent value="details">
           <ContractorDetailsTab contractor={contractor} canEdit={canEdit} />
         </TabsContent>
       </Tabs>
+
+      {showPaymentSheet ? (
+        <RecordPaymentSheet
+          contractorId={contractor.id}
+          contractorName={contractor.name}
+          currency={org.currency}
+          jobs={jobs}
+          editPayment={editingPayment}
+        />
+      ) : null}
     </div>
   );
 }

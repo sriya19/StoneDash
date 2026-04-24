@@ -7,8 +7,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   CreateContractorInput,
   DeleteContractorInput,
+  DeletePaymentInput,
+  RecordPaymentInput,
   UpdateContractorInput,
+  UpdatePaymentInput,
   type ContractorFieldsT,
+  type RecordPaymentInputT,
+  type UpdatePaymentInputT,
 } from "@/lib/validators/contractors";
 
 export type ActionResult<T = undefined> =
@@ -21,6 +26,13 @@ function toStringOrNull(value: string | undefined | null): string | null {
 
 function invalidate() {
   revalidatePath("/contractors");
+  revalidatePath("/orders");
+  revalidatePath("/dashboard");
+}
+
+function invalidateForContractor(contractorId: string) {
+  revalidatePath("/contractors");
+  revalidatePath(`/contractors/${contractorId}`);
   revalidatePath("/orders");
   revalidatePath("/dashboard");
 }
@@ -136,4 +148,83 @@ export async function deleteContractor(
   if (error) return { ok: false, error: error.message };
   invalidate();
   return { ok: true, data: { id: parsed.data.id } };
+}
+
+// ---------- payments (RPC-only write path) ----------
+//
+// All three call into the SECURITY DEFINER functions from 0012. The RPCs
+// re-check auth + role and validate the sum invariant. We translate JS
+// camelCase into snake_case RPC params here.
+
+export async function recordContractorPayment(
+  input: RecordPaymentInputT,
+): Promise<ActionResult<{ paymentId: string }>> {
+  const parsed = RecordPaymentInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const v = parsed.data;
+  const supabase = createSupabaseServerClient();
+
+  const { data, error } = await supabase.rpc("record_contractor_payment", {
+    p_contractor_id: v.contractorId,
+    p_amount: v.amount,
+    p_received_on: v.receivedOn,
+    p_method: v.method ?? null,
+    p_reference: v.reference ?? null,
+    p_notes: v.notes ?? null,
+    p_allocations: v.allocations.map((a) => ({
+      order_id: a.orderId,
+      amount: a.amount,
+    })),
+  });
+  if (error || typeof data !== "string") {
+    return { ok: false, error: error?.message ?? "Could not record payment" };
+  }
+  invalidateForContractor(v.contractorId);
+  return { ok: true, data: { paymentId: data } };
+}
+
+export async function updateContractorPayment(
+  input: UpdatePaymentInputT,
+): Promise<ActionResult<{ paymentId: string }>> {
+  const parsed = UpdatePaymentInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const v = parsed.data;
+  const supabase = createSupabaseServerClient();
+
+  const { error } = await supabase.rpc("update_contractor_payment", {
+    p_payment_id: v.paymentId,
+    p_amount: v.amount,
+    p_received_on: v.receivedOn,
+    p_method: v.method ?? null,
+    p_reference: v.reference ?? null,
+    p_notes: v.notes ?? null,
+    p_allocations: v.allocations.map((a) => ({
+      order_id: a.orderId,
+      amount: a.amount,
+    })),
+  });
+  if (error) return { ok: false, error: error.message };
+  invalidateForContractor(v.contractorId);
+  return { ok: true, data: { paymentId: v.paymentId } };
+}
+
+export async function deleteContractorPayment(
+  input: unknown,
+): Promise<ActionResult<{ paymentId: string }>> {
+  const parsed = DeletePaymentInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const supabase = createSupabaseServerClient();
+
+  const { error } = await supabase.rpc("delete_contractor_payment", {
+    p_payment_id: parsed.data.paymentId,
+  });
+  if (error) return { ok: false, error: error.message };
+  invalidate();
+  return { ok: true, data: { paymentId: parsed.data.paymentId } };
 }

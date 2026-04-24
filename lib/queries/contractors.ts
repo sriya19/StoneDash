@@ -304,6 +304,99 @@ export async function listContractorJobs(
   });
 }
 
+export type ContractorPayment = {
+  id: string;
+  amount: number;
+  receivedOn: string;
+  method: string | null;
+  reference: string | null;
+  notes: string | null;
+  createdAt: string;
+  allocations: {
+    orderId: string;
+    orderNumber: string;
+    projectName: string | null;
+    amount: number;
+  }[];
+};
+
+type ContractorPaymentQueryRow = {
+  id: string;
+  amount: string;
+  received_on: string;
+  method: string | null;
+  reference: string | null;
+  notes: string | null;
+  created_at: string;
+  contractor_payment_allocations: {
+    order_id: string;
+    amount: string;
+    orders: { order_number: string; project_name: string | null } | null;
+  }[];
+};
+
+export async function listContractorPayments(
+  contractorId: string,
+): Promise<ContractorPayment[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("contractor_payments")
+    .select(
+      "id, amount, received_on, method, reference, notes, created_at, contractor_payment_allocations(order_id, amount, orders(order_number, project_name))",
+    )
+    .eq("contractor_id", contractorId)
+    .order("received_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .returns<ContractorPaymentQueryRow[]>();
+  if (error) throw error;
+
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    amount: toMoney(p.amount),
+    receivedOn: p.received_on,
+    method: p.method,
+    reference: p.reference,
+    notes: p.notes,
+    createdAt: p.created_at,
+    allocations: (p.contractor_payment_allocations ?? []).map((a) => ({
+      orderId: a.order_id,
+      orderNumber: a.orders?.order_number ?? "—",
+      projectName: a.orders?.project_name ?? null,
+      amount: toMoney(a.amount),
+    })),
+  }));
+}
+
+export async function getContractorPayment(
+  paymentId: string,
+): Promise<ContractorPayment | null> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("contractor_payments")
+    .select(
+      "id, amount, received_on, method, reference, notes, created_at, contractor_payment_allocations(order_id, amount, orders(order_number, project_name))",
+    )
+    .eq("id", paymentId)
+    .maybeSingle<ContractorPaymentQueryRow>();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: data.id,
+    amount: toMoney(data.amount),
+    receivedOn: data.received_on,
+    method: data.method,
+    reference: data.reference,
+    notes: data.notes,
+    createdAt: data.created_at,
+    allocations: (data.contractor_payment_allocations ?? []).map((a) => ({
+      orderId: a.order_id,
+      orderNumber: a.orders?.order_number ?? "—",
+      projectName: a.orders?.project_name ?? null,
+      amount: toMoney(a.amount),
+    })),
+  };
+}
+
 export async function listContractorsLite(
   activeOnly = true,
 ): Promise<ContractorLite[]> {

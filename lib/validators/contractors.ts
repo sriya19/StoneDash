@@ -48,3 +48,78 @@ export const PAYMENT_TERMS_SUGGESTIONS = [
   "Running tab",
   "COD",
 ] as const;
+
+export const PAYMENT_METHODS = [
+  "check",
+  "ach",
+  "cash",
+  "card",
+  "other",
+] as const;
+
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  check: "Check",
+  ach: "ACH / wire",
+  cash: "Cash",
+  card: "Card",
+  other: "Other",
+};
+
+const moneyPositive = z
+  .union([z.string(), z.number()])
+  .transform((value) => {
+    if (value === "" || value === null || value === undefined) return NaN;
+    return typeof value === "number" ? value : Number(value);
+  })
+  .refine((n) => Number.isFinite(n) && n > 0, {
+    message: "Must be greater than 0",
+  });
+
+const PaymentAllocation = z.object({
+  orderId: z.string().uuid(),
+  amount: moneyPositive,
+});
+
+const PaymentBase = z.object({
+  contractorId: z.string().uuid(),
+  amount: moneyPositive,
+  receivedOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
+  method: z.enum(PAYMENT_METHODS).optional(),
+  reference: optionalString(z.string().trim().max(120)),
+  notes: optionalString(z.string().max(4000)),
+  allocations: z.array(PaymentAllocation).min(1, "Add at least one allocation"),
+});
+
+// Refines the sum-of-allocations = amount invariant client-side. The RPC
+// enforces it again server-side — this is just the first gate.
+const allocationSumMatches = (v: {
+  amount: number;
+  allocations: { amount: number }[];
+}) => {
+  const sum = v.allocations.reduce((acc, a) => acc + a.amount, 0);
+  return Math.abs(sum - v.amount) < 0.005;
+};
+
+const SUM_MESSAGE = {
+  message: "Allocation total must equal payment amount",
+  path: ["allocations"] as string[],
+};
+
+export const RecordPaymentInput = PaymentBase.refine(
+  allocationSumMatches,
+  SUM_MESSAGE,
+);
+export type RecordPaymentInputT = z.input<typeof RecordPaymentInput>;
+
+export const UpdatePaymentInput = PaymentBase.extend({
+  paymentId: z.string().uuid(),
+}).refine(allocationSumMatches, SUM_MESSAGE);
+export type UpdatePaymentInputT = z.input<typeof UpdatePaymentInput>;
+
+export const DeletePaymentInput = z.object({
+  paymentId: z.string().uuid(),
+});
