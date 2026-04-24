@@ -34,6 +34,26 @@ A new first-class entity so Top Marble can see which customers came through a co
 - `SELECT FROM contractors` as non-member → 0 rows, no error (regression canary for the `contractors_select` policy).
 - Script is idempotent: creates one throwaway user + one test contractor, cleans both up at exit, even on failure.
 
+### Sub-step 2 — seed data (complete)
+
+**Why.** Without demo data the contractor pages have nothing to render. Three contractors with distinct payment-terms shapes (Running tab / Net 30 / Net 60), five existing orders tagged, two payments covering the "partial across multiple jobs" and "single payment fully covers one job" cases. Dulles intentionally has one order and zero payments so the "all outstanding" state has a demo surface too.
+
+**Numbers.** Hand-matched so sums work out without running through the RPC (Prisma seed writes as superuser and bypasses the sum-invariant enforcement — the RPC exercises that path, not seed).
+
+| Contractor | Jobs total | Paid | Balance owed | Notes |
+|---|--:|--:|--:|---|
+| Ameer Construction | $13,800 | $6,000 | $7,800 | 1 check of $6,000 split $1,500 / $4,500 across 2 orders |
+| Khaled Kitchens & Bath | $6,500 | $3,100 | $3,400 | 1 ACH of $3,100 fully covering 1 of 2 orders |
+| Dulles Build Group | $7,850 | $0 | $7,850 | No payments yet; Net 60 slow-pay demo case |
+
+These five-figure totals are the regression spot-check — if `pnpm db:seed` re-runs and `v_contractor_balances` doesn't produce them, something drifted in the view, the cascade behaviour, or the Prisma mapping.
+
+**Deviation from the original brief.** Spec said "$2,500 check fully covering 1 of Khaled's 2 orders" — no seeded order was priced at $2,500, and fiddling with existing order quotes to force the match would distort unrelated demo data. Shipped as "$3,100 fully covering Nakamura wet bar" instead. Same pattern demonstrated, without touching the existing orders.
+
+**Idempotency verified.** `pnpm db:seed` twice in a row produces identical results (existing org + user are deleted first; cascade wipes contractor tables).
+
+---
+
 **Billing side ambiguity (deferred, flagged here per feedback).** `orders.balance_due` is currently the **homeowner-side** figure regardless of whether a contractor is tagged on the order. The contractor detail Jobs tab will compute a separate contractor-side balance from `quote_amount − sum(allocations)`. The two numbers are not reconciled and there is no `bill_to` column yet. A future design pass needs to add an explicit `bill_to enum('homeowner', 'contractor')` on orders — at which point the dashboard "Outstanding balance" KPI can choose a side. Until then, the dashboard KPI stays strictly homeowner-side (we are not altering it in this task).
 
 ---

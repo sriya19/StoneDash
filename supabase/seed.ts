@@ -8,7 +8,7 @@
 // everything fresh. Triggers handle activity_log + order_stage_history.
 
 import { createClient } from "@supabase/supabase-js";
-import type { OrderPriority, OrderStage } from "@prisma/client";
+import type { Contractor, OrderPriority, OrderStage } from "@prisma/client";
 import { prisma } from "../lib/db";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,6 +46,7 @@ type CustomerSeed = {
 
 type OrderSeed = {
   customerIndex: number;
+  contractorIndex?: number;
   projectName: string;
   stage: OrderStage;
   priority: OrderPriority;
@@ -60,6 +61,17 @@ type OrderSeed = {
   fabricationStartDate?: Date | null;
   scheduledInstallDate?: Date | null;
   installedAt?: Date | null;
+  notes?: string;
+};
+
+type ContractorSeed = {
+  name: string;
+  primaryContact: string;
+  phone: string;
+  email: string;
+  city: string;
+  state: string;
+  paymentTerms: string;
   notes?: string;
 };
 
@@ -151,7 +163,52 @@ async function main() {
     customers.push(row);
   }
 
-  // 5. Orders
+  // 5. Contractors
+  //
+  // Three contractors with distinct payment-terms shapes so the list page
+  // shows variety: Ameer runs a tab (frequent partial payments), Khaled
+  // pays Net 30 per job, Dulles is Net 60.
+  const contractorSeeds: ContractorSeed[] = [
+    {
+      name: "Ameer Construction",
+      primaryContact: "Ameer Hassan",
+      phone: "(555) 901-2211",
+      email: "ameer@ameerconstruction.example",
+      city: "Falls Church",
+      state: "VA",
+      paymentTerms: "Running tab",
+      notes: "Pays weekly-ish against whatever is open. Keeps a running tab.",
+    },
+    {
+      name: "Khaled Kitchens & Bath",
+      primaryContact: "Khaled Nassar",
+      phone: "(555) 812-3344",
+      email: "khaled@khaledkitchens.example",
+      city: "Arlington",
+      state: "VA",
+      paymentTerms: "Net 30",
+    },
+    {
+      name: "Dulles Build Group",
+      primaryContact: "Priya Patel",
+      phone: "(555) 223-7788",
+      email: "priya@dullesbuild.example",
+      city: "Sterling",
+      state: "VA",
+      paymentTerms: "Net 60",
+      notes: "New relationship — slower to pay but reliable.",
+    },
+  ];
+
+  const contractors: Contractor[] = [];
+  for (const c of contractorSeeds) {
+    const row = await prisma.contractor.create({
+      data: { ...c, orgId: org.id, createdBy: userId },
+    });
+    contractors.push(row);
+  }
+
+  // 6. Orders
   const orderSeeds: OrderSeed[] = [
     {
       customerIndex: 0,
@@ -169,6 +226,7 @@ async function main() {
     },
     {
       customerIndex: 1,
+      contractorIndex: 0,
       projectName: "Rodriguez master bath vanity",
       stage: "measurement",
       priority: "normal",
@@ -183,6 +241,7 @@ async function main() {
     },
     {
       customerIndex: 2,
+      contractorIndex: 0,
       projectName: "Park kitchen remodel — Queens townhouse",
       stage: "fabrication",
       priority: "high",
@@ -200,6 +259,7 @@ async function main() {
     },
     {
       customerIndex: 3,
+      contractorIndex: 1,
       projectName: "Thompson laundry + mud room tops",
       stage: "fabrication",
       priority: "low",
@@ -232,6 +292,7 @@ async function main() {
     },
     {
       customerIndex: 5,
+      contractorIndex: 1,
       projectName: "Nakamura wet bar",
       stage: "installation",
       priority: "normal",
@@ -264,6 +325,7 @@ async function main() {
     },
     {
       customerIndex: 7,
+      contractorIndex: 2,
       projectName: "Whitfield kitchen reno",
       stage: "invoiced",
       priority: "normal",
@@ -312,6 +374,9 @@ async function main() {
     },
   ];
 
+  // Track inserted order ids by their index in orderSeeds so payment
+  // allocations can reference them.
+  const orderIds: string[] = [];
   for (const seed of orderSeeds) {
     const rows = await prisma.$queryRaw<{ order_number: string }[]>`
       SELECT generate_order_number(${org.id}::uuid) AS order_number
@@ -322,11 +387,18 @@ async function main() {
     const customer = customers[seed.customerIndex];
     if (!customer) throw new Error(`no customer at index ${seed.customerIndex}`);
 
-    await prisma.order.create({
+    const contractor =
+      seed.contractorIndex !== undefined ? contractors[seed.contractorIndex] : null;
+    if (seed.contractorIndex !== undefined && !contractor) {
+      throw new Error(`no contractor at index ${seed.contractorIndex}`);
+    }
+
+    const created = await prisma.order.create({
       data: {
         orgId: org.id,
         orderNumber,
         customerId: customer.id,
+        contractorId: contractor?.id ?? null,
         projectName: seed.projectName,
         stage: seed.stage,
         priority: seed.priority,
@@ -346,13 +418,79 @@ async function main() {
         assignedTo: userId,
       },
     });
+    orderIds.push(created.id);
   }
+
+  // 7. Contractor payments + allocations
+  //
+  // NOTE — we insert via Prisma (service-role / superuser) here, which
+  // bypasses the RPC-only write guard. That means the sum-invariant is
+  // NOT enforced at insert time during seeding; amounts below must be
+  // hand-matched. The RPCs and the direct-write lockdown are exercised
+  // by scripts/smoke_contractors_rls.ts and by the in-app flow.
+  function orderAt(idx: number): string {
+    const id = orderIds[idx];
+    if (!id) throw new Error(`no order id at index ${idx}`);
+    return id;
+  }
+  function contractorAt(idx: number): string {
+    const row = contractors[idx];
+    if (!row) throw new Error(`no contractor at index ${idx}`);
+    return row.id;
+  }
+
+  // Ameer: $6,000 check split across his 2 orders — partial, leaves a
+  // running balance ($7,800 still owed). Matches the "tab" payment-terms
+  // style.
+  const ameerPayment = await prisma.contractorPayment.create({
+    data: {
+      orgId: org.id,
+      contractorId: contractorAt(0),
+      amount: 6000,
+      receivedOn: d(-10),
+      method: "check",
+      reference: "#2847",
+      notes: "Partial — covers Rodriguez bath and starts down Park kitchen.",
+      createdBy: userId,
+    },
+  });
+  // orderIds index mirrors orderSeeds index: 1 = Rodriguez, 2 = Park.
+  await prisma.contractorPaymentAllocation.createMany({
+    data: [
+      { paymentId: ameerPayment.id, orderId: orderAt(1), amount: 1500 },
+      { paymentId: ameerPayment.id, orderId: orderAt(2), amount: 4500 },
+    ],
+  });
+
+  // Khaled: $3,100 ACH that fully covers Nakamura wet bar. Second order
+  // (Thompson laundry) remains fully unpaid. Matches the "pay per job
+  // on delivery" Net-30 rhythm.
+  const khaledPayment = await prisma.contractorPayment.create({
+    data: {
+      orgId: org.id,
+      contractorId: contractorAt(1),
+      amount: 3100,
+      receivedOn: d(-5),
+      method: "ach",
+      reference: "ACH-778812",
+      notes: "Nakamura wet bar — paid in full on install.",
+      createdBy: userId,
+    },
+  });
+  await prisma.contractorPaymentAllocation.create({
+    data: { paymentId: khaledPayment.id, orderId: orderAt(5), amount: 3100 },
+  });
+
+  // Dulles: no payments yet. Their 1 order (Whitfield) is fully owed,
+  // which gives the contractor detail page a pristine "all outstanding"
+  // render to demo the Net-60 slow-pay case.
 
   // eslint-disable-next-line no-console
   console.warn(
     `Seed complete. Demo login: ${DEMO_EMAIL} / ${DEMO_PASSWORD}\n` +
       `Org: ${org.name} (slug=${org.slug}, prefix=${org.orderPrefix}).\n` +
-      `${customers.length} customers, ${orderSeeds.length} orders.`,
+      `${customers.length} customers, ${contractors.length} contractors, ` +
+      `${orderSeeds.length} orders, 2 contractor payments.`,
   );
 }
 
