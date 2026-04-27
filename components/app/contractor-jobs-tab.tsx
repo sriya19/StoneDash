@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { OrderStageBadge } from "@/components/app/order-stage-badge";
-import { balanceClass } from "@/components/app/contractors-table";
+import { balanceClass } from "@/lib/contractors/balance-display";
 import type { ContractorJob } from "@/lib/queries/contractors";
 
 type Props = {

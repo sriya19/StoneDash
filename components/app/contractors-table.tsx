@@ -19,6 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import {
+  balanceClass,
+  formatBalance,
+} from "@/lib/contractors/balance-display";
 import type { ContractorListRow } from "@/lib/queries/contractors";
 
 type Props = {
@@ -28,28 +32,6 @@ type Props = {
 };
 
 type SortKey = "name" | "balance" | "activeJobs" | "lastPayment";
-
-function moneyFmt(value: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 2,
-  }).format(Math.abs(value));
-}
-
-// The balance-color rule must match the detail page's header block:
-// positive → foreground, zero → muted w/ "All settled" pill, negative →
-// text-brand with "Credit" prefix. Consistency matters across surfaces.
-export function balanceClass(value: number): string {
-  if (value > 0) return "text-foreground font-medium tabular-nums";
-  if (value < 0) return "text-brand font-medium tabular-nums";
-  return "text-muted-foreground tabular-nums";
-}
-
-export function formatBalance(value: number, currency: string): string {
-  if (value < 0) return `Credit ${moneyFmt(value, currency)}`;
-  return moneyFmt(value, currency);
-}
 
 export function ContractorsTable({ rows, currency, totalInOrg }: Props) {
   const router = useRouter();

@@ -180,6 +180,27 @@ un-contaminating one later.
 
 ---
 
+### Fix — `balanceClass) is not a function` runtime error (2026-04-25)
+
+**Symptom.** Visiting `/contractors/[id]` (and the New Contractor submit redirect, which lands on the same page) threw `(0 , …contractors_table…balanceClass) is not a function` at server-render time.
+
+**Root cause.** Sub-step 3 (commit `086b989`) defined `balanceClass` and `formatBalance` inside `components/app/contractors-table.tsx`, which has `"use client"` at the top. Sub-step 4 (commit `b954b09`) added `components/app/contractor-header.tsx` as a **server** component and imported those two functions from `contractors-table.tsx`. When a server component imports a named export from a `"use client"` module, Next.js rewrites the import to a **client reference proxy** — fine for components (React knows how to render them), broken for plain functions (calling the proxy throws). I had this exact concern in the sub-step 4 DEVLOG entry and dismissed it ("Next 14 allows pure-value imports to cross the boundary"). That dismissal was wrong.
+
+**Fix.** Moved both helpers to `lib/contractors/balance-display.ts` — a neutral, no-`"use client"` module. Updated three importers (`contractors-table.tsx`, `contractor-header.tsx`, `contractor-jobs-tab.tsx`) to import from the new path. Dropped the dead `export { formatBalance }` re-export from `contractor-header.tsx`. Three call sites is well past the threshold where shared utilities should live alongside one consumer.
+
+**Why typecheck and `next build` both passed with the bug present.** The `.d.ts` info for both files is correct — TypeScript has no model of the `"use client"` runtime import-rewriting and treats the imported identifier as a normal function. `next build` compiles the module graph and prerenders **static** routes, but `/contractors/[id]` is a dynamic route (`ƒ` in the build output) so it's never executed at build time. The module graph alone doesn't surface the proxy mismatch — you have to actually run the server-render. So the gate that should have caught this was a runtime smoke test, which Task 2B never had.
+
+**The new gate: `scripts/smoke_contractor_render.ts`.** Signs in via the same `@supabase/ssr` `createServerClient` the app uses (with an in-memory cookie jar — no fs writes), then `fetch`es every contractor route through a running dev/start server with the auth cookies attached. Fails on any 5xx or known runtime-error substring. Verified the gate works:
+
+1. With the fix in place: all 6 routes return 200, no error markers in body.
+2. With the bug reintroduced (re-exported `balanceClass` through the client module): typecheck still passed, `next build` still passed, but the smoke check returned 500 on every `/contractors/[id]` route. Restored the fix and re-ran — all 6 routes back to 200.
+
+**Operational footnote.** During the verification dance I also discovered a second false-failure mode: running `pnpm build` while `next dev` is alive clobbers `.next/`, after which dev requests 500 with a stale `MODULE_NOT_FOUND: ./vendor-chunks/<pkg>.js`. Not a code bug — a workflow gotcha. Run build after stopping dev, or wipe `.next` and restart dev when the two collide.
+
+**What this means for the rest of Task 2B.** Almost certainly nothing else trips the same boundary — `contractor-header.tsx` was the only server component that imported a non-component value from a client module. But to be sure, a future cleanup task could add an ESLint rule that flags `import { … } from "<file with 'use client'>"` from server components. Out of scope here.
+
+---
+
 ## Task 2A — Orders UX fixes from real-world use (2026-04-23)
 
 Five fixes from Sriya's day using Task 1 at Top Marble. See `PLAN.md` for the sub-step breakdown.

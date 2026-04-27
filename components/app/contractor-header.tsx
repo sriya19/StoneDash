@@ -4,7 +4,7 @@ import { Mail, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { balanceClass, formatBalance } from "@/components/app/contractors-table";
+import { balanceClass } from "@/lib/contractors/balance-display";
 import type { ContractorDetail } from "@/lib/queries/contractors";
 
 type Props = {
@@ -119,8 +119,3 @@ export function ContractorHeader({ contractor, currency, canRecordPayment }: Pro
 function pl(word: string, n: number): string {
   return n === 1 ? word : `${word}s`;
 }
-
-// Kept around even when balanceClass/formatBalance are the usual import —
-// if we later want the same header inside a smaller card (e.g. the orders
-// detail sheet), we don't have to refactor.
-export { formatBalance };
