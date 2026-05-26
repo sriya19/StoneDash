@@ -40,3 +40,8 @@ next-env.d.ts
 # supabase cli cache
 /supabase/.temp/
 /supabase/.branches/
+
+# Claude Code session exports (never commit)
+*-session.md
+claude-export-*.txt
+*-task-*.txt
