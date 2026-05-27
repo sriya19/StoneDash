@@ -4,6 +4,97 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Server-side timezone discipline (code rule, 2026-05-26)
+
+Adopted as part of Task 3, Q3. Permanent rule, not task-scoped.
+
+All DB-side comparisons and indexes operate on UTC `timestamptz`. The same-day CHECK on `order_events` evaluates UTC calendar days via `AT TIME ZONE 'UTC'`. Conversion to the org's IANA timezone happens **only** in React render paths via `lib/tz.ts` (`formatInTimeZone`, `dateInTimeZone`).
+
+The input boundary is the one exception: when a user picks "2026-05-12 10:00" in the org's local tz, the server action parses that as a wall-clock-in-org-tz moment and stores the resulting UTC `timestamptz`. After that parse, everything server-side is UTC.
+
+Code smells to flag in review:
+- A query against an `order_events.starts_at` filter that constructs a `timestamp` (no tz) on the client without going through `parseLocalDateTime`.
+- A `formatInTimeZone` call that runs server-side outside a render path. Either it should be done client-side, or the call site doesn't actually need a localized representation.
+- A view or trigger that uses `AT TIME ZONE <variable>` where the variable is a per-row column (org tz). That's STABLE not IMMUTABLE and won't work in STORED generated columns or CHECK constraints — both must use UTC.
+
+---
+
+## Task 3 — Scheduling + crew dispatch (2026-05-26)
+
+Replace Google Calendar + WhatsApp dispatch with a first-class scheduling surface. The unit being scheduled is the **JOB EVENT** (measurement / install / delivery / pickup / other), not the crew. Crew members are tracked in their own table — they are people assigned to events, not Throughstone users. See `PLAN.md` for the sub-step breakdown and Q1–Q15 + the locked refinements (ADD-1/2/3).
+
+### Sub-step 1 — DB schema, RPCs, RLS, view, backfill (complete)
+
+**What landed.**
+- **`0013_scheduling.sql`** — four new tables (`crew_members`, `order_events`, `order_event_assignments`, `event_share_links`), `v_calendar_events` and `v_orders_with_event_dates` views (both `security_invoker=true`), RLS policies, audit triggers (with the cascade-delete-of-org guard from 0006), `REVOKE INSERT/UPDATE/DELETE` + `WITH CHECK (false)` lockdown on event tables and share-link table, and the one-time backfill from `orders.measured_at` / `orders.scheduled_install_date`.
+- **`0014_scheduling_rpcs.sql`** — seven SECURITY DEFINER RPCs: `create_order_event`, `update_order_event`, `delete_order_event`, `update_event_status` (with `p_via_shared_link` branch for the public route), `create_event_share_link`, `rotate_event_share_link`, `revoke_event_share_link`. State machine in `update_event_status` blocks `complete → scheduled` and `cancelled → in_progress` (PLAN Q7).
+- **`0015_orders_sync_legacy_dates.sql`** — bridge trigger. The action layer (`createOrder`) no longer writes `orders.measured_at` / `scheduled_install_date` — it calls `create_order_event` directly. But the seed still writes those legacy columns through Prisma. This AFTER INSERT trigger mirrors legacy-column values into matching events at the org-local default time (9 AM measurement, 10 AM install). Drops alongside the legacy columns in a future migration.
+- **Prisma** schema mirrors the four new tables + the two new relations on `Order` and `Organization`. Views intentionally not modelled (consistent with Task 2B).
+- **Read-path switch.** `lib/queries/orders.ts` now reads from `v_orders_with_event_dates`; the row shape (`scheduled_install_date` / `measured_at` as YYYY-MM-DD) is preserved by deriving via `dateInTimeZone(next_install_at, org.timezone)` in the query layer. Same change in `lib/queries/contractors.ts` (contractor jobs tab) and `lib/queries/customers-full.ts` (customer detail orders). `app/(app)/dashboard/page.tsx`'s "Installs this week" KPI queries `v_calendar_events` directly with org-tz-derived UTC range bounds.
+- **Action layer.** `createOrder` calls `create_order_event` for measurement/install dates (legacy column writes removed). `updateOrder` rejects `measuredAt` / `scheduledInstallDate` patches with a clear error ("managed via the Events tab") — defense in depth.
+- **Order detail sheet.** Measured / Install date fields became read-only displays sourced from the events table, with a hint: "Edit via /schedule". Sub-step 8 surfaces the editing flow.
+- **`lib/tz.ts`** new helper module wrapping `@date-fns/tz`. All UTC↔org-tz conversion goes through here. Code rule above.
+- **`scripts/verify_event_backfill.ts`** — pre-flight check that compares legacy-column counts to event counts, prints the date distribution, and detects "migration not yet applied" via SELECT (not HEAD) since HEAD requests on a missing table silently return 204/null instead of an error.
+- **`scripts/smoke_scheduling_rls.ts`** — RLS verification script (ADD-2).
+
+**Generated column gotcha.** First attempt at the `ends_at` STORED generated column was:
+```sql
+ends_at timestamptz GENERATED ALWAYS AS
+  (starts_at + (duration_min || ' minutes')::interval) STORED
+```
+Postgres rejected with `42P17 generation expression is not immutable`. Two stacked culprits: `text::interval` (STABLE — parsing depends on `IntervalStyle`) and `timestamptz + interval` (STABLE — output depends on session timezone). Fixed both:
+```sql
+ends_at timestamptz GENERATED ALWAYS AS (
+  ((starts_at AT TIME ZONE 'UTC') + make_interval(mins => duration_min))
+  AT TIME ZONE 'UTC'
+) STORED
+```
+`make_interval(mins => …)` is IMMUTABLE. `timestamp + interval` (no tz) is IMMUTABLE. `AT TIME ZONE 'UTC'` (constant) is IMMUTABLE. Round-trip preserves the moment. Same fix applied to the in-RPC `_validate_event_same_utc_day` helper for symmetry.
+
+**Backfill verified.** Pre- and post-migration verification:
+```
+$ pnpm tsx --env-file=.env.local scripts/verify_event_backfill.ts
+orders.measured_at populated:           8
+orders.scheduled_install_date populated: 8
+order_events kind=measurement:           8
+order_events kind=install:               8
+
+Install-date distribution by YYYY-MM:
+  2026-05  5
+  2026-06  3
+
+OK: event counts match legacy column counts.
+```
+The in-migration `DO $$ … RAISE EXCEPTION … END $$` assertion is the safety net: if the backfill INSERT drops or duplicates any row, the entire migration transaction rolls back.
+
+**Manual SQL tests (ADD-2).** Via `scripts/smoke_scheduling_rls.ts`, which creates a throwaway field-role user + a throwaway outsider, runs the assertions, and cleans up:
+
+| Claim | Result |
+|---|---|
+| Field can call `update_event_status` RPC; direct INSERT into `order_events` is rejected | PASS — RPC returns no error; direct INSERT returns permission/RLS error |
+| Field cannot UPDATE non-status columns of `order_events` directly | PASS — direct UPDATE on `status` itself is also rejected (only the RPC works) |
+| `v_calendar_events` returns 0 rows to a non-member user | PASS — silent zero, no error |
+
+Output verbatim: `smoke test passed — scheduling RLS + RPCs enforced as expected.`
+
+**Practical limitation of the UTC same-day CHECK** (PLAN Q4 locked). The constraint
+```sql
+date_trunc('day', starts_at AT TIME ZONE 'UTC')
+= date_trunc('day', ends_at AT TIME ZONE 'UTC')
+```
+rejects events that cross UTC midnight. For Top Marble (Eastern, UTC−5 / −4) that's events starting after ~7 PM local and running past midnight UTC — well outside install business hours. For a Pacific shop the cutoff would be around 4 PM local, which is more restrictive but still acceptable for v1. Revisit when/if we onboard one. Belt-and-suspenders against bad data; org-tz-aware validation in the server action gives the friendlier error message first.
+
+**The orders.scheduled_install_date / measured_at columns are now legacy.** They remain on the `orders` table (no DROP), still get written by the seed (and any direct DB insert via the 0015 bridge trigger), but no read path consults them. A future migration drops them; sub-step 5 is the place where the New Order dialog UI swaps date inputs for an event-aware schedule step.
+
+### Deferred (for sub-steps later in Task 3 or beyond)
+
+- `/team`, `/schedule`, `/j/[slug]` pages — sub-steps 4, 5, 9.
+- Slug generator (`lib/share-link/slug.ts`) and rate limiter (`lib/share-link/rate-limit.ts`) — sub-step 9.
+- Event dialog UI and conflict-warning query helper — sub-step 5.
+- Drop of `orders.measured_at` + `orders.scheduled_install_date` columns + the 0015 bridge trigger — future task once sub-step 5 has landed in production for one release cycle.
+
+---
+
 ## Task 2B — Contractor tracking (2026-04-23)
 
 A new first-class entity so Top Marble can see which customers came through a contractor, tag orders with a contractor, and track balances across all of a contractor's jobs. See `PLAN.md` for the sub-step breakdown and the Q1–Q9 decisions that came out of the review.

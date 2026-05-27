@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { dateInTimeZone } from "@/lib/tz";
 
 export type ContractorListRow = {
   id: string;
@@ -258,22 +259,23 @@ type ContractorJobRow = {
   project_name: string | null;
   stage: string;
   quote_amount: string | null;
-  scheduled_install_date: string | null;
+  next_install_at: string | null;
   customers: { id: string; name: string } | null;
 };
 
 export async function listContractorJobs(
   contractorId: string,
+  timeZone: string,
 ): Promise<ContractorJob[]> {
   const supabase = createSupabaseServerClient();
   const [ordersRes, paidRes] = await Promise.all([
     supabase
-      .from("orders")
+      .from("v_orders_with_event_dates")
       .select(
-        "id, order_number, project_name, stage, quote_amount, scheduled_install_date, customers(id, name)",
+        "id, order_number, project_name, stage, quote_amount, next_install_at, customers(id, name)",
       )
       .eq("contractor_id", contractorId)
-      .order("scheduled_install_date", { ascending: true, nullsFirst: false })
+      .order("next_install_at", { ascending: true, nullsFirst: false })
       .returns<ContractorJobRow[]>(),
     supabase
       .from("v_order_contractor_paid")
@@ -298,7 +300,7 @@ export async function listContractorJobs(
       quoteAmount: quote,
       paidByContractor: paid,
       contractorBalance: quote - paid,
-      scheduledInstallDate: o.scheduled_install_date,
+      scheduledInstallDate: dateInTimeZone(o.next_install_at, timeZone),
       customerName: o.customers?.name ?? null,
     };
   });

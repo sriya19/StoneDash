@@ -1,6 +1,7 @@
 import type { OrderStage } from "@prisma/client";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { dateInTimeZone } from "@/lib/tz";
 
 export type CustomerWithOrders = {
   id: string;
@@ -51,7 +52,18 @@ export type CustomerOrderRow = {
   updated_at: string;
 };
 
-export async function getCustomerDetail(id: string) {
+type CustomerOrderDbRow = {
+  id: string;
+  order_number: string;
+  project_name: string | null;
+  stage: OrderStage;
+  next_install_at: string | null;
+  balance_due: string;
+  quote_amount: string | null;
+  updated_at: string;
+};
+
+export async function getCustomerDetail(id: string, timeZone: string) {
   const supabase = createSupabaseServerClient();
   const [detail, orders] = await Promise.all([
     supabase
@@ -62,15 +74,25 @@ export async function getCustomerDetail(id: string) {
       .eq("id", id)
       .maybeSingle<CustomerDetailRow>(),
     supabase
-      .from("orders")
+      .from("v_orders_with_event_dates")
       .select(
-        "id, order_number, project_name, stage, scheduled_install_date, balance_due, quote_amount, updated_at",
+        "id, order_number, project_name, stage, next_install_at, balance_due, quote_amount, updated_at",
       )
       .eq("customer_id", id)
       .order("updated_at", { ascending: false })
-      .returns<CustomerOrderRow[]>(),
+      .returns<CustomerOrderDbRow[]>(),
   ]);
   if (detail.error) throw detail.error;
   if (orders.error) throw orders.error;
-  return { detail: detail.data, orders: orders.data ?? [] };
+  const orderRows: CustomerOrderRow[] = (orders.data ?? []).map((o) => ({
+    id: o.id,
+    order_number: o.order_number,
+    project_name: o.project_name,
+    stage: o.stage,
+    scheduled_install_date: dateInTimeZone(o.next_install_at, timeZone),
+    balance_due: o.balance_due,
+    quote_amount: o.quote_amount,
+    updated_at: o.updated_at,
+  }));
+  return { detail: detail.data, orders: orderRows };
 }

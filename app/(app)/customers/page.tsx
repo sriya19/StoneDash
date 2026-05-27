@@ -32,7 +32,7 @@ export default async function CustomersPage({
   const detailId = searchParams.id ?? null;
   const showNew = searchParams.new === "1";
 
-  const detail = detailId ? await getCustomerDetail(detailId) : null;
+  const detail = detailId ? await getCustomerDetail(detailId, org.timezone) : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 px-6 py-6">

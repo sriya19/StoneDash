@@ -79,15 +79,18 @@ export default async function OrdersPage({
   const pageSize = boardView ? 500 : 50;
 
   const [{ rows, total }, contractorOptions] = await Promise.all([
-    listOrders({
-      stages,
-      contractorIds,
-      search: q,
-      sort,
-      dir,
-      page: boardView ? 1 : page,
-      pageSize,
-    }),
+    listOrders(
+      {
+        stages,
+        contractorIds,
+        search: q,
+        sort,
+        dir,
+        page: boardView ? 1 : page,
+        pageSize,
+      },
+      org.timezone,
+    ),
     listContractorsLite(false),
   ]);
 
@@ -104,7 +107,7 @@ export default async function OrdersPage({
   if (detailOrderId) {
     const supabase = createSupabaseServerClient();
     const [detailRes, attachmentRes, activityRes] = await Promise.all([
-      getOrderDetail(detailOrderId),
+      getOrderDetail(detailOrderId, org.timezone),
       supabase
         .from("order_attachments")
         .select("id, storage_path, original_name, mime, size_bytes, kind, created_at")

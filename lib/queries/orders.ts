@@ -1,6 +1,13 @@
 import type { OrderStage } from "@prisma/client";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { dateInTimeZone } from "@/lib/tz";
+
+// scheduled_install_date and measured_at on the row types stay YYYY-MM-DD
+// strings, same as before — but the values are now derived from the
+// next install/measurement event (via v_orders_with_event_dates) and
+// formatted in the org's timezone. Per PLAN Q5/Q13 the legacy columns
+// on orders are no longer authoritative; the events table is.
 
 export type OrderListRow = {
   id: string;
@@ -35,13 +42,15 @@ const SORT_COLUMN_MAP: Record<string, string> = {
   orderNumber: "order_number",
   project: "project_name",
   stage: "stage",
-  install: "scheduled_install_date",
+  install: "next_install_at",
   balance: "balance_due",
   updated: "updated_at",
   customer: "customer_id",
 };
 
-export async function listOrders(filters: OrderListFilters = {}) {
+type ListOrdersDbRow = OrderListRow & { next_install_at: string | null };
+
+export async function listOrders(filters: OrderListFilters = {}, timeZone: string) {
   const pageSize = filters.pageSize ?? 50;
   const page = Math.max(1, filters.page ?? 1);
   const sortKey = filters.sort ?? "updated";
@@ -50,9 +59,9 @@ export async function listOrders(filters: OrderListFilters = {}) {
 
   const supabase = createSupabaseServerClient();
   let query = supabase
-    .from("orders")
+    .from("v_orders_with_event_dates")
     .select(
-      "id, order_number, project_name, stage, priority, stone_type, scheduled_install_date, balance_due, quote_amount, notes, updated_at, customer_id, contractor_id, assigned_to, customers(id, name, company), contractors(id, name)",
+      "id, order_number, project_name, stage, priority, stone_type, next_install_at, balance_due, quote_amount, notes, updated_at, customer_id, contractor_id, assigned_to, customers(id, name, company), contractors(id, name)",
       { count: "exact" },
     );
 
@@ -76,11 +85,30 @@ export async function listOrders(filters: OrderListFilters = {}) {
     .order(sortColumn, { ascending: dir === "asc", nullsFirst: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
-  const { data, count, error } = await query.returns<OrderListRow[]>();
+  const { data, count, error } = await query.returns<ListOrdersDbRow[]>();
   if (error) throw error;
 
+  const rows: OrderListRow[] = (data ?? []).map((r) => ({
+    id: r.id,
+    order_number: r.order_number,
+    project_name: r.project_name,
+    stage: r.stage,
+    priority: r.priority,
+    stone_type: r.stone_type,
+    scheduled_install_date: dateInTimeZone(r.next_install_at, timeZone),
+    balance_due: r.balance_due,
+    quote_amount: r.quote_amount,
+    notes: r.notes,
+    updated_at: r.updated_at,
+    customer_id: r.customer_id,
+    contractor_id: r.contractor_id,
+    assigned_to: r.assigned_to,
+    customers: r.customers,
+    contractors: r.contractors,
+  }));
+
   return {
-    rows: data ?? [],
+    rows,
     total: count ?? 0,
     page,
     pageSize,
@@ -101,6 +129,21 @@ export type OrderDetailRow = OrderListRow & {
   created_at: string;
 };
 
+type DetailDbRow = OrderListRow & {
+  edge_profile: string | null;
+  sink_cutouts: number;
+  cooktop_cutouts: number;
+  estimated_sqft: string | null;
+  deposit_received: string;
+  next_install_at: string | null;
+  next_measurement_at: string | null;
+  fabrication_start_date: string | null;
+  installed_at: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type LastNotesEdit = {
   actorName: string | null;
   at: string;
@@ -108,16 +151,17 @@ export type LastNotesEdit = {
 
 export async function getOrderDetail(
   id: string,
+  timeZone: string,
 ): Promise<{ detail: OrderDetailRow | null; lastNotesEdit: LastNotesEdit | null }> {
   const supabase = createSupabaseServerClient();
   const [orderRes, editRes] = await Promise.all([
     supabase
-      .from("orders")
+      .from("v_orders_with_event_dates")
       .select(
-        "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, scheduled_install_date, measured_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, contractor_id, customers(id, name, company), contractors(id, name)",
+        "id, order_number, project_name, stage, priority, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, estimated_sqft, quote_amount, deposit_received, balance_due, next_install_at, next_measurement_at, fabrication_start_date, installed_at, notes, assigned_to, created_by, created_at, updated_at, customer_id, contractor_id, customers(id, name, company), contractors(id, name)",
       )
       .eq("id", id)
-      .maybeSingle<OrderDetailRow>(),
+      .maybeSingle<DetailDbRow>(),
     supabase
       .from("activity_log")
       .select("actor_id, created_at")
@@ -130,6 +174,39 @@ export async function getOrderDetail(
   ]);
   if (orderRes.error) throw orderRes.error;
   if (editRes.error) throw editRes.error;
+
+  let detail: OrderDetailRow | null = null;
+  if (orderRes.data) {
+    const r = orderRes.data;
+    detail = {
+      id: r.id,
+      order_number: r.order_number,
+      project_name: r.project_name,
+      stage: r.stage,
+      priority: r.priority,
+      stone_type: r.stone_type,
+      edge_profile: r.edge_profile,
+      sink_cutouts: r.sink_cutouts,
+      cooktop_cutouts: r.cooktop_cutouts,
+      estimated_sqft: r.estimated_sqft,
+      quote_amount: r.quote_amount,
+      deposit_received: r.deposit_received,
+      balance_due: r.balance_due,
+      scheduled_install_date: dateInTimeZone(r.next_install_at, timeZone),
+      measured_at: dateInTimeZone(r.next_measurement_at, timeZone),
+      fabrication_start_date: r.fabrication_start_date,
+      installed_at: r.installed_at,
+      notes: r.notes,
+      assigned_to: r.assigned_to,
+      created_by: r.created_by,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      customer_id: r.customer_id,
+      contractor_id: r.contractor_id,
+      customers: r.customers,
+      contractors: r.contractors,
+    };
+  }
 
   let lastNotesEdit: LastNotesEdit | null = null;
   if (editRes.data) {
@@ -145,5 +222,5 @@ export async function getOrderDetail(
     lastNotesEdit = { actorName, at: editRes.data.created_at };
   }
 
-  return { detail: orderRes.data, lastNotesEdit };
+  return { detail, lastNotesEdit };
 }

@@ -4,10 +4,12 @@ import {
   Truck,
   Wallet,
 } from "lucide-react";
+import { addDays } from "date-fns";
 import type { OrderStage } from "@prisma/client";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { formatInTimeZone, parseLocalDateTime } from "@/lib/tz";
 import { KpiCard } from "@/components/app/kpi-card";
 import {
   PipelineStrip,
@@ -19,10 +21,17 @@ import { ActivityFeed, type ActivityRow } from "@/components/app/activity-feed";
 type OrderForKpis = {
   id: string;
   stage: OrderStage;
-  project_name: string | null;
-  scheduled_install_date: string | null;
   quote_amount: string | null;
   balance_due: string;
+};
+
+type InstallEvent = {
+  id: string;
+  order_id: string;
+  starts_at: string;
+  project_name: string | null;
+  stage: OrderStage;
+  status: string;
 };
 
 type ActivityDbRow = {
@@ -50,24 +59,31 @@ function formatMoney(value: number, currency: string): string {
   }).format(value);
 }
 
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 export default async function DashboardPage() {
   const { org } = await getCurrentUserAndOrg();
   const supabase = createSupabaseServerClient();
 
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const sevenOut = new Date(today);
-  sevenOut.setUTCDate(today.getUTCDate() + 7);
+  // "Installs this week" = events in [today 00:00 org-local, today+7 23:59 org-local],
+  // expressed as UTC for the query (server-side timezone discipline).
+  const todayDateStr = formatInTimeZone(new Date(), org.timezone, "yyyy-MM-dd");
+  const sevenDateStr = formatInTimeZone(addDays(new Date(), 7), org.timezone, "yyyy-MM-dd");
+  const todayStartUtc = parseLocalDateTime(todayDateStr, "00:00", org.timezone).toISOString();
+  const sevenEndUtc = parseLocalDateTime(sevenDateStr, "23:59:59", org.timezone).toISOString();
 
-  const [ordersRes, activityRes] = await Promise.all([
+  const [ordersRes, installsRes, activityRes] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, stage, project_name, scheduled_install_date, quote_amount, balance_due")
+      .select("id, stage, quote_amount, balance_due")
       .returns<OrderForKpis[]>(),
+    supabase
+      .from("v_calendar_events")
+      .select("id, order_id, starts_at, project_name, stage, status")
+      .eq("kind", "install")
+      .gte("starts_at", todayStartUtc)
+      .lte("starts_at", sevenEndUtc)
+      .not("status", "in", "(cancelled,no_show,complete)")
+      .order("starts_at", { ascending: true })
+      .returns<InstallEvent[]>(),
     supabase
       .from("activity_log")
       .select("id, created_at, actor_id, entity_type, action, metadata")
@@ -77,24 +93,14 @@ export default async function DashboardPage() {
   ]);
 
   const orders = ordersRes.data ?? [];
+  const installEvents = (installsRes.data ?? []).filter(
+    (e) => e.stage !== "cancelled" && e.stage !== "paid",
+  );
   const activity = activityRes.data ?? [];
 
   // KPI aggregates
   const inFabrication = orders.filter((o) => o.stage === "fabrication");
   const fabSum = inFabrication.reduce((s, o) => s + toNumber(o.quote_amount), 0);
-
-  const installsThisWeek = orders
-    .filter(
-      (o) =>
-        o.stage !== "cancelled" &&
-        o.stage !== "paid" &&
-        o.scheduled_install_date &&
-        o.scheduled_install_date >= isoDate(today) &&
-        o.scheduled_install_date <= isoDate(sevenOut),
-    )
-    .sort((a, b) =>
-      (a.scheduled_install_date ?? "").localeCompare(b.scheduled_install_date ?? ""),
-    );
 
   const awaitingMeasurement = orders.filter(
     (o) => o.stage === "quote" || o.stage === "measurement",
@@ -159,20 +165,20 @@ export default async function DashboardPage() {
         />
         <KpiCard
           label="Installs this week"
-          value={installsThisWeek.length.toString()}
+          value={installEvents.length.toString()}
           sublabel={
-            installsThisWeek.length === 0
+            installEvents.length === 0
               ? "Nothing scheduled"
-              : installsThisWeek
+              : installEvents
                   .slice(0, 3)
                   .map((o) => o.project_name ?? "Untitled")
                   .join(", ") +
-                (installsThisWeek.length > 3
-                  ? ` +${installsThisWeek.length - 3} more`
+                (installEvents.length > 3
+                  ? ` +${installEvents.length - 3} more`
                   : "")
           }
           icon={Truck}
-          href="/orders?stage=installation"
+          href="/schedule"
         />
         <KpiCard
           label="Awaiting measurement"

@@ -88,6 +88,9 @@ model Organization {
   orders       Order[]
   attachments  OrderAttachment[]
   payments     ContractorPayment[]
+  crewMembers  CrewMember[]
+  orderEvents  OrderEvent[]
+  shareLinks   EventShareLink[]
   activity     ActivityLog[]
   sequence     OrgOrderSeq?
 
@@ -182,6 +185,7 @@ model Order {
   stageHistory  OrderStageHistory[]
   attachments   OrderAttachment[]
   allocations   ContractorPaymentAllocation[]
+  events        OrderEvent[]
 
   @@unique([orgId, orderNumber])
   @@index([orgId, stage])
@@ -314,4 +318,89 @@ model OrgOrderSeq {
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_order_seq")
+}
+
+// ===========================================================================
+// Scheduling — Task 3
+// ===========================================================================
+
+model CrewMember {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  name       String
+  phone      String?
+  email      String?
+  role       String?
+  notes      String?
+  isActive   Boolean  @default(true) @map("is_active")
+  userId     String?  @map("user_id") @db.Uuid
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization Organization            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  assignments  OrderEventAssignment[]
+
+  @@index([orgId, isActive])
+  @@map("crew_members")
+}
+
+model OrderEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  orgId         String   @map("org_id") @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+  kind          String
+  status        String   @default("scheduled")
+  startsAt      DateTime @map("starts_at") @db.Timestamptz
+  durationMin   Int      @default(60) @map("duration_min")
+  // endsAt is a STORED generated column in Postgres; not introspectable by
+  // Prisma. Read it via raw queries / Supabase client when needed.
+  locationText  String?  @map("location_text")
+  notes         String?
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignments  OrderEventAssignment[]
+  shareLinks   EventShareLink[]
+
+  @@index([orgId, startsAt])
+  @@index([orderId])
+  @@index([orgId, status])
+  @@map("order_events")
+}
+
+model OrderEventAssignment {
+  id            String   @id @default(uuid()) @db.Uuid
+  eventId       String   @map("event_id") @db.Uuid
+  crewMemberId  String   @map("crew_member_id") @db.Uuid
+  role          String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  event       OrderEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  crewMember  CrewMember @relation(fields: [crewMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, crewMemberId])
+  @@index([eventId])
+  @@index([crewMemberId])
+  @@map("order_event_assignments")
+}
+
+model EventShareLink {
+  id            String    @id @default(uuid()) @db.Uuid
+  orgId         String    @map("org_id") @db.Uuid
+  eventId       String    @map("event_id") @db.Uuid
+  slug          String    @unique
+  createdBy     String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz
+  lastOpenedAt  DateTime? @map("last_opened_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  event        OrderEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, eventId])
+  @@map("event_share_links")
 }

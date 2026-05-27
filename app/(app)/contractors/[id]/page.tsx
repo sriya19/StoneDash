@@ -41,7 +41,7 @@ export default async function ContractorDetailPage({
   if (!contractor) notFound();
 
   const [jobs, payments] = await Promise.all([
-    listContractorJobs(params.id),
+    listContractorJobs(params.id, org.timezone),
     listContractorPayments(params.id),
   ]);
 

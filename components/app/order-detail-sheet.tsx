@@ -462,13 +462,10 @@ export function OrderDetailSheet({
             </section>
 
             <div className="grid grid-cols-3 gap-4">
-              <FieldEditor
-                label="Measured"
-                value={order.measured_at ?? ""}
-                type="date"
-                disabled={isFieldRole}
-                onSave={(v) => saveField({ measuredAt: v === "" ? undefined : v })}
-              />
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Measured</p>
+                <p className="text-sm">{order.measured_at ?? "—"}</p>
+              </div>
               <FieldEditor
                 label="Fab start"
                 value={order.fabrication_start_date ?? ""}
@@ -476,14 +473,14 @@ export function OrderDetailSheet({
                 disabled={isFieldRole}
                 onSave={(v) => saveField({ fabricationStartDate: v === "" ? undefined : v })}
               />
-              <FieldEditor
-                label="Install"
-                value={order.scheduled_install_date ?? ""}
-                type="date"
-                disabled={isFieldRole}
-                onSave={(v) => saveField({ scheduledInstallDate: v === "" ? undefined : v })}
-              />
+              <div className="space-y-1">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Install</p>
+                <p className="text-sm">{order.scheduled_install_date ?? "—"}</p>
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Measurement and install dates are scheduled events. Edit via /schedule.
+            </p>
 
             <div className="grid grid-cols-2 gap-4">
               <PrioritySelector

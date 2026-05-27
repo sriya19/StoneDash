@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseLocalDateTime } from "@/lib/tz";
 import {
   BulkChangeStageInput,
   ChangeStageInput,
@@ -44,6 +45,7 @@ export async function createOrder(
 
   const { userId, org } = await getCurrentUserAndOrg();
   const supabase = createSupabaseServerClient();
+  const orgTz = org.timezone;
 
   // 1. Resolve customer — either the existing id or create a new row.
   let customerId: string;
@@ -83,7 +85,9 @@ export async function createOrder(
   }
   const orderNumber = rpcValue;
 
-  // 3. Insert the order. Triggers write activity_log + stage history.
+  // 3. Insert the order. measured_at and scheduled_install_date are NO LONGER
+  // written here — order_events is the source of truth for those (PLAN Q5/Q13).
+  // Triggers write activity_log + stage history.
   const { data: orderRow, error: orderErr } = await supabase
     .from("orders")
     .insert({
@@ -99,9 +103,7 @@ export async function createOrder(
       estimated_sqft: toNumericOrNull(v.estimatedSqft),
       quote_amount: toNumericOrNull(v.quoteAmount),
       deposit_received: v.depositReceived ?? 0,
-      measured_at: toStringOrNull(v.measuredAt),
       fabrication_start_date: toStringOrNull(v.fabricationStartDate),
-      scheduled_install_date: toStringOrNull(v.scheduledInstallDate),
       priority: v.priority,
       assigned_to: toStringOrNull(v.assignedTo),
       notes: toStringOrNull(v.notes),
@@ -112,6 +114,39 @@ export async function createOrder(
 
   if (orderErr || !orderRow) {
     return { ok: false, error: orderErr?.message ?? "Could not create order" };
+  }
+
+  // 4. Schedule events for measurement/install dates if provided. Default
+  // times: measurement 9 AM local 60 min, install 10 AM local 180 min.
+  if (v.measuredAt) {
+    const startsAt = parseLocalDateTime(v.measuredAt, "09:00", orgTz);
+    const { error: evErr } = await supabase.rpc("create_order_event", {
+      p_order_id: orderRow.id,
+      p_kind: "measurement",
+      p_starts_at: startsAt.toISOString(),
+      p_duration_min: 60,
+      p_location_text: null,
+      p_notes: null,
+      p_assignments: [],
+    });
+    if (evErr) {
+      return { ok: false, error: `Order created but measurement event failed: ${evErr.message}` };
+    }
+  }
+  if (v.scheduledInstallDate) {
+    const startsAt = parseLocalDateTime(v.scheduledInstallDate, "10:00", orgTz);
+    const { error: evErr } = await supabase.rpc("create_order_event", {
+      p_order_id: orderRow.id,
+      p_kind: "install",
+      p_starts_at: startsAt.toISOString(),
+      p_duration_min: 180,
+      p_location_text: null,
+      p_notes: null,
+      p_assignments: [],
+    });
+    if (evErr) {
+      return { ok: false, error: `Order created but install event failed: ${evErr.message}` };
+    }
   }
 
   invalidate();
@@ -130,6 +165,17 @@ export async function updateOrder(
 
   const supabase = createSupabaseServerClient();
 
+  // measuredAt / scheduledInstallDate are no longer writable here — the
+  // events table is the source of truth (PLAN Q5/Q13). The Order detail
+  // sheet's date fields are read-only in this task; sub-step 8 surfaces
+  // editing via the Events tab.
+  if (patch.measuredAt !== undefined || patch.scheduledInstallDate !== undefined) {
+    return {
+      ok: false,
+      error: "Measurement and install dates are managed via the Events tab.",
+    };
+  }
+
   const dbPatch: Record<string, unknown> = {};
   if (patch.projectName !== undefined) dbPatch.project_name = patch.projectName;
   if (patch.customerId !== undefined) dbPatch.customer_id = patch.customerId;
@@ -147,11 +193,8 @@ export async function updateOrder(
   if (patch.estimatedSqft !== undefined) dbPatch.estimated_sqft = patch.estimatedSqft;
   if (patch.quoteAmount !== undefined) dbPatch.quote_amount = patch.quoteAmount;
   if (patch.depositReceived !== undefined) dbPatch.deposit_received = patch.depositReceived;
-  if (patch.measuredAt !== undefined) dbPatch.measured_at = patch.measuredAt;
   if (patch.fabricationStartDate !== undefined)
     dbPatch.fabrication_start_date = patch.fabricationStartDate;
-  if (patch.scheduledInstallDate !== undefined)
-    dbPatch.scheduled_install_date = patch.scheduledInstallDate;
   if (patch.installedAt !== undefined) dbPatch.installed_at = patch.installedAt;
   if (patch.assignedTo !== undefined) dbPatch.assigned_to = patch.assignedTo;
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
