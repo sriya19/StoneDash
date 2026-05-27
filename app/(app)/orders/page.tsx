@@ -5,6 +5,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listOrders, getOrderDetail } from "@/lib/queries/orders";
 import { listCustomersLite } from "@/lib/queries/customers";
 import { listContractorsLite } from "@/lib/queries/contractors";
+import { listCrewLite } from "@/lib/queries/crew";
+import {
+  getEventForEdit,
+  listEventsForOrder,
+  listOrdersForEventPicker,
+} from "@/lib/queries/events";
 import { createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
 import { OrdersFilterBar } from "@/components/app/orders-filter-bar";
@@ -16,6 +22,7 @@ import {
   OrderDetailSheet,
   type AttachmentRow,
 } from "@/components/app/order-detail-sheet";
+import { EventDialog } from "@/components/app/event-dialog";
 import type { ActivityRow } from "@/components/app/activity-feed";
 
 type SearchParams = {
@@ -28,7 +35,19 @@ type SearchParams = {
   page?: string;
   order?: string;
   new?: string;
+  tab?: string;
+  event?: string;
+  date?: string;
+  time?: string;
 };
+
+type DetailTab = "overview" | "events" | "files" | "activity";
+const DETAIL_TABS: readonly DetailTab[] = ["overview", "events", "files", "activity"];
+function parseTab(value: string | undefined): DetailTab {
+  return (DETAIL_TABS as readonly string[]).includes(value ?? "")
+    ? (value as DetailTab)
+    : "overview";
+}
 
 type ActivityDbRow = {
   id: string;
@@ -96,6 +115,13 @@ export default async function OrdersPage({
 
   const showNewDialog = searchParams.new === "1";
   const detailOrderId = searchParams.order ?? null;
+  const detailTab = parseTab(searchParams.tab);
+
+  // Event dialog opened from the detail sheet's Events tab.
+  const eventParam = searchParams.event ?? null;
+  const showEventCreate = eventParam === "new";
+  const editEventId = eventParam && UUID_RE.test(eventParam) ? eventParam : null;
+  const showEventDialog = detailOrderId !== null && (showEventCreate || editEventId !== null);
 
   const customers = showNewDialog ? await listCustomersLite() : [];
 
@@ -103,10 +129,11 @@ export default async function OrdersPage({
   let attachments: AttachmentRow[] = [];
   let activity: ActivityRow[] = [];
   let photoUrls: Record<string, string> = {};
+  let detailEvents: Awaited<ReturnType<typeof listEventsForOrder>> = [];
   let lastNotesEdit: Awaited<ReturnType<typeof getOrderDetail>>["lastNotesEdit"] = null;
   if (detailOrderId) {
     const supabase = createSupabaseServerClient();
-    const [detailRes, attachmentRes, activityRes] = await Promise.all([
+    const [detailRes, attachmentRes, activityRes, eventsRes] = await Promise.all([
       getOrderDetail(detailOrderId, org.timezone),
       supabase
         .from("order_attachments")
@@ -122,8 +149,10 @@ export default async function OrdersPage({
         .order("created_at", { ascending: false })
         .limit(50)
         .returns<ActivityDbRow[]>(),
+      listEventsForOrder(detailOrderId),
     ]);
     detailOrder = detailRes.detail;
+    detailEvents = eventsRes;
     lastNotesEdit = detailRes.lastNotesEdit;
     attachments = attachmentRes.data ?? [];
 
@@ -201,8 +230,51 @@ export default async function OrdersPage({
           role={role}
           currency={org.currency}
           contractors={contractorOptions}
+          events={detailEvents}
+          defaultTab={detailTab}
+          orgTimezone={org.timezone}
         />
       ) : null}
+
+      {showEventDialog ? <EventDialogMount
+        timeZone={org.timezone}
+        editEventId={editEventId}
+        detailOrderId={detailOrderId}
+        initialDate={searchParams.date ?? null}
+        initialTime={searchParams.time ?? null}
+      /> : null}
     </div>
+  );
+}
+
+async function EventDialogMount({
+  timeZone,
+  editEventId,
+  detailOrderId,
+  initialDate,
+  initialTime,
+}: {
+  timeZone: string;
+  editEventId: string | null;
+  detailOrderId: string;
+  initialDate: string | null;
+  initialTime: string | null;
+}) {
+  const [orders, crew, editEvent] = await Promise.all([
+    listOrdersForEventPicker(),
+    listCrewLite(true),
+    editEventId ? getEventForEdit(editEventId) : Promise.resolve(null),
+  ]);
+  return (
+    <EventDialog
+      mode={editEventId ? "edit" : "create"}
+      timeZone={timeZone}
+      orders={orders}
+      crew={crew}
+      initial={editEvent ?? undefined}
+      initialDate={initialDate}
+      initialTime={initialTime}
+      initialOrderId={editEventId ? null : detailOrderId}
+    />
   );
 }

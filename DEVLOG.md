@@ -243,6 +243,32 @@ Auth gotcha resolved in the test: SECURITY DEFINER RPCs reject service-role call
 
 **Not in this sub-step.** Click-to-open → order detail Events tab (sub-step 8). The grid's event click still opens the edit dialog directly.
 
+### Sub-step 8 — Order detail sheet Events tab (complete)
+
+**New tab between Overview and Files** (final tab order: Overview | Events | Files | Activity). URL-controllable via `?tab=events` for deep-linking; Tabs `defaultValue` honours it on first render. Tab count badge on Events when > 0 to mirror the existing Files counter.
+
+**Shape.**
+- `lib/queries/events.ts` adds `listEventsForOrder(orderId)` — reads the same `v_calendar_events` view used by the schedule page, scoped to one order, sorted by `starts_at asc`.
+- `components/app/order-events-tab.tsx` — new client component for the tab body. Splits events into Future and Past (past go below a small "Past" divider so the eye lands on what's coming, not what's done). Each row renders:
+  - Kind chip (colored to match the calendar palette — purple/green/blue/sky/zinc)
+  - Date + time + duration
+  - Status pill (status-tone tinted — `bg-emerald-100` for complete, `bg-destructive/15` for cancelled / no_show, muted for scheduled, amber for en_route, blue for in_progress)
+  - Crew list (or "No crew assigned" italic muted)
+  - Location with MapPin icon when set
+  - Notes inline (whitespace-pre-wrap so multi-line notes flow)
+  - Action group: **Open** (deep-links to `/schedule?view=day&date=<event-day>` so the user sees the day context), **Edit** (opens the EventDialog), **Delete** (AlertDialog confirm), **Mark done** (one-click status → complete; hidden on terminal-status events), **Send** (disabled stub — wires up in sub-step 9 with the send-to-crew modal).
+- `components/app/order-detail-sheet.tsx` — three new props (`events`, `defaultTab`, `orgTimezone`), one new TabsTrigger, one new TabsContent rendering `<OrderEventsTab>`. Tab count badge format matches the existing Files counter.
+
+**EventDialog made pathname-aware** so it works on both `/schedule` and `/orders`. The dialog's `close()` previously hard-coded `router.push("/schedule"…)`; now uses `usePathname()`. Also no longer strips `?order` (the orders page's detail-sheet anchor) — only the dialog's own params (`event`, `date`, `time`). On `/schedule`, `order` has no semantic effect; on `/orders`, preserving it keeps the detail sheet open after the dialog closes.
+
+**Dialog mount on `/orders`.** New `EventDialogMount` server component inside `orders/page.tsx` fetches the order picker + active crew + (for edit) the event being edited, then renders `<EventDialog>`. Triggered by `?event=new` or `?event=<uuid>` AND `?order` set. When creating from inside an order's Events tab, `initialOrderId={detailOrderId}` is passed directly as a prop — no `?preOrder=` URL param needed — so the picker is pre-populated without polluting the URL with a separate field.
+
+**Smoke updates.** Two new routes — `/orders?order=:orderId&tab=events` and `/orders?order=:orderId&tab=events&event=new` — resolvers pick the first seeded order. Catches the runtime path where `OrderEventsTab` + `EventDialog` co-exist on the same page (separate Radix portals). Smoke output: **21 OK, 0 SKIP, 3 PENDING, 0 FAIL** (up from 19; the only PENDINGs are the three `/j/:slug-*` entries for sub-step 9).
+
+**Sheet + Dialog portal note.** Both the Sheet (detail) and Dialog (event) portal to `document.body`. They co-render server-side but their content is invisible in the SSR HTML — a body fetch will return the page chrome without the panel content. Spot-checked this with a `_check.ts` script: the SSR body returns 200 without "Overview" / "Events" tab labels in the markup, because Radix portals fill on client hydration. Smoke's `200 + no error markers` check is the meaningful signal here.
+
+**Mark complete uses `updateOrderEventStatus`** (the action wrapping the sub-step 1 RPC). The state-machine block (`complete → scheduled` rejection) doesn't fire on this transition — `scheduled → complete` is always allowed. Field role can also hit this RPC from this surface in a future task (when field gets access to the orders sheet beyond its current read-only state).
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

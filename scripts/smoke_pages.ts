@@ -79,6 +79,28 @@ const ROUTES: Route[] = [
   { path: "/dashboard" },
   { path: "/orders" },
   { path: "/orders?new=1" },
+  {
+    path: "/orders?order=:orderId&tab=events",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("orders")
+        .select("id")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      return data?.id ? `/orders?order=${data.id}&tab=events` : null;
+    },
+  },
+  {
+    path: "/orders?order=:orderId&tab=events&event=new",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("orders")
+        .select("id")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      return data?.id ? `/orders?order=${data.id}&tab=events&event=new` : null;
+    },
+  },
   { path: "/customers" },
   { path: "/customers?new=1" },
   { path: "/contractors" },

@@ -59,6 +59,8 @@ import { StageChangeDialog } from "./stage-change-dialog";
 import { FileGallery, type GalleryPhoto } from "./file-gallery";
 import type { OrderDetailRow } from "@/lib/queries/orders";
 import type { ContractorLite } from "@/lib/queries/contractors";
+import type { CalendarEvent } from "@/lib/queries/events";
+import { OrderEventsTab } from "./order-events-tab";
 
 export type AttachmentRow = {
   id: string;
@@ -80,6 +82,9 @@ type Props = {
   role: MemberRole;
   currency: string;
   contractors: ContractorLite[];
+  events: CalendarEvent[];
+  defaultTab: "overview" | "events" | "files" | "activity";
+  orgTimezone: string;
 };
 
 const ALL_PICKABLE_STAGES: OrderStage[] = [...STAGE_ORDER, "cancelled"];
@@ -111,6 +116,9 @@ export function OrderDetailSheet({
   role,
   currency,
   contractors,
+  events,
+  defaultTab,
+  orgTimezone,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -283,9 +291,12 @@ export function OrderDetailSheet({
           </div>
         </SheetHeader>
 
-        <Tabs defaultValue="overview" className="flex-1 overflow-hidden">
+        <Tabs defaultValue={defaultTab} className="flex-1 overflow-hidden">
           <TabsList className="mx-6 mt-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="events">
+              Events{events.length > 0 ? ` · ${events.length}` : ""}
+            </TabsTrigger>
             <TabsTrigger value="files">Files · {attachments.length}</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
@@ -496,6 +507,14 @@ export function OrderDetailSheet({
                 Field role can only change stage and update notes.
               </p>
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="events" className="flex-1 overflow-y-auto px-6 py-5">
+            <OrderEventsTab
+              events={events}
+              orderId={order.id}
+              timeZone={orgTimezone}
+            />
           </TabsContent>
 
           <TabsContent value="files" className="flex-1 overflow-y-auto px-6 py-5 space-y-5">

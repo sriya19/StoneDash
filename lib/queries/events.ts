@@ -179,6 +179,41 @@ export async function listOrdersForEventPicker(): Promise<OrderForEventPicker[]>
   }));
 }
 
+// All events for a specific order, sorted by starts_at asc. Used by the
+// order detail sheet's Events tab (Task 3 sub-step 8).
+export async function listEventsForOrder(orderId: string): Promise<CalendarEvent[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("v_calendar_events")
+    .select(
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+    )
+    .eq("order_id", orderId)
+    .order("starts_at", { ascending: true })
+    .returns<CalendarEventDb[]>();
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    orderId: r.order_id,
+    kind: r.kind,
+    status: r.status,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    durationMin: r.duration_min,
+    locationText: r.location_text,
+    notes: r.notes,
+    orderNumber: r.order_number,
+    projectName: r.project_name,
+    stoneType: r.stone_type,
+    stage: r.stage,
+    contractorId: r.contractor_id,
+    customerName: r.customer_name,
+    customerPhone: r.customer_phone,
+    contractorName: r.contractor_name,
+    crew: Array.isArray(r.crew) ? r.crew : [],
+  }));
+}
+
 // Single-event fetch for the edit dialog.
 export async function getEventForEdit(id: string): Promise<CalendarEvent | null> {
   const supabase = createSupabaseServerClient();

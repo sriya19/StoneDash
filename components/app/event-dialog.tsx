@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
 import { Check, ChevronsUpDown, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -89,6 +89,7 @@ export function EventDialog({
   initialOrderId,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [deleting, setDeleting] = useState(false);
@@ -204,9 +205,10 @@ export function EventDialog({
     params.delete("event");
     params.delete("date");
     params.delete("time");
-    params.delete("order");
+    // Note: don't strip "order" — it's used by the orders page to keep
+    // the detail sheet open. On /schedule it has no semantic effect.
     const next = params.toString();
-    router.push(`/schedule${next ? `?${next}` : ""}`);
+    router.push(`${pathname}${next ? `?${next}` : ""}`);
   }
 
   function submit() {
