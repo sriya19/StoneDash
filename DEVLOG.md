@@ -191,6 +191,30 @@ Smoke output:
 
 **Click-through behaviour.** Clicking an event opens the dialog in edit mode (sub-step 8 will redirect this to the order detail Events tab). Clicking an empty time slot opens the dialog in create mode with `date` and `time` pre-filled. The brief explicitly listed both interactions; the empty-slot one is the actual workflow accelerator for the shop (drag your finger across the screen looking for a slot, click).
 
+### Sub-step 6 — Day view + List view + filters + URL state (complete)
+
+**Shape.**
+- **`calendar-week.tsx` generalized to `calendar-grid.tsx`.** Takes a `days: Date[]` array (1 = day view, 7 = week view) and an optional `hourPx` (default 56; day view uses 80 for taller rows since blocks have a whole screen to breathe). Single-day mode skips the weekend mute and renders the column header as "MMM d" instead of just the day-of-month — week view's vertical-stacked "EEE / d" doesn't read as a self-contained date on its own.
+- **`calendar-list.tsx`** — table view. Date+time / Kind (color-dot prefix) / Order # (mono) / Project / Customer / Crew / Location / Status (status-tone tinted, line-through on cancelled/no_show). Click row → opens edit dialog. Sortable on date/kind/order/status; default sort is starts_at desc (newest events first — this is the "look something up" view, not "what's happening today"). Pagination 50/page.
+- **`schedule-view-tabs.tsx`** — small client component for Week / Day / List toggle. Switching to a non-list view strips `from`/`to` from the URL (they're list-only).
+- **`schedule-filter-bar.tsx`** — uses `nuqs` `useQueryStates` with `shallow: false` to push URL changes that trigger the server re-fetch. Same shape as `orders-filter-bar.tsx`. Four filter dimensions: kind multi-select, status multi-select, crew multi-select, free-text search (debounced 250ms). List view exposes two additional date-input filters (`from`/`to`) — week and day anchor on a single date, so date range doesn't fit.
+- **`/schedule` page** now dispatches on `?view=week|day|list`:
+  - **week** — anchors at `?date=YYYY-MM-DD`, computes week start in org tz, queries `[weekStart, weekStart+7d)`.
+  - **day** — anchors at `?date=`, queries `[dayStart, dayStart+1d)`.
+  - **list** — query window comes from `?from`/`?to` (each interpreted as YYYY-MM-DD in org tz, midnight to midnight + 1 day for to-inclusive); defaults to all events forward of the unix epoch if unset.
+
+**URL state design.**
+- All filter params live alongside the view + date params on the URL — switching views preserves filters. CSV-encoded for multi-selects (`?kind=install,measurement`).
+- View tabs use `?view=` (omitted = week, the default).
+- Prev/Next/Today buttons only render on week + day views (list doesn't have a natural "next" — Today clears the date range).
+- Per-route navigation (prev/today/next clicks) is `router.push` not nuqs — these are page-level navigation, not filter mutations.
+
+**Filtering performance note.** Kind / status / search filters push to PostgREST. Crew filter applies JS-side in `listCalendarEvents` since the view's `crew` column is a `jsonb` array and PostgREST's nested-array filters are finicky. Bounded by the time window, the in-memory pass is cheap (the week view returns ≤ a few dozen rows in practice; the list view caps at the seeded ~20 today).
+
+**Smoke updates.** Added `/schedule?view=day`, `/schedule?view=list`, and one filter-combo route (`?view=list&kind=install&status=scheduled`) to guard against renderer bugs that only show up with the filter chip count > 0. Smoke output: **19 OK, 0 SKIP, 3 PENDING, 0 FAIL**.
+
+**Not in this sub-step.** Drag-to-reschedule (sub-step 7). Click-event → order-detail Events tab (sub-step 8). The week/day grids' event click currently opens the edit dialog as a stand-in.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

@@ -120,6 +120,9 @@ const ROUTES: Route[] = [
   },
 
   { path: "/schedule" },
+  { path: "/schedule?view=day" },
+  { path: "/schedule?view=list" },
+  { path: "/schedule?view=list&kind=install&status=scheduled" },
   { path: "/schedule?event=new" },
   {
     path: "/schedule?event=:eventId",

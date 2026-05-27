@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { addDays } from "date-fns";
 
 import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
@@ -9,26 +8,32 @@ import type { CalendarEvent } from "@/lib/queries/events";
 import { EventBlock } from "./event-block";
 
 type Props = {
-  weekStart: Date;       // local "Sunday 00:00 in org tz" as a UTC Date
+  days: Date[]; // 1 day = day view, 7 days = week view
   events: CalendarEvent[];
   timeZone: string;
   todayLocalDate: string; // YYYY-MM-DD in org tz
+  hourPx?: number; // taller for day view
 };
 
 const DAY_START_HOUR = 6;
 const DAY_END_HOUR = 20;
-const HOUR_PX = 56;
 const HOURS = Array.from(
   { length: DAY_END_HOUR - DAY_START_HOUR + 1 },
   (_, i) => DAY_START_HOUR + i,
 );
 
-export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Props) {
+export function CalendarGrid({
+  days,
+  events,
+  timeZone,
+  todayLocalDate,
+  hourPx = 56,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const dayKeys = days.map((d) => formatInTimeZone(d, timeZone, "yyyy-MM-dd"));
+  const isSingleDay = days.length === 1;
 
   // Group events by their org-local date.
   const eventsByDay = new Map<string, CalendarEvent[]>();
@@ -53,18 +58,22 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
     router.push(`/schedule?${params.toString()}`);
   }
 
+  const gridCols = `64px repeat(${days.length}, minmax(0, 1fr))`;
+
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       {/* Day headers */}
       <div
         className="grid border-b bg-muted/30"
-        style={{ gridTemplateColumns: "64px repeat(7, minmax(0, 1fr))" }}
+        style={{ gridTemplateColumns: gridCols }}
       >
         <div />
         {days.map((d, i) => {
           const key = dayKeys[i] as string;
           const isToday = key === todayLocalDate;
-          const isWeekend = i === 0 || i === 6;
+          // Weekend muting only meaningful for the 7-day week view (Sun = 0,
+          // Sat = 6). On the day view we never mute the single visible day.
+          const isWeekend = !isSingleDay && (i === 0 || i === 6);
           return (
             <div
               key={key}
@@ -83,7 +92,7 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
                   isToday && "text-brand",
                 )}
               >
-                {formatInTimeZone(d, timeZone, "d")}
+                {formatInTimeZone(d, timeZone, isSingleDay ? "MMM d" : "d")}
               </p>
             </div>
           );
@@ -94,8 +103,8 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
       <div
         className="relative grid"
         style={{
-          gridTemplateColumns: "64px repeat(7, minmax(0, 1fr))",
-          height: `${HOURS.length * HOUR_PX}px`,
+          gridTemplateColumns: gridCols,
+          height: `${HOURS.length * hourPx}px`,
         }}
       >
         {/* Hour labels column */}
@@ -104,7 +113,7 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
             <div
               key={h}
               className="border-b border-r px-2 text-[10px] text-muted-foreground"
-              style={{ height: `${HOUR_PX}px` }}
+              style={{ height: `${hourPx}px` }}
             >
               {hourLabel(h)}
             </div>
@@ -113,7 +122,7 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
 
         {/* Day columns */}
         {dayKeys.map((dateKey, dayIdx) => {
-          const isWeekend = dayIdx === 0 || dayIdx === 6;
+          const isWeekend = !isSingleDay && (dayIdx === 0 || dayIdx === 6);
           const isToday = dateKey === todayLocalDate;
           const dayEvents = eventsByDay.get(dateKey) ?? [];
           return (
@@ -132,14 +141,14 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
                   type="button"
                   onClick={() => openNew(dateKey, h)}
                   className="block w-full border-b border-border/60 hover:bg-accent/30"
-                  style={{ height: `${HOUR_PX}px` }}
+                  style={{ height: `${hourPx}px` }}
                   aria-label={`New event ${dateKey} ${hourLabel(h)}`}
                 />
               ))}
 
               {/* Absolutely positioned events */}
               {dayEvents.map((ev) => {
-                const { top, height } = positionFor(ev, timeZone);
+                const { top, height } = positionFor(ev, timeZone, hourPx);
                 if (height <= 0) return null;
                 return (
                   <button
@@ -149,7 +158,11 @@ export function CalendarWeek({ weekStart, events, timeZone, todayLocalDate }: Pr
                     className="absolute left-1 right-1"
                     style={{ top: `${top}px`, height: `${height}px` }}
                   >
-                    <EventBlock event={ev} timeZone={timeZone} />
+                    <EventBlock
+                      event={ev}
+                      timeZone={timeZone}
+                      size={isSingleDay ? "md" : "sm"}
+                    />
                   </button>
                 );
               })}
@@ -172,6 +185,7 @@ function hourLabel(h: number): string {
 function positionFor(
   ev: { startsAt: string; durationMin: number },
   timeZone: string,
+  hourPx: number,
 ): { top: number; height: number } {
   const hourStr = formatInTimeZone(ev.startsAt, timeZone, "H");
   const minStr = formatInTimeZone(ev.startsAt, timeZone, "m");
@@ -179,12 +193,11 @@ function positionFor(
   const startMin = Number(minStr);
   const startMinutesFromTop = (startHour - DAY_START_HOUR) * 60 + startMin;
   const totalMinutesVisible = (DAY_END_HOUR - DAY_START_HOUR + 1) * 60;
-  const top = Math.max(0, (startMinutesFromTop / 60) * HOUR_PX);
+  const top = Math.max(0, (startMinutesFromTop / 60) * hourPx);
   const endMinutesFromTop = Math.min(
     totalMinutesVisible,
     startMinutesFromTop + ev.durationMin,
   );
-  const height = ((endMinutesFromTop - Math.max(0, startMinutesFromTop)) / 60) * HOUR_PX;
+  const height = ((endMinutesFromTop - Math.max(0, startMinutesFromTop)) / 60) * hourPx;
   return { top, height };
 }
-
