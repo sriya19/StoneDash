@@ -32,10 +32,10 @@ export const SIDEBAR_NAV: NavEntry[] = [
   { kind: "active", label: "Orders", href: "/orders", icon: Wrench },
   { kind: "active", label: "Customers", href: "/customers", icon: Users },
   { kind: "active", label: "Contractors", href: "/contractors", icon: HardHat },
+  { kind: "active", label: "Team", href: "/team", icon: Users2 },
   { kind: "coming_soon", label: "Inventory", icon: Package },
   { kind: "coming_soon", label: "Schedule", icon: CalendarDays },
   { kind: "coming_soon", label: "Invoices", icon: Receipt },
-  { kind: "coming_soon", label: "Team", icon: Users2 },
   { kind: "active", label: "Settings", href: "/settings", icon: Settings },
 ];
 

@@ -105,8 +105,19 @@ const ROUTES: Route[] = [
     },
   },
 
-  // Sub-step 4 flips /team off pending.
-  { path: "/team", pending: true, description: "crew member list (sub-step 4)" },
+  { path: "/team" },
+  { path: "/team?new=1" },
+  {
+    path: "/team?id=:crewId",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("crew_members")
+        .select("id")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      return data?.id ? `/team?id=${data.id}` : null;
+    },
+  },
 
   // Sub-step 5 flips /schedule off pending.
   { path: "/schedule", pending: true, description: "calendar week view (sub-step 5)" },

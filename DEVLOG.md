@@ -143,6 +143,30 @@ Seed complete. Demo logins:
 
 **README updated** with both demo logins, the crew + share-link counts. Operators trying the app as a non-admin role have a clear starting point.
 
+### Sub-step 4 — /team page (complete)
+
+**Sidebar activated.** "Team" coming-soon stub flipped to an active link (still `Users2` icon — same as the stub, no visual surprise). Sits between Contractors and the remaining stubs.
+
+**`/team` is for crew you assign work to, NOT app users.** Stated explicitly in the subhead since it's an easy point of confusion alongside `/settings/members`. The two manage different populations: members = people who can log in; crew = people who get sent to job sites.
+
+**Shape.**
+- `lib/validators/crew.ts` — `CreateCrewMemberInput`, `UpdateCrewMemberInput`, `DeleteCrewMemberInput`. `optionalString` wrapper matches the contractor validator pattern so empty strings round-trip cleanly to NULL.
+- `lib/actions/crew.ts` — `createCrewMember`, `updateCrewMember`, `deleteCrewMember`. Delete is **gated on `totalAssignmentCount === 0`** at the action layer too (UI gate is the first defense). The FK from `order_event_assignments → crew_members` is `ON DELETE CASCADE` — deleting a crew member with history would silently wipe every assignment row they were ever on, eliminating the audit trail. The action returns "deactivate instead" before that can happen.
+- `lib/queries/crew.ts` — `listCrewMembersWithActivity` (crew rows + active-assignment count + last-assignment timestamp; parallel-fetch + JS-stitch pattern from `lib/queries/contractors.ts`); `getCrewMemberDetail` (crew row + last-30-event history via a nested `order_event_assignments → order_events → orders → customers` select); `listCrewLite` for the sub-step 5 crew picker.
+- `components/app/crew-table.tsx` — Name / Role / Phone / Email / Active assignments / Last assignment. Phone + email render as `tel:` / `mailto:` links with `e.stopPropagation()` so clicking them doesn't also open the detail sheet. Active-only filter (default on), search across name/role/phone/email, sortable columns via query params.
+- `components/app/new-crew-dialog.tsx` — shadcn `Dialog` opened via `?new=1`. Role is a free-text `Input` backed by a `<datalist>` of suggestions (Lead Installer / Helper / Fabricator / Measurement Tech / Driver). On success redirects to the detail sheet for that crew member.
+- `components/app/crew-detail-sheet.tsx` — right-side `Sheet` opened via `?id=<uuid>`. Inline edit fields save on blur. Assignment history below with kind-colored chips (mirrors sub-step 5's calendar palette: purple/green/blue/sky/zinc). Danger zone: Deactivate/Reactivate + Delete (disabled until zero history with a hover hint explaining the rule).
+- `app/(app)/team/page.tsx` — server component, parallel fetches the list + (optional) detail + total count for the empty-state branch.
+
+**Smoke updates.** `/team`, `/team?new=1`, and `/team?id=:crewId` added to `scripts/smoke_pages.ts`. The detail-sheet route resolves through a service-role lookup of any `crew_members.id`. The seed (sub-step 3) creates 5 crew rows so all three return 200.
+
+Smoke output:
+```
+13 OK, 0 SKIP, 4 PENDING, 0 FAIL
+```
+
+**RBAC.** `canManageMembers(role)` (re-used from Settings → Members) gates the New Crew button and is checked in the action layer. Field role can view `/team` (read-only) but won't see the create CTA or the danger zone.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)
