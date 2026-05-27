@@ -150,7 +150,10 @@ sign up a fresh account and run through `/onboarding`.
   (app)/customers/page.tsx         table + detail sheet + new dialog
   (app)/contractors/page.tsx       list + create + balance view
   (app)/contractors/[id]/page.tsx  header + Jobs / Payments / Details tabs
+  (app)/team/page.tsx              crew member list + assignment history
+  (app)/schedule/page.tsx          week / day / list views + event dialog
   (app)/settings/page.tsx          Profile / Shop / Members tabs
+  j/[slug]/page.tsx                public crew share page (no auth)
 /components
   theme-provider.tsx
   ui/                              shadcn primitives
@@ -170,9 +173,9 @@ sign up a fresh account and run through `/onboarding`.
 /prisma
   schema.prisma                    TS type mirror of the DB
 /supabase
-  migrations/0001..0012.sql        DDL + RLS + functions + storage + contractors
+  migrations/0001..0015.sql        DDL + RLS + functions + storage + contractors + scheduling
   seed.ts                          demo data (idempotent)
-/middleware.ts                     protects /(app)/**
+/middleware.ts                     protects /(app)/**, rate-limits /j/[slug]
 ```
 
 ---
@@ -281,6 +284,121 @@ time you edit the RLS / REVOKE in `0011_contractors.sql`:
 pnpm tsx --env-file=.env.local scripts/smoke_contractors_rls.ts
 ```
 
+### Understand the scheduling model
+
+The unit being scheduled is the **JOB EVENT**, not the crew. An order
+typically has 1–3 events (a measurement, an install, sometimes a
+delivery). Each event has its own date, time, duration, location, and
+assigned crew. Crew members are **not** Throughstone users — they're
+people you assign work to. Most never log into the app.
+
+```
+crew_members                     people you dispatch (not app accounts)
+order_events                     measurement / install / delivery / pickup / other
+order_event_assignments          event ↔ crew, N:M with per-assignment role
+event_share_links                public slugs for /j/[slug]
+v_calendar_events                joined read-model used by the calendar UI
+v_orders_with_event_dates        orders + next install/measurement (derived)
+```
+
+**Why a forwarding trigger?** The action layer (`createOrder`) calls
+`create_order_event` directly — the new orders flow doesn't touch
+`orders.measured_at` / `orders.scheduled_install_date` anymore. But the
+seed still writes those columns via Prisma. Migration
+`0015_orders_sync_legacy_dates.sql` adds an AFTER INSERT trigger that
+mirrors legacy-column-writes into matching events at the org-local
+default time (9 AM measurement, 10 AM install) so any non-app caller
+(the seed, ad-hoc DB writes) still produces calendar events. Drops
+alongside the legacy columns in a future migration once the read paths
+are baked.
+
+**Write-path lockdown matches contractor payments.** `order_events` and
+`event_share_links` are RPC-only — `REVOKE INSERT/UPDATE/DELETE` plus
+RLS `WITH CHECK (false)`. Seven `SECURITY DEFINER` RPCs live in
+`0014_scheduling_rpcs.sql`:
+
+- `create_order_event(...)`, `update_order_event(...)`,
+  `delete_order_event(...)` — manager+.
+- `update_event_status(...)` — any org member, including field role.
+  Plus a `p_via_shared_link=true` branch that requires the caller be
+  `service_role` (the `/j/[slug]` page's path). Enforces a minimal
+  state machine: blocks `complete → scheduled` and `cancelled →
+  in_progress`; everything else free.
+- `create/rotate/revoke_event_share_link(...)` — manager+.
+
+**Server-side timezone discipline.** All DB comparisons + indexes
+operate on UTC `timestamptz`. The same-day CHECK on `order_events`
+evaluates the day in UTC, not org tz, because Postgres can't see per-
+row org tz at constraint-evaluation time (it's IMMUTABLE-only there).
+Conversion to the org's IANA tz happens exclusively in React render
+paths via `lib/tz.ts`. See the **"Server-side timezone discipline"**
+header note at the top of `DEVLOG.md`.
+
+### The /j/[slug] public surface
+
+Each `event_share_links` row has a 16-char base62 slug (~95 bits
+entropy from a CSPRNG). The `/j/[slug]` route is the **only** public
+page in the app — no session required. It renders the event details +
+the order's photos + a few status buttons the crew can tap to mark
+"On my way" / "Arrived" / "Complete" without logging in.
+
+**How the trust works.**
+1. `middleware.ts` rate-limits `/j/*` at 30 req/min per IP (in-memory
+   bucket; in-process only — see `lib/share-link/rate-limit.ts`).
+2. The page uses `lib/supabase/admin.ts` (service-role) to look up the
+   slug, bypassing RLS.
+3. Missing / revoked / fake slugs all render `not-found.tsx`
+   ("This link is no longer active") with HTTP 404 — uniform shape
+   across the three paths so timing differences can't distinguish them.
+4. Status updates from the public buttons call
+   `markEventStatusViaShareLink({slug, status})`, which re-validates
+   the slug and calls `update_event_status` with
+   `p_via_shared_link=true`. The RPC asserts the caller is
+   `service_role` AND sets a transaction-local GUC so the AFTER
+   UPDATE trigger writes `activity_log.metadata.via = 'shared_link'`
+   with `actor_id = NULL`. The activity feed renders these as
+   `"install marked en route (via shared link)"`.
+5. `force-dynamic` + `revalidate=0` means signed photo URLs are
+   regenerated per request (1h TTL each, never cached in HTML).
+   `noindex` + `no-referrer` meta keeps the URLs out of search and
+   prevents referrer leaks when the crew opens "Open in Maps".
+
+**Send-to-crew flow.** From the order detail Events tab, the **Send**
+button on an event opens a modal with two tabs:
+- **Copy text** — pre-formatted block (📍/🕐/📌/👤/🪨/📝/🔗) ready to
+  paste into WhatsApp / Messages / Email. Three intent links prefill
+  each app with the encoded text.
+- **Shareable link** — Generate / Rotate / Revoke. "Last opened X ago"
+  shows when the crew last viewed the page. Rotate is atomic: revoke
+  the old slug + insert a new one in one txn.
+
+**Integration test.** `scripts/test_share_link_status.ts` asserts the
+end-to-end via-shared-link path: pick a live share link from the seed,
+call the RPC with `p_via_shared_link=true`, verify the resulting
+audit row has `actor_id=NULL` and `metadata.via='shared_link'`.
+
+### Render-time smoke gate
+
+`scripts/smoke_pages.ts` (run as `pnpm smoke`) hits every app route +
+the `/j/[slug]` matrix (valid / revoked / fake) against a running
+`pnpm dev` server, with an authenticated session. Catches the class of
+bugs `pnpm typecheck` + `next build` miss — server components that
+import non-component values from `"use client"` modules render-fail
+only at call time, and dynamic routes aren't prerendered. First
+demonstrated by the Task 2B `balanceClass` bug.
+
+```sh
+pnpm dev        # in another terminal
+pnpm smoke
+pnpm smoke /j   # subset by path prefix
+```
+
+Each route has an `expectStatus` (default 200), optional `expectBody`
+substring, optional `pending` flag (= "expected 404 until the
+implementing sub-step lands; remove me once it does"), and optional
+`resolver` for dynamic templates like `:contractorId` / `:slug` that
+need a live DB row.
+
 ### Debugging RLS
 
 If a query returns empty data where it shouldn't:
@@ -367,15 +485,63 @@ Migrations don't run on deploy — apply them from your machine
 
 ---
 
-## What's intentionally not in Task 1
+## What's intentionally deferred
 
-- Slab inventory, crew scheduling, invoices, WhatsApp/SMS, AI extraction,
-  Stripe, customer-facing order tracking, mobile app.
-- Automated tests (dedicated task later).
+Out of scope for the work currently shipped — see
+[`DEVLOG.md`](./DEVLOG.md) for the per-task running deferred list.
+
+**From Task 3 (scheduling + crew dispatch):**
+
+- Two-way Google / iCal / Outlook calendar sync. The `/j/[slug]` pages
+  are a one-way push; we don't read external calendars.
+- SMS / WhatsApp / Email auto-send. The copy-text + intent-link modal
+  is the v1 stand-in; auto-push is Task 4.
+- Recurring events. Every event is a one-off.
+- Crew availability / scheduling optimization / route optimization.
+  The owner picks; we don't suggest.
+- Crew portal with auth. `/j/[slug]` is intentionally login-free; a
+  dedicated crew app surface is separate.
+- Pay tracking per crew (hours, piecework, commissions).
+- Multi-timezone support beyond the org's single tz setting.
+- Install-site-specific photos (today the share page surfaces the
+  parent order's photos).
+- Distributed rate limit (`@upstash/ratelimit` etc.). In-memory
+  bucket in `middleware.ts` is per-instance; a Vercel deployment with
+  N warm instances has an effective limit of N × 30/min for /j/[slug].
+- Drop of the legacy `orders.measured_at` + `orders.scheduled_install_date`
+  columns + the 0015 bridge trigger. Defer until the events read
+  paths have baked for a release.
+
+**From Task 2B (contractor tracking):**
+
+- `bill_to enum('homeowner', 'contractor')` on orders to disambiguate
+  the homeowner-vs-contractor balance split (see the "Billing side
+  ambiguity" note in DEVLOG).
+- Contractor portal, account statements / PDFs, commission tracking,
+  QuickBooks sync.
+
+**From Task 2A (orders UX):**
+
+- Server-side HEIC → JPEG conversion for the file gallery (current
+  Chromium-on-HEIC path falls back to a download tile).
+- Bulk-stage-change UI (server action is ready; UI deferred).
+
+**From Task 1 (base app):**
+
+- Slab inventory, invoices.
+- Signed/expiring invite tokens (current tokens are random UUIDs
+  prefixed `inv_`).
 - Realtime (Supabase Realtime on the orders table for a live kanban).
-- Bulk actions on the orders table (server action is ready; UI deferred).
-- Signed/expiring invite tokens (current tokens are random UUIDs prefixed
-  `inv_`).
+- Automated test suite. The integration scripts in `/scripts/test_*.ts`
+  cover the highest-risk paths; a dedicated test framework is a
+  separate task.
+
+**Cross-cutting:**
+
+- ESLint rule that flags `import { value } from "<'use client' file>"`
+  from server components — would have caught the Task 2B `balanceClass`
+  bug at lint time instead of runtime smoke. Tracked since Task 2B
+  shipped; its own small task.
 
 See [`DEVLOG.md`](./DEVLOG.md) for the full running log of decisions and
 deferred items, and [`PLAN.md`](./PLAN.md) for the sub-step breakdown.

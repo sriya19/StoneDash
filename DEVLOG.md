@@ -311,6 +311,53 @@ Plus a new check for the modal mount path: `/orders?order=:orderId&tab=events&se
 
 **Single-link semantic preserved.** `create_event_share_link` RPC RAISEs `unique_violation` if a live link already exists for the event. The modal disables the Generate button when one exists (showing the URL + Rotate + Revoke instead), so the race condition only matters if two managers click Generate within the same millisecond — in which case one of them gets a polite error toast and the other gets the link.
 
+### Sub-step 10 — README + DEVLOG wrap + final smoke (complete)
+
+**README updates.**
+- Two new how-to sections: **Understand the scheduling model** (data model summary, bridge trigger, write-path lockdown, timezone discipline) and **The /j/[slug] public surface** (rate limit + service-role lookup + uniform 404 + status-update trust chain + send-to-crew flow + integration test).
+- New **Render-time smoke gate** section explaining `pnpm smoke` (route-list shape, resolvers, expectStatus / expectBody / pending fields).
+- Project-structure block updated for `/team`, `/schedule`, `/j/[slug]`, and the new migration range (0001..0015).
+- "Intentionally not in Task 1" replaced by **What's intentionally deferred** — grouped by task (3, 2B, 2A, 1, cross-cutting) so each task's known-gaps live near each other.
+- Demo logins block already lists the field-role user (added in sub-step 3).
+
+**Final smoke pass.** Against a fresh `pnpm dev` after re-seeding:
+```
+$ pnpm smoke
+25 OK, 0 SKIP, 0 PENDING, 0 FAIL
+```
+Every route in the default list passes — `/j/:slug-valid` returns 200 with the order number in body, `/j/:slug-revoked` and `/j/:slug-fake` both return 404 with the "no longer active" copy. No SKIPs (seed provides all the resolver rows). No PENDINGs (every sub-step that owed a route flip has flipped it).
+
+### Closing — deferred (Task 3)
+
+The list below was decided up-front in the brief (Out of Scope) plus a handful of things discovered during implementation. Each item is intentionally NOT in this task.
+
+- **Two-way calendar sync** (Google Calendar, iCal, Outlook). `/j/[slug]` is a one-way push; nothing reads external calendars. Task 5 candidate.
+- **SMS / WhatsApp / Email auto-send.** The copy-text block + intent links + share URL are the v1 stand-in. Task 4 wires real-time push.
+- **Recurring events.** Every event is a one-off.
+- **Crew availability / scheduling optimization / route optimization.** The owner picks the slot and the crew; we surface conflicts but don't suggest.
+- **Crew portal with auth.** `/j/[slug]` is intentionally login-free for the v1 dispatch case. A separate authenticated crew surface (with their own job history, time-tracking, photo upload) is a future task.
+- **Pay tracking per crew** (hours worked, piecework, commissions). Not in scope.
+- **Multi-timezone support beyond the org tz.** Travel-from-another-tz edge documented in PLAN Q3; the picker labels its tz inline so a traveling owner knows what they're scheduling.
+- **Install-site-specific photos.** The `/j/[slug]` photo gallery surfaces the parent order's attachments; site-specific (template photos, completion photos) is a separate model.
+- **Distributed rate limit** (`@upstash/ratelimit` etc.). In-memory bucket in `middleware.ts` is per-instance; production multi-instance would have an effective limit of N × 30/min. Task 4+ infra.
+- **Drop of `orders.measured_at` + `orders.scheduled_install_date` columns + the 0015 bridge trigger.** Defer until the events read paths bake for a release.
+- **ESLint rule that flags `import { value } from "<'use client' file>"` from server components.** Would have caught the Task 2B `balanceClass` bug at lint time instead of runtime smoke. Tracked since Task 2B shipped; its own small task.
+
+### Closing — verified surfaces (Task 3)
+
+What the smoke + integration scripts cover end-to-end:
+
+| Surface | Gate |
+|---|---|
+| Schema, RLS, RPCs, views, backfill assertion | `0013` + `0014` + `0015` migrations; in-migration `RAISE EXCEPTION` if backfill counts diverge; `scripts/smoke_scheduling_rls.ts` for field-role + non-member RLS |
+| Reschedule preserves location / notes / assignments | `scripts/test_event_reschedule.ts` (moves +1h, asserts, restores) |
+| via-shared-link status updates | `scripts/test_share_link_status.ts` (asserts `actor_id IS NULL` + `metadata.via = 'shared_link'` on the resulting audit row) |
+| Every page render | `scripts/smoke_pages.ts` — 25 OK, 0 PENDING, 0 FAIL |
+| `/j/[slug]` matrix (valid / revoked / fake) | Same script per PLAN ADD-1; valid → 200 + `TM-`, revoked + fake → 404 + `"no longer active"` |
+| Backfill consistency | `scripts/verify_event_backfill.ts` (run before / after migration; reports count mismatches and date distributions) |
+
+`pnpm typecheck` + `pnpm lint` + `pnpm build` all green at the head of every commit in the task.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)
