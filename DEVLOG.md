@@ -117,6 +117,32 @@ Two SKIPs are `/j/:slug-valid` and `/j/:slug-revoked` (no event_share_links rows
 
 **`pnpm smoke` added to package.json scripts** so the command is the same in dev, CI, and any future automation.
 
+### Sub-step 3 — seed crew, events, share links, field-role user (complete)
+
+**Why a field-role demo user.** The scheduling RLS smoke (sub-step 1) created a throwaway field user, ran its tests, cleaned up. That worked for the smoke but it left no persistent way to *click through* the app as field role. Demoing the install-status-update flow needs a real account. Added `field@topmarble.local` / `StoneDemo!2026` to the seed alongside the existing owner.
+
+**Crew + assignments.** Five members across the four shop roles (Carlos / Mike — lead installer; Jorge — helper; David — fabricator; Ana — measurement tech). Phone numbers in 703 area code matching Top Marble's Falls Church location. Carlos + Jorge are assigned to the next 3 upcoming installs (chronological by `starts_at`), Mike + David to the 4th, the rest stay unassigned. That gives the future calendar surface real assignments to render AND an unassigned-event state to demo.
+
+**Events created by the 0015 bridge trigger, not by explicit seed RPC calls.** Seed inserts orders via Prisma (legacy `measured_at` + `scheduled_install_date` columns); the AFTER INSERT trigger creates matching `order_events` automatically. So the seed only has to insert the **assignments** + **share links** after orders — events appear on their own. Verified by reading `order_events` from Prisma immediately after the orders block (5 future-install events returned, all sorted by `starts_at`).
+
+**Share links: one live, one revoked.** Matches PLAN ADD-1. Generated via `lib/share-link/slug.ts` (16-char base62 from `crypto.randomBytes` with rejection sampling — landed early since seed needs it; reused by sub-step 9's RPC callers). After re-seed:
+- `pnpm smoke /j` resolves both `:slug-valid` and `:slug-revoked` to real DB rows; both `PENDING` because the public route doesn't exist yet (sub-step 9 flips them off).
+- `verify_event_backfill.ts` still reports `OK: event counts match` (8 measurement + 8 install events).
+- `smoke_scheduling_rls.ts` still passes — RLS unchanged.
+
+**Output of `pnpm db:seed`:**
+```
+Seed complete. Demo logins:
+  owner:  owner@topmarble.local / StoneDemo!2026
+  field:  field@topmarble.local / StoneDemo!2026
+8 customers, 3 contractors, 10 orders, 2 contractor payments,
+5 crew, 5 upcoming installs, 2 share links.
+```
+
+**Prisma client regenerated** (`pnpm db:generate`) so the new `CrewMember`, `OrderEvent`, `OrderEventAssignment`, `EventShareLink` models are typed in seed.ts. Sub-step 1 added them to `schema.prisma` but didn't regenerate the client; this sub-step's first typecheck caught the missing exports, fixed by regenerating.
+
+**README updated** with both demo logins, the crew + share-link counts. Operators trying the app as a non-admin role have a clear starting point.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

@@ -75,13 +75,22 @@ pnpm db:seed      # creates demo org + 10 orders (idempotent)
 
 The seed creates:
 
-- Demo auth user: `owner@topmarble.local` / `StoneDemo!2026`
+- Two demo logins:
+  - Owner: `owner@topmarble.local` / `StoneDemo!2026`
+  - Field tech: `field@topmarble.local` / `StoneDemo!2026` (use this to try
+    the app as an installer — read-only on most surfaces, can mark event
+    status only)
 - Shop: `Top Marble & Granite` (slug `top-marble-granite`,
   order prefix `TM`, starting at `TM-1042`)
 - 8 customers, 10 orders across every stage
 - 3 contractors with distinct payment-terms shapes (Running tab / Net 30 /
   Net 60), 5 of the 10 orders tagged, 2 payments split across allocations
   so the contractor detail page has real balances to render
+- 5 crew members across the four shop roles (lead installer, helper,
+  fabricator, measurement tech); next 3 upcoming installs assigned to
+  Carlos + Jorge, one more to Mike + David, rest unassigned
+- 2 event share links (one live, one revoked) so the smoke matrix at
+  `/j/[slug]` has both resolution cases available
 
 ### 5. Enable Google OAuth (optional)
 

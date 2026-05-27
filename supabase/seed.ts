@@ -8,13 +8,21 @@
 // everything fresh. Triggers handle activity_log + order_stage_history.
 
 import { createClient } from "@supabase/supabase-js";
-import type { Contractor, OrderPriority, OrderStage } from "@prisma/client";
+import type {
+  Contractor,
+  CrewMember,
+  OrderPriority,
+  OrderStage,
+} from "@prisma/client";
 import { prisma } from "../lib/db";
+import { generateShareLinkSlug } from "../lib/share-link/slug";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DEMO_EMAIL = "owner@topmarble.local";
 const DEMO_PASSWORD = "StoneDemo!2026";
+const FIELD_EMAIL = "field@topmarble.local";
+const FIELD_PASSWORD = "StoneDemo!2026";
 const DEMO_ORG_SLUG = "top-marble-granite";
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
@@ -75,24 +83,25 @@ type ContractorSeed = {
   notes?: string;
 };
 
-async function findExistingDemoUser(): Promise<string | null> {
-  // listUsers is paginated; the demo address is unique so the first page suffices.
+async function findUserByEmail(email: string): Promise<string | null> {
+  // listUsers is paginated; the seed addresses are unique so the first page suffices.
   const { data, error } = await admin.auth.admin.listUsers({ perPage: 200 });
   if (error) throw error;
-  const existing = data.users.find((u) => u.email === DEMO_EMAIL);
+  const existing = data.users.find((u) => u.email === email);
   return existing?.id ?? null;
 }
 
 async function resetDemoData() {
   // Delete organization (cascades to members, customers, orders, attachments,
-  // stage history, activity log, order seq).
+  // stage history, activity log, order seq, crew, events, share links).
   await prisma.organization.deleteMany({ where: { slug: DEMO_ORG_SLUG } });
 
-  const existingUserId = await findExistingDemoUser();
-  if (existingUserId) {
-    // Profile cascades on auth.users delete, so no manual cleanup needed.
-    const { error } = await admin.auth.admin.deleteUser(existingUserId);
-    if (error) throw error;
+  for (const email of [DEMO_EMAIL, FIELD_EMAIL]) {
+    const id = await findUserByEmail(email);
+    if (id) {
+      const { error } = await admin.auth.admin.deleteUser(id);
+      if (error) throw error;
+    }
   }
 }
 
@@ -139,6 +148,37 @@ async function main() {
       orgId: org.id,
       userId,
       role: "owner",
+      inviteAcceptedAt: new Date(),
+    },
+  });
+
+  // 3b. Field-role demo user — for trying the app as an installer without
+  // admin privileges. Same shop; role=field. Used by the scheduling RLS
+  // smoke (sub-step 1) and the future /j/[slug] flow when the installer
+  // wants to mark "en route" / "complete" without leaving the app.
+  const { data: fieldCreated, error: fieldErr } = await admin.auth.admin.createUser({
+    email: FIELD_EMAIL,
+    password: FIELD_PASSWORD,
+    email_confirm: true,
+    user_metadata: { full_name: "Demo Field Tech" },
+  });
+  if (fieldErr || !fieldCreated.user) {
+    throw fieldErr ?? new Error("field admin.createUser returned no user");
+  }
+  const fieldUserId = fieldCreated.user.id;
+  await prisma.profile.create({
+    data: {
+      id: fieldUserId,
+      fullName: "Demo Field Tech",
+      activeOrgId: org.id,
+      theme: "light",
+    },
+  });
+  await prisma.orgMember.create({
+    data: {
+      orgId: org.id,
+      userId: fieldUserId,
+      role: "field",
       inviteAcceptedAt: new Date(),
     },
   });
@@ -206,6 +246,28 @@ async function main() {
       data: { ...c, orgId: org.id, createdBy: userId },
     });
     contractors.push(row);
+  }
+
+  // 5b. Crew members
+  //
+  // 5 people across the four roles that show up on a stone-shop calendar.
+  // Lead installers run installs; helpers ride along; fabricator handles
+  // template + finish work; measurement tech goes to homes first. Order
+  // matters: the assignment block below references `crewMembers[0..3]`.
+  const crewSeeds = [
+    { name: "Carlos Mendez", role: "Lead Installer",   phone: "(703) 555-0101", email: "carlos@topmarble.local" },
+    { name: "Mike Thompson", role: "Lead Installer",   phone: "(703) 555-0102", email: "mike@topmarble.local" },
+    { name: "Jorge Ramirez", role: "Helper",           phone: "(703) 555-0103", email: null },
+    { name: "David Park",    role: "Fabricator",       phone: "(703) 555-0104", email: null },
+    { name: "Ana Vasquez",   role: "Measurement Tech", phone: "(703) 555-0105", email: "ana@topmarble.local" },
+  ];
+
+  const crewMembers: CrewMember[] = [];
+  for (const c of crewSeeds) {
+    const row = await prisma.crewMember.create({
+      data: { ...c, orgId: org.id, createdBy: userId },
+    });
+    crewMembers.push(row);
   }
 
   // 6. Orders
@@ -485,12 +547,81 @@ async function main() {
   // which gives the contractor detail page a pristine "all outstanding"
   // render to demo the Net-60 slow-pay case.
 
+  // 8. Crew assignments + share links
+  //
+  // The 0015 bridge trigger created an order_events row (kind=install) for
+  // every order with scheduled_install_date set, at 10 AM org-local. We
+  // assign Carlos + Jorge to the next 3 upcoming installs; Mike + David to
+  // the 4th; the rest stay unassigned so the "no crew yet" empty state has
+  // a demo surface.
+  const upcomingInstalls = await prisma.orderEvent.findMany({
+    where: {
+      orgId: org.id,
+      kind: "install",
+      startsAt: { gte: new Date() },
+    },
+    orderBy: { startsAt: "asc" },
+  });
+
+  const [carlos, mike, jorge, david] = crewMembers;
+  if (!carlos || !mike || !jorge || !david) {
+    throw new Error("crewMembers missing expected entries");
+  }
+
+  async function assign(eventId: string, crew: CrewMember[]) {
+    for (const member of crew) {
+      await prisma.orderEventAssignment.create({
+        data: { eventId, crewMemberId: member.id, role: member.role ?? null },
+      });
+    }
+  }
+
+  for (let i = 0; i < Math.min(3, upcomingInstalls.length); i++) {
+    const ev = upcomingInstalls[i];
+    if (ev) await assign(ev.id, [carlos, jorge]);
+  }
+  if (upcomingInstalls[3]) {
+    await assign(upcomingInstalls[3].id, [mike, david]);
+  }
+
+  // Two share links: one live (resolved by smoke /j/:slug-valid) and one
+  // revoked (resolved by smoke /j/:slug-revoked). They cover the matrix
+  // described in PLAN ADD-1.
+  let linksCreated = 0;
+  if (upcomingInstalls[0]) {
+    await prisma.eventShareLink.create({
+      data: {
+        orgId: org.id,
+        eventId: upcomingInstalls[0].id,
+        slug: generateShareLinkSlug(),
+        createdBy: userId,
+      },
+    });
+    linksCreated++;
+  }
+  if (upcomingInstalls[1]) {
+    await prisma.eventShareLink.create({
+      data: {
+        orgId: org.id,
+        eventId: upcomingInstalls[1].id,
+        slug: generateShareLinkSlug(),
+        createdBy: userId,
+        revokedAt: new Date(),
+      },
+    });
+    linksCreated++;
+  }
+
   // eslint-disable-next-line no-console
   console.warn(
-    `Seed complete. Demo login: ${DEMO_EMAIL} / ${DEMO_PASSWORD}\n` +
+    `Seed complete. Demo logins:\n` +
+      `  owner:  ${DEMO_EMAIL} / ${DEMO_PASSWORD}\n` +
+      `  field:  ${FIELD_EMAIL} / ${FIELD_PASSWORD}\n` +
       `Org: ${org.name} (slug=${org.slug}, prefix=${org.orderPrefix}).\n` +
       `${customers.length} customers, ${contractors.length} contractors, ` +
-      `${orderSeeds.length} orders, 2 contractor payments.`,
+      `${orderSeeds.length} orders, 2 contractor payments, ` +
+      `${crewMembers.length} crew, ${upcomingInstalls.length} upcoming installs, ` +
+      `${linksCreated} share links.`,
   );
 }
 
