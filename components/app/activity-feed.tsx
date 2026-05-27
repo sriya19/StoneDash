@@ -39,7 +39,14 @@ function iconFor(entityType: string) {
 // orders"). Hiding allocation rows keeps the feed from being three times
 // noisier than a user's actual actions.
 function shouldHide(entityType: string): boolean {
-  return entityType === "contractor_allocation";
+  // Same dedupe pattern as contractor_allocation: the parent event row
+  // already tells the story, so per-assignment audits would triple the
+  // feed noise without adding signal. The DB rows still exist for any
+  // future "who was assigned and when" report — they're just hidden here.
+  return (
+    entityType === "contractor_allocation" ||
+    entityType === "order_event_assignment"
+  );
 }
 
 function moneyPhrase(meta: Record<string, unknown>): string {
@@ -97,6 +104,48 @@ function phraseFor(row: ActivityRow): string {
       return `${who} edited a contractor payment (${moneyPhrase(m)})`;
     case "contractor_payment:deleted":
       return `${who} deleted a contractor payment (${moneyPhrase(m)})`;
+    case "crew_member:created":
+      return `${who} added ${name ?? "a crew member"} to the team`;
+    case "crew_member:updated":
+      return `${who} updated ${name ?? "a crew member"}`;
+    case "crew_member:deleted":
+      return `${who} removed ${name ?? "a crew member"}`;
+    case "order_event:created": {
+      const kind = typeof m.kind === "string" ? m.kind : "event";
+      return `${who} scheduled ${kind}`;
+    }
+    case "order_event:rescheduled": {
+      const kind = typeof m.kind === "string" ? m.kind : "event";
+      return `${who} rescheduled ${kind}`;
+    }
+    case "order_event:status_changed": {
+      const to = typeof m.to === "string" ? m.to : "";
+      const kind = typeof m.kind === "string" ? m.kind : "event";
+      const via = typeof m.via === "string" ? m.via : null;
+      const action = `${kind} marked ${to.replace(/_/g, " ")}`;
+      // Q1 lock: when the status update came via /j/[slug], actor_id is
+      // NULL and we render WITHOUT a "Someone …" prefix, just the action
+      // + suffix. The suffix is what disambiguates link-driven updates
+      // from app-driven ones in the feed.
+      if (via === "shared_link") {
+        return `${action} (via shared link)`;
+      }
+      return `${who} ${action}`;
+    }
+    case "order_event:updated": {
+      const kind = typeof m.kind === "string" ? m.kind : "event";
+      return `${who} edited ${kind}`;
+    }
+    case "order_event:deleted": {
+      const kind = typeof m.kind === "string" ? m.kind : "event";
+      return `${who} deleted ${kind}`;
+    }
+    case "event_share_link:created":
+      return `${who} generated a share link`;
+    case "event_share_link:revoked":
+      return `${who} revoked a share link`;
+    case "event_share_link:deleted":
+      return `${who} removed a share link`;
     default:
       return `${who} ${row.action.replace(/_/g, " ")} ${row.entityType}`;
   }

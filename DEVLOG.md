@@ -269,6 +269,48 @@ Auth gotcha resolved in the test: SECURITY DEFINER RPCs reject service-role call
 
 **Mark complete uses `updateOrderEventStatus`** (the action wrapping the sub-step 1 RPC). The state-machine block (`complete → scheduled` rejection) doesn't fire on this transition — `scheduled → complete` is always allowed. Field role can also hit this RPC from this surface in a future task (when field gets access to the orders sheet beyond its current read-only state).
 
+### Sub-step 9 — Send-to-crew modal + /j/[slug] public route (complete)
+
+**The feature this whole task was about.** Closes the gap from "owner types the address into WhatsApp" to "one click → formatted text block + a mobile URL the crew can mark status from."
+
+**Send-to-crew modal (`?send=<eventId>` on /orders).**
+- Two tabs: **Copy text** and **Shareable link**.
+- Copy text: pre-formatted block matching the brief exactly (📍 / 🕐 / 📌 / 👤 / 🪨 / 📝 / 🔗 emoji prefixes), `formatShareText()` is a pure function in `lib/share-link/format-text.ts`. Big Copy button hits `navigator.clipboard.writeText`. Three intent links (WhatsApp / Messages / Email) prefill the encoded text via `whatsapp://send?text=`, `sms:?body=`, `mailto:?body=`.
+- Shareable link: if no live link → single Generate button. If live → URL field + copy + "Last opened X ago" + Rotate (revoke+regenerate atomic) + Revoke (AlertDialog confirm). Slugs are 16-char base62 from `crypto.randomBytes` via `lib/share-link/slug.ts` (already landed early in sub-step 3 for the seed; reused unchanged).
+- Mounted by `orders/page.tsx` when `?send=<uuid>` is present alongside `?order=<uuid>`. Server-fetches the assembled `SendModalContext` (event + extra order fields + customer + live link in one shot). Passed as props, so the modal opens fully populated — no client-side fetch flash.
+
+**Public `/j/[slug]` page — outside `(auth)`.**
+- `export const dynamic = "force-dynamic"; export const revalidate = 0;` per Q10/Q11. Signed photo URLs (1h TTL) are regenerated per request, never cached in HTML.
+- Service-role lookup of slug → notFound() if missing or `revoked_at IS NOT NULL`. notFound() renders `/j/[slug]/not-found.tsx` (a neutral "no longer active" card) with HTTP 404. **Uniform 404 shape across missing / revoked / fake slugs per Q2.** Timing differences are within network jitter.
+- Layout: kind chip + status pill, "Install — TM-1042 — Johnson kitchen" title, date+time block in org tz, location with "Open in Maps" link (`https://maps.google.com/?q=…`), tap-to-call customer phone, stone/edge/cutouts, notes, photo grid (3-col, square thumbs, tap to open full size in a new tab), crew list, status-action buttons via `<SharePageActions>`, footer "Throughstone — sent by {org.name}".
+- `<meta robots="noindex,nofollow">` and `referrer="no-referrer"` on the page metadata so the URLs never land in a search index and don't leak the Throughstone URL when the user opens Maps.
+- `last_opened_at` is bumped via fire-and-forget service-role UPDATE — the render path doesn't wait on a one-row INSERT.
+
+**Status updates from the public page.**
+- `SharePageActions` (client component) renders forward-progress buttons appropriate to the current status: scheduled → "On my way" / "No-show"; en_route → "Arrived" / "No-show"; in_progress → "Mark complete"; terminal → nothing (the state machine in `update_event_status` would reject anyway).
+- Clicks call `markEventStatusViaShareLink({slug, status})` action. The action re-validates the slug (defense in depth on top of the route's check) via service-role lookup, then calls `update_event_status` RPC with `p_via_shared_link=true`. The RPC asserts the caller is `service_role` AND sets the `app.event_status_via_shared_link` transaction-local GUC, so the AFTER UPDATE trigger writes `activity_log.metadata.via = 'shared_link'` AND `actor_id = NULL`.
+
+**Rate limit (Q2 lock).** `middleware.ts` enforces 30 req/min per IP on `/j/*` before the page handler runs. In-memory token bucket in `lib/share-link/rate-limit.ts` (module-scoped Map keyed by IP). Hits over the limit return HTTP 429 with `Retry-After`. **Caveat documented inline in the rate-limit module:** in a single Next instance the bucket is shared across requests; on Vercel each warm function instance has its own bucket, so the effective limit is somewhere between 30/min and N × 30/min for N warm instances. Defeats naive enumeration; a distributed limiter is a Task 4+ infra concern.
+
+**Activity feed phrase rendering (Q1 lock).** `phraseFor` in `activity-feed.tsx` gains branches for `order_event:created/rescheduled/status_changed/updated/deleted`, `crew_member:created/updated/deleted`, and `event_share_link:created/revoked/deleted`. For `order_event:status_changed` with `metadata.via === "shared_link"` the phrase renders as `"install marked en route (via shared link)"` — no "Someone …" actor prefix, because `actor_id` is NULL and the suffix is the disambiguator. `shouldHide` extended to suppress `order_event_assignment` rows from the feed (same dedupe pattern as `contractor_allocation` from Task 2B).
+
+**Verified end-to-end via `scripts/test_share_link_status.ts`:**
+- Pick a live share link from the seed.
+- Capture original status.
+- Call `update_event_status` with `p_via_shared_link=true` → status changes to `en_route`.
+- Look up the resulting `activity_log` row: `actor_id IS NULL`, `metadata.via === 'shared_link'`, `metadata.from === <originalStatus>`, `metadata.to === 'en_route'`. **All four assertions pass.**
+- Restore original status. Idempotent.
+
+**Smoke matrix flipped off pending (ADD-1):**
+```
+/j/:slug-valid     → 200, body contains "TM-"
+/j/:slug-revoked   → 404, body contains "no longer active"
+/j/:slug-fake      → 404, body contains "no longer active"
+```
+Plus a new check for the modal mount path: `/orders?order=:orderId&tab=events&send=:eventId` → 200. Final smoke output: **25 OK, 0 SKIP, 0 PENDING, 0 FAIL** — the route inventory is now fully covered.
+
+**Single-link semantic preserved.** `create_event_share_link` RPC RAISEs `unique_violation` if a live link already exists for the event. The modal disables the Generate button when one exists (showing the URL + Rotate + Revoke instead), so the race condition only matters if two managers click Generate within the same millisecond — in which case one of them gets a polite error toast and the other gets the link.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

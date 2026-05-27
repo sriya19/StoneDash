@@ -158,16 +158,17 @@ const ROUTES: Route[] = [
     },
   },
 
-  // Sub-step 9 flips these three off pending (matrix per PLAN ADD-1).
-  // Until then, the public route doesn't exist so we expect 404.
+  // PLAN ADD-1 matrix: valid → 200 + order number visible; revoked + fake
+  // → uniform 404 with the "no longer active" copy. Seed creates one of
+  // each so the resolvers find rows; the fake slug is hardcoded.
   {
     path: "/j/:slug-valid",
     resolver: async (a) => {
       const slug = await resolveValidSlug(a);
       return slug ? `/j/${slug}` : null;
     },
-    pending: true,
-    description: "share-link valid case (sub-step 9)",
+    expectBody: "TM-",
+    description: "share-link valid case",
   },
   {
     path: "/j/:slug-revoked",
@@ -177,16 +178,25 @@ const ROUTES: Route[] = [
     },
     expectStatus: 404,
     expectBody: "no longer active",
-    pending: true,
-    description: "share-link revoked case (sub-step 9)",
+    description: "share-link revoked case",
   },
   {
     path: "/j/:slug-fake",
     resolver: async () => "/j/zzzzzzzzzzzzzzzz",
     expectStatus: 404,
     expectBody: "no longer active",
-    pending: true,
-    description: "share-link fake case (sub-step 9)",
+    description: "share-link fake case",
+  },
+  {
+    path: "/orders?order=:orderId&tab=events&send=:eventId",
+    resolver: async (a) => {
+      const [{ data: order }, { data: ev }] = await Promise.all([
+        a.from("orders").select("id").limit(1).maybeSingle<{ id: string }>(),
+        a.from("order_events").select("id").limit(1).maybeSingle<{ id: string }>(),
+      ]);
+      if (!order || !ev) return null;
+      return `/orders?order=${order.id}&tab=events&send=${ev.id}`;
+    },
   },
 ];
 

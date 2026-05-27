@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { checkIpRateLimit } from "@/lib/share-link/rate-limit";
 
 // Paths that require an authenticated user. Anything under one of these
 // prefixes redirects to /login when no session is present.
@@ -16,8 +17,28 @@ const PROTECTED_PREFIXES = [
 ];
 
 export async function middleware(request: NextRequest) {
-  const { response, user } = await updateSession(request);
   const { pathname } = request.nextUrl;
+
+  // Public /j/[slug] share pages — rate limit at the edge before any DB
+  // lookup. 30/min per IP. See lib/share-link/rate-limit.ts for the
+  // in-memory caveats.
+  if (pathname.startsWith("/j/")) {
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      request.headers.get("x-real-ip") ??
+      "unknown";
+    const limit = checkIpRateLimit(ip);
+    if (!limit.ok) {
+      return new NextResponse("Too many requests", {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSec) },
+      });
+    }
+    // Don't run the auth flow for public pages — pass through to the page.
+    return NextResponse.next();
+  }
+
+  const { response, user } = await updateSession(request);
 
   const needsAuth = PROTECTED_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),

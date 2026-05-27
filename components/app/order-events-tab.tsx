@@ -98,6 +98,12 @@ export function OrderEventsTab({ events, orderId, timeZone }: Props) {
     return `/orders?${params.toString()}`;
   }
 
+  function sendHref(eventId: string): string {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("send", eventId);
+    return `/orders?${params.toString()}`;
+  }
+
   function scheduleHref(eventId: string): string {
     // Jump to the schedule view filtered to this event's day.
     const ev = events.find((e) => e.id === eventId);
@@ -169,6 +175,7 @@ export function OrderEventsTab({ events, orderId, timeZone }: Props) {
               timeZone={timeZone}
               hrefEdit={hrefWithEvent(ev.id)}
               hrefSchedule={scheduleHref(ev.id)}
+              hrefSend={sendHref(ev.id)}
               onMarkComplete={() => markComplete(ev.id)}
               onDelete={() => destroy(ev.id)}
               pending={pending}
@@ -191,6 +198,7 @@ export function OrderEventsTab({ events, orderId, timeZone }: Props) {
                 timeZone={timeZone}
                 hrefEdit={hrefWithEvent(ev.id)}
                 hrefSchedule={scheduleHref(ev.id)}
+                hrefSend={sendHref(ev.id)}
                 onMarkComplete={() => markComplete(ev.id)}
                 onDelete={() => destroy(ev.id)}
                 pending={pending}
@@ -209,6 +217,7 @@ function EventRow({
   timeZone,
   hrefEdit,
   hrefSchedule,
+  hrefSend,
   onMarkComplete,
   onDelete,
   pending,
@@ -218,6 +227,7 @@ function EventRow({
   timeZone: string;
   hrefEdit: string;
   hrefSchedule: string;
+  hrefSend: string;
   onMarkComplete: () => void;
   onDelete: () => void;
   pending: boolean;
@@ -349,10 +359,12 @@ function EventRow({
               variant="outline"
               size="sm"
               className="h-7 gap-1 px-2 text-xs"
-              disabled
-              title="Send to crew — coming in sub-step 9"
+              asChild
+              title="Send to crew"
             >
-              <MessageCircle className="h-3 w-3" /> Send
+              <Link href={hrefSend}>
+                <MessageCircle className="h-3 w-3" /> Send
+              </Link>
             </Button>
           </div>
         </div>
