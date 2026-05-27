@@ -93,6 +93,30 @@ rejects events that cross UTC midnight. For Top Marble (Eastern, UTC−5 / −4)
 - Event dialog UI and conflict-warning query helper — sub-step 5.
 - Drop of `orders.measured_at` + `orders.scheduled_install_date` columns + the 0015 bridge trigger — future task once sub-step 5 has landed in production for one release cycle.
 
+### Sub-step 2 — generalize render-smoke to scripts/smoke_pages.ts (complete)
+
+**The Task 2B post-ship fix (commit 8eeee86) added `scripts/smoke_contractor_render.ts` after the balanceClass bug shipped through typecheck + lint + build undetected.** Generalized here into a route-list-driven script that every subsequent sub-step adds to.
+
+**Shape.**
+- `scripts/smoke_pages.ts` takes a typed `Route[]` list. Each route has an optional `resolver` (async, looks up a real DB id/slug via service-role), optional `expectStatus` (default 200), optional `expectBody` substring assertion, and a `pending` flag for routes whose implementing sub-step hasn't landed yet.
+- CLI: `pnpm smoke` runs the full list. `pnpm smoke /contractors /j` runs only routes whose template path starts with one of those prefixes. Filters are exclusive — no positional args = "all routes".
+- Four outcomes per route: **OK** (status + body match), **FAIL** (status or body mismatch, or one of the Task 2B error markers appears in the body — `"is not a function"`, `"Server Error"`, `"Application error: a server-side exception"`), **SKIP** (resolver returned null, e.g. no `event_share_links` row exists yet), **PENDING** (expected 404 because the route hasn't shipped; a non-404 here prints "remove pending flag" instead of failing).
+- Auth path unchanged from the Task 2B script: `@supabase/ssr.createServerClient` with an in-memory cookie jar, signs in as the demo owner. Service-role client created separately for resolver lookups.
+
+**Default list as of this sub-step.** 15 entries covering the existing surfaces (`/dashboard`, `/orders[?new=1]`, `/customers[?new=1]`, `/contractors[?new=1]`, `/contractors/:id` with `?tab=payments` / `?tab=details`) plus four pending entries (`/team`, `/schedule`, `/j/:slug-valid`, `/j/:slug-revoked`, `/j/:slug-fake`). Sub-steps 4, 5, and 9 each flip their entry off `pending`.
+
+**Verified.** Against a live `pnpm dev`:
+```
+10 OK, 2 SKIP, 3 PENDING, 0 FAIL
+```
+Two SKIPs are `/j/:slug-valid` and `/j/:slug-revoked` (no event_share_links rows — seed update is sub-step 3). Three PENDINGs are `/team`, `/schedule`, `/j/:slug-fake` (routes not yet implemented; 404 is the expected state). Zero FAIL.
+
+`pnpm smoke /contractors` filter test: 5 routes, all OK. CLI filtering confirmed.
+
+**Why "pending" instead of "skip" for routes that don't exist yet.** SKIP means "can't verify right now, no input data available". PENDING means "I know this route doesn't exist and the smoke gate is intentionally tracking it". The distinction matters for the final smoke pass (sub-step 10): SKIP is fine to leave forever, PENDING must be cleared by the implementing sub-step.
+
+**`pnpm smoke` added to package.json scripts** so the command is the same in dev, CI, and any future automation.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

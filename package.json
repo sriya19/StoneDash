@@ -13,7 +13,8 @@
     "db:pull": "prisma db pull",
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
-    "db:seed": "tsx --env-file=.env.local supabase/seed.ts"
+    "db:seed": "tsx --env-file=.env.local supabase/seed.ts",
+    "smoke": "tsx --env-file=.env.local scripts/smoke_pages.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
