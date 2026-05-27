@@ -215,6 +215,34 @@ Smoke output:
 
 **Not in this sub-step.** Drag-to-reschedule (sub-step 7). Click-event → order-detail Events tab (sub-step 8). The week/day grids' event click currently opens the edit dialog as a stand-in.
 
+### Sub-step 7 — drag-to-reschedule on week and day views (complete)
+
+**Shape.** `calendar-grid.tsx` becomes a `DndContext` with `PointerSensor`. Each event block is a `useDraggable`; each hour cell is a `useDroppable`. Drop ID format `slot:<dateKey>:<hour>` so the handler can decode the target without any cross-component state. Activation constraint is `distance: 6` — taps under that threshold remain clicks (still open the dialog).
+
+**Drop semantics.** Target hour determines the new start time (`HH:00`); duration is preserved. Snapping to the hour (rather than a 15-min sub-grid) matches the visual hour rows — no surprise about where the event will land. Future polish could read pointer Y for 15-min increments.
+
+**Same-UTC-day guard at the action layer too.** The DB CHECK catches this regardless, but the action computes the new ends_at locally and short-circuits with a friendly toast (`"Can't reschedule there — event would cross UTC midnight"`) before round-tripping to the server. For Eastern Time shops the constraint is theoretical (8 PM Eastern install isn't a real workflow), but the message is the polite version of `check_violation`.
+
+**Optimistic updates.** Local `useState<CalendarEvent[]>` mirrors the prop on mount and re-syncs whenever the prop changes (after `router.refresh()`). On drop, the local state moves immediately; the server action runs in a `startTransition`. On failure, the previous state is restored and an error toast surfaces. On success, `router.refresh()` pulls the canonical state — which should match what the optimistic update showed, so the user sees no flicker.
+
+**Post-drop conflict toast.** After a successful reschedule, the grid re-runs `getCrewConflicts({crewIds, startsAtIso, endsAtIso, excludeEventId})` for the event's assigned crew. Any hits render as a separate `toast.warning` so the success message ("Rescheduled to …") gets acknowledged first. Skips entirely when there are no assigned crew. Same helper that the dialog uses for its inline warning, so consistency is automatic.
+
+**Activity log.** No DB changes needed — the `tg_order_events_after_update` trigger from 0013 already routes `starts_at` or `duration_min` changes through the `'rescheduled'` action with `metadata.from` + `metadata.to` carrying the old and new (starts_at, duration_min) pair. Confirmed in the integration test below.
+
+**Preserve-fields path.** `rescheduleOrderEvent` fetches the existing `location_text`, `notes`, and assignments before calling `update_order_event` (which has full-replace semantics). Without this, a drag would silently wipe assignments and notes — exactly the kind of bug that hides behind a passing typecheck. Covered by **`scripts/test_event_reschedule.ts`**:
+
+- Picks one upcoming install event with at least one crew assignment.
+- Stamps a marker location + notes, captures the assignment set.
+- Calls `update_order_event` (the same RPC `rescheduleOrderEvent` does) with `starts_at + 1h`, passing the existing location/notes/assignments explicitly.
+- Asserts: starts_at moved, location_text preserved, notes preserved, duration unchanged, assignment set unchanged, and an `activity_log` row with `action = 'rescheduled'` exists.
+- Restores the original time. Idempotent — run it any number of times.
+
+Auth gotcha resolved in the test: SECURITY DEFINER RPCs reject service-role callers with `'not authenticated'` because `auth.uid()` is NULL. The script signs in as the demo owner via the anon client first (same path the app uses), keeping the service-role client for introspective SELECTs that need to bypass RLS.
+
+**Smoke unchanged from sub-step 6** — drag is interactive, not URL-visible. The route inventory still reads **19 OK, 0 SKIP, 3 PENDING, 0 FAIL**.
+
+**Not in this sub-step.** Click-to-open → order detail Events tab (sub-step 8). The grid's event click still opens the edit dialog directly.
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)
