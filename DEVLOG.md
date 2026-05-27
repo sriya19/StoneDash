@@ -167,6 +167,30 @@ Smoke output:
 
 **RBAC.** `canManageMembers(role)` (re-used from Settings → Members) gates the New Crew button and is checked in the action layer. Field role can view `/team` (read-only) but won't see the create CTA or the danger zone.
 
+### Sub-step 5 — /schedule WEEK view + event dialog (complete)
+
+**The single biggest sub-step of Task 3.** The week view is the dominant scheduling surface; the dialog is the only mutation surface for events (besides the inline reschedule via drag in sub-step 7). Day view + list view + filters are sub-step 6.
+
+**Shape.**
+- `lib/validators/events.ts` — `Create/Update/Delete/RescheduleEventInput` + `UpdateEventStatusInput`. Date and start-time arrive separately (YYYY-MM-DD + HH:mm), assembled into a UTC `timestamptz` on the server via `parseLocalDateTime`. `DEFAULT_DURATION_MIN` constants match the seed defaults so the dialog's kind segmented control snaps the duration to a sensible value when the user changes kind without overwriting custom values.
+- `lib/queries/events.ts` — `listCalendarEvents({fromUtc, toUtc, ...filters})` reads from `v_calendar_events` (the joined read-model shipped in sub-step 1). Crew filter is JS-side because the view's `crew` is a `jsonb` array; bounded by the time window, the in-memory pass is trivial. Also: `listOrdersForEventPicker` (for the dialog combobox; pre-loads customer address so location_text can auto-default) and `getEventForEdit` (single-event fetch with the same shape as a list row).
+- `lib/actions/events.ts` — `createOrderEvent`, `updateOrderEvent`, `deleteOrderEvent`, `rescheduleOrderEvent`, `updateOrderEventStatus`. All call the 0014 RPCs. `rescheduleOrderEvent` pre-fetches the existing event + assignments and re-passes them so a drag doesn't wipe assignments / notes / location_text. **Critical for sub-step 7.** Also `getCrewConflicts({crewIds, startsAtIso, endsAtIso, excludeEventId?})` for the soft warning shown inline in the dialog.
+- `components/app/event-block.tsx` — the colored block primitive used in the week grid. Color palette per kind matches the crew-detail-sheet history list (purple/green/blue/sky/zinc). Terminal statuses (cancelled/no_show/complete) render at 60% opacity with a strikethrough on the order number. Shows crew initials (up to 3) bottom-aligned.
+- `components/app/calendar-week.tsx` — 7-day × 14-hour (6 AM – 8 PM) grid. CSS grid for layout, absolute positioning inside each day column for the events. Today highlighted via `bg-brand/5`; weekends muted via `bg-muted/10`. Empty time slots are buttons that pre-fill `?event=new&date=&time=` on the dialog URL.
+- `components/app/event-dialog.tsx` — the create/edit dialog. Order combobox (search by order# / project / customer), kind segmented control (5 buttons), date+time pickers, duration `Input` plus four quick-pick buttons (1h/2h/3h/4h), location text with a "Use customer address" affordance, crew multi-select with inline role override per assignment, notes textarea, delete (edit mode only) behind an AlertDialog. The order picker is **disabled** in edit mode — moving an event between orders is rare enough that we'd rather force delete-and-recreate than make the constraint slippery.
+- `components/app/schedule-nav.tsx` — small client component wrapping the prev/today/next buttons in `next/link` Buttons, so the schedule page can server-render and still navigate without a full refresh.
+- `app/(app)/schedule/page.tsx` — server component, fetches the week's events + (when the dialog is open) the order picker list + active crew list + the edit-target event. Anchor date via `?date=YYYY-MM-DD`; defaults to "today in org tz".
+
+**Conflict warning — debounced live check.** The dialog runs `getCrewConflicts` 250ms after the last form change (whenever the crew set, date, time, or duration shifts). Conflicts render inline under each crew row that has one: `⚠ Already on TM-1042 — Park kitchen 10:00 AM-1:00 PM`. Soft warning, never blocks submit. Same helper will be re-used by sub-step 7's drag toast.
+
+**Time-zone discipline (Q3 of the plan).** All event timestamps are stored as UTC. The dialog reads/writes YYYY-MM-DD + HH:mm in **org-local time**, with a small "EDT" / "EST" / etc. label under the start-time input so a traveling owner who's in a different tz than the shop sees the disconnect. Conversion happens at the action-layer boundary via `parseLocalDateTime`. The week view renders all positioned events using `formatInTimeZone(startsAt, orgTz, …)`. No server-side comparison touches non-UTC.
+
+**Two minor `tzAbbreviation` adjustments.** First cut used `formatInTimeZone(now, tz, "zzz")` for the small "EDT" label, but date-fns' `z*` tokens render long names ("Eastern Daylight Time"). Added `tzAbbreviation()` in `lib/tz.ts` that calls `Intl.DateTimeFormat({timeZoneName: "short"})` directly. Same helper used in the schedule header and the dialog.
+
+**Smoke updates.** `/schedule`, `/schedule?event=new`, `/schedule?event=:eventId` added; resolver picks any seeded event. Smoke output: **16 OK, 0 SKIP, 3 PENDING, 0 FAIL** (the three `/j/:slug-*` entries are sub-step 9). Spot-checked the rendered week body for the demo: `TM-1043 — Rodriguez master bath vanity` shows up in the install column with the correct project name from the seed.
+
+**Click-through behaviour.** Clicking an event opens the dialog in edit mode (sub-step 8 will redirect this to the order detail Events tab). Clicking an empty time slot opens the dialog in create mode with `date` and `time` pre-filled. The brief explicitly listed both interactions; the empty-slot one is the actual workflow accelerator for the shop (drag your finger across the screen looking for a slot, click).
+
 ---
 
 ## Task 2B — Contractor tracking (2026-04-23)

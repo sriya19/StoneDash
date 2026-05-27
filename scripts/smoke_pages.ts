@@ -119,8 +119,19 @@ const ROUTES: Route[] = [
     },
   },
 
-  // Sub-step 5 flips /schedule off pending.
-  { path: "/schedule", pending: true, description: "calendar week view (sub-step 5)" },
+  { path: "/schedule" },
+  { path: "/schedule?event=new" },
+  {
+    path: "/schedule?event=:eventId",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("order_events")
+        .select("id")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      return data?.id ? `/schedule?event=${data.id}` : null;
+    },
+  },
 
   // Sub-step 9 flips these three off pending (matrix per PLAN ADD-1).
   // Until then, the public route doesn't exist so we expect 404.

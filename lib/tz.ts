@@ -59,6 +59,44 @@ export function parseLocalDateTime(
 }
 
 /**
+ * Returns the short timezone abbreviation (e.g. "EDT", "PST") for the
+ * supplied IANA tz at the current moment. Uses Intl directly because
+ * date-fns' "z*" format tokens render long names like "Eastern Daylight Time",
+ * which is too wide for the schedule header.
+ */
+export function tzAbbreviation(timeZone: string, at: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "short",
+    }).formatToParts(at);
+    return parts.find((p) => p.type === "timeZoneName")?.value ?? timeZone;
+  } catch {
+    return timeZone;
+  }
+}
+
+/**
+ * Returns a UTC Date representing "Sunday 00:00 in the org tz" for the
+ * week the supplied moment falls into. Used by the calendar week view to
+ * compute the visible range.
+ */
+export function startOfWeekInTz(forDate: Date, timeZone: string): Date {
+  // Get the org-local YYYY-MM-DD for the input moment, then walk back to
+  // the most recent Sunday. The round-trip through a date string lets us
+  // ignore DST + offset noise.
+  const localDateStr = formatInTimeZone(forDate, timeZone, "yyyy-MM-dd");
+  // localDateStr is "YYYY-MM-DD". Construct a Date at UTC midnight so
+  // getUTCDay() returns the day-of-week of THAT calendar date, not the
+  // input moment's UTC day.
+  const localMidnight = new Date(`${localDateStr}T00:00:00Z`);
+  const dow = localMidnight.getUTCDay(); // 0 = Sun
+  const sundayMs = localMidnight.getTime() - dow * 24 * 60 * 60 * 1000;
+  const sundayDateStr = new Date(sundayMs).toISOString().slice(0, 10);
+  return parseLocalDateTime(sundayDateStr, "00:00", timeZone);
+}
+
+/**
  * Same-UTC-day check used by the DB CHECK on order_events and by client-
  * side dialog validators. Two timestamps fall on the same UTC calendar day.
  */
