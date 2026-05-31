@@ -61,7 +61,10 @@ export function CalendarList({ events, timeZone }: Props) {
           cmp = a.kind.localeCompare(b.kind);
           break;
         case "order_number":
-          cmp = a.orderNumber.localeCompare(b.orderNumber);
+          // Standalone events have no order_number; sort them after
+          // order-tied events (empty string compares "less than" any
+          // real order number, so use a high-sentinel string).
+          cmp = (a.orderNumber ?? "zzz").localeCompare(b.orderNumber ?? "zzz");
           break;
         case "status":
           cmp = a.status.localeCompare(b.status);

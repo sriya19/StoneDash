@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
   PopoverContent,
@@ -96,11 +97,26 @@ export function EventDialog({
   const [conflicts, setConflicts] = useState<CrewConflict[]>([]);
   const [conflictBusy, setConflictBusy] = useState(false);
 
+  // Event type — fixed at create time (PLAN Q3): edit-mode shows the type
+  // as a read-only segmented control. Standalone events have a title;
+  // order-tied events have an orderId.
+  const initialType: "order" | "standalone" = initial
+    ? initial.isStandalone
+      ? "standalone"
+      : "order"
+    : "order";
+  const [eventType, setEventType] = useState<"order" | "standalone">(initialType);
+
   const [orderId, setOrderId] = useState<string>(
     initial?.orderId ?? initialOrderId ?? "",
   );
+  const [title, setTitle] = useState<string>(initial?.title ?? "");
+  const [isAllDay, setIsAllDay] = useState<boolean>(initial?.isAllDay ?? false);
+  // For standalone events the default kind is 'task' (the non-job catch-all);
+  // for order-tied events it's 'install' (the most common workflow).
   const [kind, setKind] = useState<EventKind>(
-    (initial?.kind as EventKind | undefined) ?? "install",
+    (initial?.kind as EventKind | undefined) ??
+      (initialType === "standalone" ? "task" : "install"),
   );
   const initialDateStr = initial
     ? formatInTimeZone(initial.startsAt, timeZone, "yyyy-MM-dd")
@@ -139,6 +155,22 @@ export function EventDialog({
     }
   }
 
+  // Type switch — only available in create mode. Reset the side-specific
+  // fields when toggling to keep the form clean.
+  function changeType(next: "order" | "standalone") {
+    if (mode === "edit") return;
+    setEventType(next);
+    if (next === "standalone") {
+      setOrderId("");
+      setKind("task");
+      // Title is preserved across toggles — user might have typed one then
+      // changed their mind, or the reverse.
+    } else {
+      setTitle("");
+      setKind("install");
+    }
+  }
+
   // Auto-default location_text from customer address when the order changes,
   // unless the user has already typed something.
   function changeOrder(id: string) {
@@ -169,7 +201,9 @@ export function EventDialog({
     );
   }
 
-  // Debounced conflict check. Runs on changes to crew, date, time, duration.
+  // Debounced conflict check. Runs on changes to crew, date, time, duration,
+  // is_all_day. For all-day events, the conflict window is the whole org-
+  // local day (midnight → +24h).
   useEffect(() => {
     if (assignments.length === 0) {
       setConflicts([]);
@@ -178,8 +212,10 @@ export function EventDialog({
     let cancelled = false;
     const handle = setTimeout(async () => {
       try {
-        const starts = parseLocalDateTime(date, startTime, timeZone);
-        const ends = new Date(starts.getTime() + durationMin * 60_000);
+        const starts = isAllDay
+          ? parseLocalDateTime(date, "00:00", timeZone)
+          : parseLocalDateTime(date, startTime, timeZone);
+        const ends = new Date(starts.getTime() + (isAllDay ? 1440 : durationMin) * 60_000);
         setConflictBusy(true);
         const result = await getCrewConflicts({
           crewIds: assignments.map((a) => a.crewMemberId),
@@ -198,7 +234,7 @@ export function EventDialog({
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [assignments, date, startTime, durationMin, timeZone, initial?.id]);
+  }, [assignments, date, startTime, durationMin, isAllDay, timeZone, initial?.id]);
 
   function close() {
     const params = new URLSearchParams(searchParams.toString());
@@ -212,16 +248,18 @@ export function EventDialog({
   }
 
   function submit() {
-    if (!orderId) {
+    if (eventType === "order" && !orderId) {
       toast.error("Pick an order first");
       return;
     }
+    if (eventType === "standalone" && title.trim().length === 0) {
+      toast.error("Standalone events need a title");
+      return;
+    }
     const payload = {
-      orderId,
-      // title + isAllDay wired up in sub-step 3. Order-tied event defaults
-      // preserve the pre-Task-3.1 behavior.
-      title: undefined,
-      isAllDay: false,
+      orderId: eventType === "order" ? orderId : undefined,
+      title: eventType === "standalone" ? title.trim() : undefined,
+      isAllDay,
       kind,
       date,
       startTime,
@@ -283,64 +321,107 @@ export function EventDialog({
         </DialogHeader>
 
         <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
-          {/* Order */}
+          {/* Type — fixed at create time, read-only in edit mode (PLAN Q3) */}
           <div className="space-y-1.5">
-            <Label>Order</Label>
-            <Popover open={orderOpen} onOpenChange={setOrderOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
+            <Label>Type</Label>
+            <div className="grid grid-cols-2 gap-1">
+              {(["order", "standalone"] as const).map((t) => (
+                <button
+                  key={t}
                   type="button"
-                  className="w-full justify-between font-normal"
+                  onClick={() => changeType(t)}
                   disabled={mode === "edit"}
+                  className={cn(
+                    "rounded-md border px-2 py-1.5 text-xs",
+                    eventType === t
+                      ? "border-brand bg-brand/10 font-medium text-brand"
+                      : "border-border hover:bg-accent",
+                    mode === "edit" && "cursor-not-allowed opacity-60",
+                  )}
                 >
-                  {selectedOrder
-                    ? `${selectedOrder.orderNumber} — ${selectedOrder.projectName ?? "Untitled"}`
-                    : "Pick an order…"}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-                <Command>
-                  <CommandInput placeholder="Search by order # or project…" />
-                  <CommandList>
-                    <CommandEmpty>No orders match.</CommandEmpty>
-                    <CommandGroup>
-                      {orders.map((o) => (
-                        <CommandItem
-                          key={o.id}
-                          value={`${o.orderNumber} ${o.projectName ?? ""} ${o.customerName ?? ""}`}
-                          onSelect={() => changeOrder(o.id)}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              orderId === o.id ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          <span className="flex flex-1 flex-col">
-                            <span className="font-mono text-xs">{o.orderNumber}</span>
-                            <span className="text-xs">{o.projectName ?? "Untitled"}</span>
-                            {o.customerName ? (
-                              <span className="text-[10px] text-muted-foreground">
-                                {o.customerName}
-                              </span>
-                            ) : null}
-                          </span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+                  {t === "order" ? "For an order" : "Standalone"}
+                </button>
+              ))}
+            </div>
+            {mode === "edit" ? (
+              <p className="text-[10px] text-muted-foreground">
+                Event type is fixed after creation — delete and recreate to change.
+              </p>
+            ) : null}
           </div>
+
+          {/* Order picker (order-tied events only) */}
+          {eventType === "order" ? (
+            <div className="space-y-1.5">
+              <Label>Order</Label>
+              <Popover open={orderOpen} onOpenChange={setOrderOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    type="button"
+                    className="w-full justify-between font-normal"
+                    disabled={mode === "edit"}
+                  >
+                    {selectedOrder
+                      ? `${selectedOrder.orderNumber} — ${selectedOrder.projectName ?? "Untitled"}`
+                      : "Pick an order…"}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search by order # or project…" />
+                    <CommandList>
+                      <CommandEmpty>No orders match.</CommandEmpty>
+                      <CommandGroup>
+                        {orders.map((o) => (
+                          <CommandItem
+                            key={o.id}
+                            value={`${o.orderNumber} ${o.projectName ?? ""} ${o.customerName ?? ""}`}
+                            onSelect={() => changeOrder(o.id)}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                orderId === o.id ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <span className="flex flex-1 flex-col">
+                              <span className="font-mono text-xs">{o.orderNumber}</span>
+                              <span className="text-xs">{o.projectName ?? "Untitled"}</span>
+                              {o.customerName ? (
+                                <span className="text-[10px] text-muted-foreground">
+                                  {o.customerName}
+                                </span>
+                              ) : null}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="ev-title">Title</Label>
+              <Input
+                id="ev-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Call customer about template / Pick up checks / Crew meeting"
+                disabled={mode === "edit"}
+                maxLength={200}
+              />
+            </div>
+          )}
 
           {/* Kind */}
           <div className="space-y-1.5">
             <Label>Kind</Label>
-            <div className="grid grid-cols-5 gap-1">
+            <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
               {EVENT_KINDS.map((k) => (
                 <button
                   key={k}
@@ -359,8 +440,8 @@ export function EventDialog({
             </div>
           </div>
 
-          {/* Date + time + duration */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Date + time + duration. All-day collapses to date only. */}
+          <div className={cn("grid gap-3", isAllDay ? "grid-cols-1" : "grid-cols-3")}>
             <div className="space-y-1.5">
               <Label htmlFor="ev-date">Date</Label>
               <Input
@@ -370,48 +451,64 @@ export function EventDialog({
                 onChange={(e) => setDate(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ev-time">Start time</Label>
-              <Input
-                id="ev-time"
-                type="time"
-                step={900}
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground">
-                {tzAbbreviation(timeZone)}
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ev-duration">Duration (min)</Label>
-              <Input
-                id="ev-duration"
-                type="number"
-                min={1}
-                step={15}
-                value={durationMin}
-                onChange={(e) => setDurationMin(Number(e.target.value || 0))}
-              />
-            </div>
+            {!isAllDay ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ev-time">Start time</Label>
+                  <Input
+                    id="ev-time"
+                    type="time"
+                    step={900}
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    {tzAbbreviation(timeZone)}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ev-duration">Duration (min)</Label>
+                  <Input
+                    id="ev-duration"
+                    type="number"
+                    min={1}
+                    step={15}
+                    value={durationMin}
+                    onChange={(e) => setDurationMin(Number(e.target.value || 0))}
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
-          <div className="flex flex-wrap gap-1">
-            {DURATION_PRESETS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setDurationMin(m)}
-                className={cn(
-                  "rounded border px-2 py-0.5 text-xs",
-                  durationMin === m
-                    ? "border-brand bg-brand/10 text-brand"
-                    : "border-border hover:bg-accent",
-                )}
-              >
-                {m / 60}h
-              </button>
-            ))}
-          </div>
+
+          {/* All-day toggle */}
+          <Label className="flex items-center gap-2 text-sm font-normal">
+            <Checkbox
+              checked={isAllDay}
+              onCheckedChange={(v) => setIsAllDay(v === true)}
+            />
+            All day
+          </Label>
+
+          {!isAllDay ? (
+            <div className="flex flex-wrap gap-1">
+              {DURATION_PRESETS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setDurationMin(m)}
+                  className={cn(
+                    "rounded border px-2 py-0.5 text-xs",
+                    durationMin === m
+                      ? "border-brand bg-brand/10 text-brand"
+                      : "border-border hover:bg-accent",
+                  )}
+                >
+                  {m / 60}h
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {/* Location */}
           <div className="space-y-1.5">

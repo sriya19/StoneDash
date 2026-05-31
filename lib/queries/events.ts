@@ -8,18 +8,21 @@ export type CalendarEventCrew = {
 
 export type CalendarEvent = {
   id: string;
-  orderId: string;
+  orderId: string | null;
   kind: string;
   status: string;
   startsAt: string;
   endsAt: string;
   durationMin: number;
+  isAllDay: boolean;
+  isStandalone: boolean;
+  title: string | null;
   locationText: string | null;
   notes: string | null;
-  orderNumber: string;
+  orderNumber: string | null;
   projectName: string | null;
   stoneType: string | null;
-  stage: string;
+  stage: string | null;
   contractorId: string | null;
   customerName: string | null;
   customerPhone: string | null;
@@ -29,18 +32,21 @@ export type CalendarEvent = {
 
 type CalendarEventDb = {
   id: string;
-  order_id: string;
+  order_id: string | null;
   kind: string;
   status: string;
   starts_at: string;
   ends_at: string;
   duration_min: number;
+  is_all_day: boolean;
+  is_standalone: boolean;
+  title: string | null;
   location_text: string | null;
   notes: string | null;
-  order_number: string;
+  order_number: string | null;
   project_name: string | null;
   stone_type: string | null;
-  stage: string;
+  stage: string | null;
   contractor_id: string | null;
   customer_name: string | null;
   customer_phone: string | null;
@@ -64,7 +70,7 @@ export async function listCalendarEvents(
   let query = supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .gte("starts_at", filters.fromUtc)
     .lt("starts_at", filters.toUtc);
@@ -94,6 +100,9 @@ export async function listCalendarEvents(
       startsAt: r.starts_at,
       endsAt: r.ends_at,
       durationMin: r.duration_min,
+      isAllDay: r.is_all_day,
+      isStandalone: r.is_standalone,
+      title: r.title,
       locationText: r.location_text,
       notes: r.notes,
       orderNumber: r.order_number,
@@ -186,7 +195,7 @@ export async function listEventsForOrder(orderId: string): Promise<CalendarEvent
   const { data, error } = await supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .eq("order_id", orderId)
     .order("starts_at", { ascending: true })
@@ -200,6 +209,9 @@ export async function listEventsForOrder(orderId: string): Promise<CalendarEvent
     startsAt: r.starts_at,
     endsAt: r.ends_at,
     durationMin: r.duration_min,
+    isAllDay: r.is_all_day,
+    isStandalone: r.is_standalone,
+    title: r.title,
     locationText: r.location_text,
     notes: r.notes,
     orderNumber: r.order_number,
@@ -220,7 +232,7 @@ export async function getEventForEdit(id: string): Promise<CalendarEvent | null>
   const { data, error } = await supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .eq("id", id)
     .maybeSingle<CalendarEventDb>();
@@ -234,6 +246,9 @@ export async function getEventForEdit(id: string): Promise<CalendarEvent | null>
     startsAt: data.starts_at,
     endsAt: data.ends_at,
     durationMin: data.duration_min,
+    isAllDay: data.is_all_day,
+    isStandalone: data.is_standalone,
+    title: data.title,
     locationText: data.location_text,
     notes: data.notes,
     orderNumber: data.order_number,

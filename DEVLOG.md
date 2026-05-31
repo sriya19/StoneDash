@@ -72,6 +72,27 @@ Plus the pre-existing gates re-run cleanly:
 
 **EventDialog quick patch.** The dialog's submit payload now needs `title` + `isAllDay` to satisfy the new validator type. Stubbed to `{title: undefined, isAllDay: false}` for this sub-step so typecheck stays green; sub-step 3 wires the actual UI controls.
 
+### Sub-step 3 — New Event dialog UX (complete)
+
+**Three new dialog primitives.**
+- **Type segmented control** at the top of the form. Two options: "For an order" / "Standalone". Disabled in edit mode with a helper line ("Event type is fixed after creation — delete and recreate to change") per PLAN Q3 lock. Toggling clears the side-specific fields (orderId on "Standalone", title on "For an order") and snaps `kind` to the type-appropriate default (install vs. task).
+- **Title input** replaces the order combobox when type=standalone. Max 200 chars, placeholder examples from the brief ("Call customer about template / Pick up checks / Crew meeting").
+- **All-day checkbox** below the Date/time/duration row. Toggling on collapses the grid from `grid-cols-3` → `grid-cols-1` (only Date remains visible), hides the duration quick-pick row, and hides the tz abbreviation label under the start time.
+
+**Conflict-check accommodates all-day events.** The debounced `getCrewConflicts` call now uses a midnight-to-midnight window when `isAllDay=true` (parseLocalDateTime(date, '00:00', tz) → +1440 min) regardless of what the hidden time/duration controls say. Without this an all-day event with a non-zero `durationMin` in local state would query the wrong window.
+
+**Kind grid widens for 'task'.** `grid-cols-5` → `grid-cols-3 sm:grid-cols-6` (6 kinds now). On narrow widths the kind options wrap to two rows; on dialog-wide they stay single-row.
+
+**CalendarEvent type updated.** `orderId`, `orderNumber`, `stage` become nullable. New fields `isAllDay`, `isStandalone`, `title`. All three `listCalendarEvents` / `listEventsForOrder` / `getEventForEdit` SELECT statements + row-mappings updated. `calendar-list.tsx` sort-by-order-number uses a `"zzz"` sentinel for standalone rows so they sort after order-tied rows.
+
+**event-block.tsx renders standalone events differently.**
+- Order-tied: mono `orderNumber` + project name (unchanged from sub-step 5 of Task 3).
+- Standalone: `title` in the header slot (sans-serif, truncate), no body project line, no customer line.
+- All-day: time slot reads `"All day"` instead of `h:mm a`.
+- New `task` chip color = slate (cool-tinted gray, distinguishable from `other`'s warmer zinc per PLAN Q4 lock).
+
+**Verified.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. typecheck + lint + build all green. The dialog now compiles and renders both event-type modes — full all-day-strip rendering on the calendar grid is sub-step 4.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)
