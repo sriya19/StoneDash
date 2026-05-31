@@ -27,16 +27,21 @@ type Props = {
   event: CalendarEvent;
   timeZone: string;
   size?: "sm" | "md";
+  // "block" = the normal column-positioned card with crew + customer + time
+  //           (week and day views, hour grid).
+  // "pill"  = one-line horizontal strip for the all-day row above the hour
+  //           grid. No customer line, no crew avatars, no time (it's all-day).
+  variant?: "block" | "pill";
 };
 
-export function EventBlock({ event, timeZone, size = "sm" }: Props) {
+export function EventBlock({
+  event,
+  timeZone,
+  size = "sm",
+  variant = "block",
+}: Props) {
   const kindClass = KIND_BG[event.kind] ?? KIND_BG.other;
   const terminal = isTerminal(event.status);
-  // All-day events show "All day" in the time slot; timed events show their
-  // actual start time.
-  const startLabel = event.isAllDay
-    ? "All day"
-    : formatInTimeZone(event.startsAt, timeZone, "h:mm a");
 
   // Standalone events have no order_number / project_name — their title
   // does both jobs. Order-tied events keep the original mono-prefix +
@@ -50,6 +55,39 @@ export function EventBlock({ event, timeZone, size = "sm" }: Props) {
   const tooltip = event.isStandalone
     ? event.title ?? "Untitled"
     : `${event.orderNumber ?? "—"} — ${event.projectName ?? "Untitled"}`;
+
+  if (variant === "pill") {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-1.5 overflow-hidden rounded-md border px-1.5 py-0.5 text-left text-[10px] leading-tight",
+          kindClass,
+          terminal && "opacity-60",
+        )}
+        title={tooltip}
+      >
+        <span
+          className={cn(
+            "shrink-0",
+            event.isStandalone ? "font-medium" : "font-mono font-medium",
+            terminal && "line-through",
+          )}
+        >
+          {headerLabel}
+        </span>
+        {bodyLabel ? (
+          <span className="truncate font-medium opacity-90">— {bodyLabel}</span>
+        ) : null}
+      </div>
+    );
+  }
+
+  // All-day events in the (rarely-shown) hour grid would render "All day"
+  // — but they normally render in the pill variant above, so this only
+  // fires if a caller passes an all-day event as variant="block".
+  const startLabel = event.isAllDay
+    ? "All day"
+    : formatInTimeZone(event.startsAt, timeZone, "h:mm a");
 
   return (
     <div

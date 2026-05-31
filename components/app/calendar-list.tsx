@@ -23,6 +23,7 @@ const KIND_DOT: Record<string, string> = {
   delivery: "bg-blue-500",
   pickup: "bg-sky-500",
   other: "bg-zinc-500",
+  task: "bg-slate-500",
 };
 
 const STATUS_TONE: Record<string, string> = {
@@ -141,8 +142,9 @@ export function CalendarList({ events, timeZone }: Props) {
                     {formatInTimeZone(ev.startsAt, timeZone, "EEE, MMM d")}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    {formatInTimeZone(ev.startsAt, timeZone, "h:mm a")} ·{" "}
-                    {ev.durationMin}m
+                    {ev.isAllDay
+                      ? "All day"
+                      : `${formatInTimeZone(ev.startsAt, timeZone, "h:mm a")} · ${ev.durationMin}m`}
                   </p>
                 </TableCell>
                 <TableCell>
@@ -153,9 +155,17 @@ export function CalendarList({ events, timeZone }: Props) {
                     {ev.kind}
                   </span>
                 </TableCell>
-                <TableCell className="font-mono text-xs">{ev.orderNumber}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {ev.isStandalone ? (
+                    <span className="text-muted-foreground italic">—</span>
+                  ) : (
+                    ev.orderNumber
+                  )}
+                </TableCell>
                 <TableCell className="max-w-[200px] truncate text-sm">
-                  {ev.projectName ?? "Untitled"}
+                  {ev.isStandalone
+                    ? ev.title ?? "Untitled"
+                    : ev.projectName ?? "Untitled"}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {ev.customerName ?? "—"}

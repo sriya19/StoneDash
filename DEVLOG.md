@@ -93,6 +93,43 @@ Plus the pre-existing gates re-run cleanly:
 
 **Verified.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. typecheck + lint + build all green. The dialog now compiles and renders both event-type modes — full all-day-strip rendering on the calendar grid is sub-step 4.
 
+### Sub-step 4 — Calendar rendering for all-day + standalone (complete)
+
+**`calendar-grid.tsx` gains an all-day strip.** Inserted between the day-header row and the hour grid. Renders **only when at least one visible day has an all-day event** — saves vertical space on the common case (no all-day items this week).
+
+- Each day's all-day cell is a `useDroppable` with id `allday:<dateKey>`. Drop ID format mirrors the existing `slot:<dateKey>:<hour>` pattern.
+- Each pill is a `useDraggable` wrapped around `EventBlock variant="pill"`.
+- The strip's left column matches the 64px width of the hour-label column and shows a small "all-day" label.
+- Per-cell `min-h-[28px]` so the strip stays usable when a day has zero pills.
+
+**Drag-end handler dispatches on the `over.id` prefix.**
+- All-day event → `allday:<dateKey>` → reschedule to new date, preserves `is_all_day=true` (via the action's pre-fetch+pass behavior).
+- Timed event → `slot:<dateKey>:<hour>` → unchanged (existing sub-step 7 of Task 3).
+- **Cross-strip drags are rejected** with a toast: `"Open the event to convert all-day → timed."` (or the reverse). Reasoning: converting between timed and all-day flips a semantic bit, not just a position. Silent conversion via drag would surprise the user; we route them through the dialog where the all-day checkbox is explicit.
+- Same-UTC-day guard skips for all-day drags (the table CHECK relaxation from 0016 allows them).
+
+**Success toast adapts to all-day.** Timed: `"Rescheduled to Mon, Jun 2, 10:00 AM"`. All-day: `"Rescheduled to Mon, Jun 2 (all day)"`. The time stamp would be misleading for all-day.
+
+**`EventBlock` gains a `variant` prop.**
+- `variant="block"` (default) — the existing column-positioned card used inside the hour grid.
+- `variant="pill"` — one-line horizontal strip for the all-day row. No customer line, no crew avatars, no time. Stays kind-colored and respects terminal status (line-through on cancelled / complete).
+
+**`calendar-list.tsx` adapts both fields:**
+- Time/duration cell shows `"All day"` when `isAllDay`, instead of `h:mm a · 60m`.
+- Order # cell shows a muted dash for standalone events (no order# to display).
+- Project name cell shows `event.title` for standalone, `projectName` for order-tied.
+- `KIND_DOT` adds `task: "bg-slate-500"` (matches the slate chip color from sub-step 3).
+
+**Verified end-to-end.** Spot-checked the rendered `/schedule` body after seeding one all-day standalone task ("__probe_all_day__") at today's midnight ET:
+```
+status: 200
+contains 'all-day' label (lowercase strip header): true
+contains '__probe_all_day__' (title): true
+```
+Both render as expected. `pnpm smoke` still: **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**.
+
+**Minor flag for follow-up (non-blocking).** The "click an empty slot in the all-day strip → open New Event dialog" path doesn't yet pre-fill the all-day flag. The dialog opens in timed mode and the user has to flip the checkbox. Sub-step 3 would need a new URL param (e.g. `?allDay=1`) for the dialog to read. Flagging here; trivial to add later if friction surfaces.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)
