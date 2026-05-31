@@ -218,6 +218,10 @@ export function EventDialog({
     }
     const payload = {
       orderId,
+      // title + isAllDay wired up in sub-step 3. Order-tied event defaults
+      // preserve the pre-Task-3.1 behavior.
+      title: undefined,
+      isAllDay: false,
       kind,
       date,
       startTime,

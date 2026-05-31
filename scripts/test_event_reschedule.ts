@@ -41,7 +41,7 @@ async function main() {
   const nowIso = new Date().toISOString();
   const { data: candidates, error: candErr } = await admin
     .from("order_events")
-    .select("id, starts_at, duration_min, location_text, notes, kind, org_id, order_id")
+    .select("id, starts_at, duration_min, location_text, notes, kind, org_id, order_id, title, is_all_day")
     .eq("kind", "install")
     .gte("starts_at", nowIso)
     .order("starts_at", { ascending: true })
@@ -56,6 +56,8 @@ async function main() {
         kind: string;
         org_id: string;
         order_id: string;
+        title: string | null;
+        is_all_day: boolean;
       }>
     >();
   if (candErr) throw candErr;
@@ -111,6 +113,8 @@ async function main() {
       crew_member_id: a.crew_member_id,
       role: a.role,
     })),
+    p_title: chosen.title,
+    p_is_all_day: chosen.is_all_day,
   });
   if (updErr) throw updErr;
   void newDateUtc;
@@ -119,13 +123,15 @@ async function main() {
   // Verify.
   const { data: after } = await admin
     .from("order_events")
-    .select("starts_at, location_text, notes, duration_min")
+    .select("starts_at, location_text, notes, duration_min, title, is_all_day")
     .eq("id", chosen.id)
     .maybeSingle<{
       starts_at: string;
       location_text: string | null;
       notes: string | null;
       duration_min: number;
+      title: string | null;
+      is_all_day: boolean;
     }>();
   assert(after, "event vanished after update");
   assert(
@@ -143,6 +149,14 @@ async function main() {
   assert(
     after.duration_min === chosen.duration_min,
     `duration changed unexpectedly: ${after.duration_min}`,
+  );
+  assert(
+    after.title === chosen.title,
+    `title changed unexpectedly: ${String(after.title)} (was ${String(chosen.title)})`,
+  );
+  assert(
+    after.is_all_day === chosen.is_all_day,
+    `is_all_day changed unexpectedly: ${after.is_all_day} (was ${chosen.is_all_day})`,
   );
 
   const { data: assignAfter } = await admin
@@ -175,6 +189,8 @@ async function main() {
     p_duration_min: chosen.duration_min,
     p_location_text: chosen.location_text,
     p_notes: chosen.notes,
+    p_title: chosen.title,
+    p_is_all_day: chosen.is_all_day,
     p_assignments: (assignBefore ?? []).map((a) => ({
       crew_member_id: a.crew_member_id,
       role: a.role,

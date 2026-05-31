@@ -43,6 +43,35 @@ Plus the pre-existing gates re-run cleanly:
 
 **Why the rigorous variant was tempting but wrong.** Postgres CHECK expressions must be IMMUTABLE — they're cached by the planner and evaluated against the row alone, no session context. `AT TIME ZONE '<org_tz_column>'` is STABLE (depends on `pg_timezone_names` which is a table read), not IMMUTABLE. We can't ask "is starts_at exactly midnight in the org's tz?" from within the constraint. The action-layer assertion (sub-step 2) closes the gap by computing `parseLocalDateTime(date, '00:00', orgTz)` and asserting equality before the RPC call.
 
+### Sub-step 2 — RPCs + validators (complete)
+
+**`0017_scheduling_v2_rpcs.sql`** rewrites three functions to accept the new shape. Because `CREATE OR REPLACE` requires identical signatures, all three are `DROP`-and-recreated.
+
+- `_validate_event_same_utc_day(p_starts_at, p_duration_min, p_is_all_day)` — new third param. Returns immediately when `p_is_all_day=true` (table CHECK already validates `duration_min = 1440` for that branch).
+- `create_order_event` — new trailing params `p_title text DEFAULT NULL` and `p_is_all_day boolean DEFAULT false`. `p_order_id` is now legitimately nullable (it always was at the type level; behavior is what changed). For standalone events (`p_order_id IS NULL`):
+  - org_id resolved from `profiles.active_org_id` of the caller (RPC RAISEs if no active org).
+  - Title required (RPC RAISEs friendly error before the table CHECK fires).
+  - All-day forces `duration_min = 1440` silently (the dialog hides the duration controls; this is the last line).
+- `update_order_event` — same two new params, same handling. Title is only writable for standalone events (the WHERE clause: `CASE WHEN v_order_id IS NULL THEN NULLIF(p_title, '') ELSE title END`). The brief's Q3 decision — type fixed at create time — is enforced here: `update_order_event` doesn't accept a `p_order_id`, so callers can't move events between orders or convert order↔standalone.
+
+**Action layer (`lib/actions/events.ts`).**
+- `computeStartsAt` gains `isAllDay` param and returns `{startsAtIso, effectiveDurationMin}`. When `isAllDay=true`:
+  - `starts_at` is computed from `parseLocalDateTime(date, '00:00', tz)`. The literal `'00:00'` ignores whatever the caller passed in `startTime`.
+  - **Assertion (PLAN Q1 lock):** `formatInTimeZone(starts, tz, 'HH:mm') === '00:00'`. By construction this is always true, but the assertion catches a future refactor breaking the invariant. Throws "all-day event must start at midnight org-local" if it ever fails.
+  - `effectiveDurationMin` forced to 1440.
+- `createOrderEvent`, `updateOrderEvent` thread `title` + `isAllDay` to the RPC. `rescheduleOrderEvent` pre-fetches the existing `title` + `is_all_day` and re-passes them — preserve-fields semantics extended to the new columns. **Crucial for drag-to-reschedule** (Task 3 sub-step 7): a future drag on an all-day event would otherwise wipe the flag and turn it into a 1-minute event at midnight.
+
+**Validator (`lib/validators/events.ts`).**
+- `EVENT_KINDS` adds `'task'` (sixth kind). `EVENT_KIND_LABELS.task = "Task"`. `DEFAULT_DURATION_MIN.task = 60`.
+- `EventBase` now: `orderId: optionalString(uuid)`, `title: optionalString(...max 200)`, `isAllDay: boolean default false`. `.refine` adds: "orderId or title required" with the error pointing at `title` (the field the dialog highlights). `UpdateEventInput` switched from `.extend()` to `.and(z.object({eventId}))` because `.extend()` collides with `.refine()` in zod 4.
+
+**Verified end-to-end.**
+- **`scripts/test_event_reschedule.ts`** extended: now asserts `title` and `is_all_day` survive an `update_order_event` round-trip. (Result: PASS.)
+- **`scripts/test_standalone_event.ts`** new: creates a standalone task via `create_order_event`, verifies row + view shape, mutates kind via `update_order_event` and verifies title preserved, then asserts `update_order_event` with empty title on a standalone event REJECTS. (Result: PASS.)
+- `smoke_scheduling_rls.ts` re-run — all three RLS claims still pass.
+
+**EventDialog quick patch.** The dialog's submit payload now needs `title` + `isAllDay` to satisfy the new validator type. Stubbed to `{title: undefined, isAllDay: false}` for this sub-step so typecheck stays green; sub-step 3 wires the actual UI controls.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)

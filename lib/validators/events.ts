@@ -14,6 +14,7 @@ export const EVENT_KINDS = [
   "delivery",
   "pickup",
   "other",
+  "task",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
@@ -35,6 +36,7 @@ export const DEFAULT_DURATION_MIN: Record<EventKind, number> = {
   delivery: 60,
   pickup: 30,
   other: 60,
+  task: 60,
 };
 
 export const EVENT_KIND_LABELS: Record<EventKind, string> = {
@@ -43,6 +45,7 @@ export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   delivery: "Delivery",
   pickup: "Pickup",
   other: "Other",
+  task: "Task",
 };
 
 const Assignment = z.object({
@@ -55,28 +58,38 @@ const Assignment = z.object({
 const eventDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 const eventTime = z.string().regex(/^\d{2}:\d{2}$/, "Use HH:mm");
 
-const EventBase = z.object({
-  orderId: z.string().uuid(),
-  kind: z.enum(EVENT_KINDS),
-  date: eventDate,
-  startTime: eventTime,
-  durationMin: z
-    .union([z.string(), z.number()])
-    .transform((v) => (typeof v === "number" ? v : Number(v)))
-    .refine((n) => Number.isFinite(n) && n > 0 && n <= 24 * 60, {
-      message: "Duration must be between 1 and 1440 minutes",
-    }),
-  locationText: optionalString(z.string().trim().max(500)),
-  notes: optionalString(z.string().max(4000)),
-  assignments: z.array(Assignment).default([]),
-});
+// Either orderId or title must be set. All-day events ignore startTime
+// (server normalizes to 00:00 org-local) and durationMin (server forces
+// 1440).
+const EventBase = z
+  .object({
+    orderId: optionalString(z.string().uuid()),
+    title: optionalString(z.string().trim().max(200)),
+    isAllDay: z.boolean().default(false),
+    kind: z.enum(EVENT_KINDS),
+    date: eventDate,
+    startTime: eventTime,
+    durationMin: z
+      .union([z.string(), z.number()])
+      .transform((v) => (typeof v === "number" ? v : Number(v)))
+      .refine((n) => Number.isFinite(n) && n > 0 && n <= 24 * 60, {
+        message: "Duration must be between 1 and 1440 minutes",
+      }),
+    locationText: optionalString(z.string().trim().max(500)),
+    notes: optionalString(z.string().max(4000)),
+    assignments: z.array(Assignment).default([]),
+  })
+  .refine((v) => v.orderId !== undefined || (v.title && v.title.length > 0), {
+    message: "Standalone events require a title",
+    path: ["title"],
+  });
 
 export const CreateEventInput = EventBase;
 export type CreateEventInputT = z.input<typeof CreateEventInput>;
 
-export const UpdateEventInput = EventBase.extend({
-  eventId: z.string().uuid(),
-});
+export const UpdateEventInput = EventBase.and(
+  z.object({ eventId: z.string().uuid() }),
+);
 export type UpdateEventInputT = z.input<typeof UpdateEventInput>;
 
 export const DeleteEventInput = z.object({

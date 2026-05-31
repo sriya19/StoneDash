@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { parseLocalDateTime, sameUtcDay } from "@/lib/tz";
+import { formatInTimeZone, parseLocalDateTime, sameUtcDay } from "@/lib/tz";
 import {
   CreateEventInput,
   DeleteEventInput,
@@ -26,7 +26,35 @@ function invalidate() {
   revalidatePath("/team");
 }
 
-function computeStartsAt(date: string, time: string, durationMin: number, tz: string): string {
+// Returns { startsAtIso, effectiveDurationMin }. For all-day events,
+// startTime is ignored, the result is midnight-org-local, and the
+// duration is forced to 1440. For timed events, the same-UTC-day rule
+// applies (matches the table CHECK).
+//
+// Per PLAN Q1 lock: the rigorous "midnight org-local" assertion lives
+// here because the CHECK can't see per-row org tz. By construction,
+// parseLocalDateTime(date, '00:00', tz) returns midnight in tz — but
+// we re-validate via formatInTimeZone(starts, tz, 'HH:mm') === '00:00'
+// to catch any future divergence (e.g. someone refactors
+// parseLocalDateTime and breaks the invariant).
+function computeStartsAt(
+  date: string,
+  time: string,
+  durationMin: number,
+  tz: string,
+  isAllDay: boolean,
+): { startsAtIso: string; effectiveDurationMin: number } {
+  if (isAllDay) {
+    const starts = parseLocalDateTime(date, "00:00", tz);
+    const localTime = formatInTimeZone(starts, tz, "HH:mm");
+    if (localTime !== "00:00") {
+      throw new Error(
+        `all-day event must start at midnight org-local (got ${localTime}). This is a bug.`,
+      );
+    }
+    return { startsAtIso: starts.toISOString(), effectiveDurationMin: 1440 };
+  }
+
   const starts = parseLocalDateTime(date, time, tz);
   const ends = new Date(starts.getTime() + durationMin * 60_000);
   if (!sameUtcDay(starts, ends)) {
@@ -34,7 +62,7 @@ function computeStartsAt(date: string, time: string, durationMin: number, tz: st
       "Event must start and end on the same UTC day (no overnight events in v1).",
     );
   }
-  return starts.toISOString();
+  return { startsAtIso: starts.toISOString(), effectiveDurationMin: durationMin };
 }
 
 export async function createOrderEvent(
@@ -49,23 +77,32 @@ export async function createOrderEvent(
   const supabase = createSupabaseServerClient();
 
   let startsAtIso: string;
+  let effectiveDurationMin: number;
   try {
-    startsAtIso = computeStartsAt(v.date, v.startTime, v.durationMin, org.timezone);
+    ({ startsAtIso, effectiveDurationMin } = computeStartsAt(
+      v.date,
+      v.startTime,
+      v.durationMin,
+      org.timezone,
+      v.isAllDay,
+    ));
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
   const { data, error } = await supabase.rpc("create_order_event", {
-    p_order_id: v.orderId,
+    p_order_id: v.orderId ?? null,
     p_kind: v.kind,
     p_starts_at: startsAtIso,
-    p_duration_min: v.durationMin,
+    p_duration_min: effectiveDurationMin,
     p_location_text: v.locationText ?? null,
     p_notes: v.notes ?? null,
     p_assignments: v.assignments.map((a) => ({
       crew_member_id: a.crewMemberId,
       role: a.role ?? null,
     })),
+    p_title: v.title ?? null,
+    p_is_all_day: v.isAllDay,
   });
   if (error || typeof data !== "string") {
     return { ok: false, error: error?.message ?? "Could not create event" };
@@ -86,8 +123,15 @@ export async function updateOrderEvent(
   const supabase = createSupabaseServerClient();
 
   let startsAtIso: string;
+  let effectiveDurationMin: number;
   try {
-    startsAtIso = computeStartsAt(v.date, v.startTime, v.durationMin, org.timezone);
+    ({ startsAtIso, effectiveDurationMin } = computeStartsAt(
+      v.date,
+      v.startTime,
+      v.durationMin,
+      org.timezone,
+      v.isAllDay,
+    ));
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -96,13 +140,15 @@ export async function updateOrderEvent(
     p_event_id: v.eventId,
     p_kind: v.kind,
     p_starts_at: startsAtIso,
-    p_duration_min: v.durationMin,
+    p_duration_min: effectiveDurationMin,
     p_location_text: v.locationText ?? null,
     p_notes: v.notes ?? null,
     p_assignments: v.assignments.map((a) => ({
       crew_member_id: a.crewMemberId,
       role: a.role ?? null,
     })),
+    p_title: v.title ?? null,
+    p_is_all_day: v.isAllDay,
   });
   if (error) return { ok: false, error: error.message };
   invalidate();
@@ -138,15 +184,17 @@ export async function rescheduleOrderEvent(
 
   // Fetch current event so we can preserve all fields except starts_at +
   // duration_min. update_order_event REPLACES every field; passing nulls
-  // for location/notes/assignments would wipe them.
+  // for location/notes/assignments/title/is_all_day would wipe them.
   const { data: existing, error: fetchErr } = await supabase
     .from("order_events")
-    .select("kind, location_text, notes")
+    .select("kind, location_text, notes, title, is_all_day")
     .eq("id", v.eventId)
     .maybeSingle<{
       kind: string;
       location_text: string | null;
       notes: string | null;
+      title: string | null;
+      is_all_day: boolean;
     }>();
   if (fetchErr || !existing) {
     return { ok: false, error: fetchErr?.message ?? "Event not found" };
@@ -160,8 +208,15 @@ export async function rescheduleOrderEvent(
   if (aErr) return { ok: false, error: aErr.message };
 
   let startsAtIso: string;
+  let effectiveDurationMin: number;
   try {
-    startsAtIso = computeStartsAt(v.date, v.startTime, v.durationMin, org.timezone);
+    ({ startsAtIso, effectiveDurationMin } = computeStartsAt(
+      v.date,
+      v.startTime,
+      v.durationMin,
+      org.timezone,
+      existing.is_all_day,
+    ));
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -170,13 +225,15 @@ export async function rescheduleOrderEvent(
     p_event_id: v.eventId,
     p_kind: existing.kind,
     p_starts_at: startsAtIso,
-    p_duration_min: v.durationMin,
+    p_duration_min: effectiveDurationMin,
     p_location_text: existing.location_text,
     p_notes: existing.notes,
     p_assignments: (assignments ?? []).map((a) => ({
       crew_member_id: a.crew_member_id,
       role: a.role,
     })),
+    p_title: existing.title,
+    p_is_all_day: existing.is_all_day,
   });
   if (error) return { ok: false, error: error.message };
   invalidate();
