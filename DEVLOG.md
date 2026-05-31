@@ -4,6 +4,47 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
+
+Four fixes uncovered when the shop actually started using the calendar from Task 3: events that aren't tied to an order, all-day events, location autocomplete, and a discoverability bug where "Send to crew" only existed on one of five surfaces. See `PLAN.md` for sub-step breakdown + the Q1–Q11 + the locked refinements.
+
+### Sub-step 1 — Migration 0016: standalone + all-day + 'task' kind (complete)
+
+**What shipped.**
+- **`0016_scheduling_v2.sql`** — three column changes + two CHECK rewrites + a view rebuild.
+  - `order_events.order_id` → nullable.
+  - `order_events.title text NULL` + new `order_events_title_or_order` CHECK: `order_id IS NOT NULL OR (title IS NOT NULL AND length(trim(title)) > 0)`. Either you reference an order or you give the event a title.
+  - `order_events.is_all_day boolean NOT NULL DEFAULT false`.
+  - `order_events_kind_valid` rewritten to include `'task'` (the brief referred to `order_events_kind_check`, which doesn't exist — actual name was `order_events_kind_valid`).
+  - `order_events_same_utc_day` rewritten per **PLAN Q1 lock** (see below).
+  - `v_calendar_events` dropped + recreated with `LEFT JOIN orders` (was `JOIN`), `title = COALESCE(o.project_name, e.title)`, `is_all_day`, and derived `is_standalone = (order_id IS NULL)`. Standalone rows correctly return NULL for order_number / customer_name / stone_type / contractor — falls out of the LEFT JOIN.
+- **`prisma/schema.prisma`** — `orderId` becomes nullable, `title String?` and `isAllDay Boolean @default(false)` added, `order` relation becomes `Order?`. `pnpm db:generate` regenerated the client.
+
+**The all-day CHECK choice (PLAN Q1 lock).** The simpler form:
+```sql
+(is_all_day = true AND duration_min = 1440)
+OR (is_all_day = false AND <same-UTC-day expression>)
+```
+Why simpler over rigorous: a truly-rigorous CHECK ("starts_at = midnight org-local") needs per-row org tz, which is STABLE not IMMUTABLE — and the constraint expression needs IMMUTABLE. The duration lock catches the most common accidental shape (someone sets `is_all_day=true` with a stray 60-minute duration); the rest of the invariant (00:00 org-local normalization) is enforced in sub-step 2's server action.
+
+**Verification.** Five direct-insert probes through the service-role client:
+
+| Probe | Expected | Result |
+|---|---|---|
+| Standalone event (title, no order_id, kind='task') → view query | `is_standalone=true`, `order_number=null`, title set | PASS |
+| No title + no order_id INSERT | rejected by `order_events_title_or_order` | PASS |
+| `kind = 'bogus'` INSERT | rejected by `order_events_kind_valid` | PASS |
+| `is_all_day=true, duration_min=60` INSERT | rejected by `order_events_same_utc_day` | PASS |
+| `is_all_day=true, duration_min=1440, starts_at='2026-06-10T04:00:00Z'` (00:00 ET) INSERT | accepted | PASS |
+
+Plus the pre-existing gates re-run cleanly:
+- `verify_event_backfill.ts` → 8 measurement + 8 install, counts match (no impact on legacy backfill).
+- `smoke_scheduling_rls.ts` → all 3 RLS claims still pass (column changes don't move RLS surface).
+
+**Why the rigorous variant was tempting but wrong.** Postgres CHECK expressions must be IMMUTABLE — they're cached by the planner and evaluated against the row alone, no session context. `AT TIME ZONE '<org_tz_column>'` is STABLE (depends on `pg_timezone_names` which is a table read), not IMMUTABLE. We can't ask "is starts_at exactly midnight in the org's tz?" from within the constraint. The action-layer assertion (sub-step 2) closes the gap by computing `parseLocalDateTime(date, '00:00', orgTz)` and asserting equality before the RPC call.
+
+---
+
 ## Server-side timezone discipline (code rule, 2026-05-26)
 
 Adopted as part of Task 3, Q3. Permanent rule, not task-scoped.

@@ -348,9 +348,11 @@ model CrewMember {
 model OrderEvent {
   id            String   @id @default(uuid()) @db.Uuid
   orgId         String   @map("org_id") @db.Uuid
-  orderId       String   @map("order_id") @db.Uuid
+  orderId       String?  @map("order_id") @db.Uuid
   kind          String
   status        String   @default("scheduled")
+  title         String?
+  isAllDay      Boolean  @default(false) @map("is_all_day")
   startsAt      DateTime @map("starts_at") @db.Timestamptz
   durationMin   Int      @default(60) @map("duration_min")
   // endsAt is a STORED generated column in Postgres; not introspectable by
@@ -362,7 +364,7 @@ model OrderEvent {
   updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   organization Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order        Order?                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
   assignments  OrderEventAssignment[]
   shareLinks   EventShareLink[]
 
