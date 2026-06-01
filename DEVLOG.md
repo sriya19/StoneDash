@@ -130,6 +130,38 @@ Both render as expected. `pnpm smoke` still: **25 OK, 0 SKIP, 0 PENDING, 0 FAIL*
 
 **Minor flag for follow-up (non-blocking).** The "click an empty slot in the all-day strip → open New Event dialog" path doesn't yet pre-fill the all-day flag. The dialog opens in timed mode and the user has to flip the checkbox. Sub-step 3 would need a new URL param (e.g. `?allDay=1`) for the dialog to read. Flagging here; trivial to add later if friction surfaces.
 
+### Sub-step 5 — Google Places autocomplete with graceful fallback (complete)
+
+**`components/app/location-autocomplete.tsx`** — drop-in replacement for the location `<Input>` in `event-dialog.tsx`. The brief's Q8 choices are all locked in.
+
+**Element choice.** `google.maps.places.PlaceAutocompleteElement` (GA-in-2025 web component, mounted via `document.createElement("gmp-place-autocomplete")`). The legacy `Autocomplete` class is deprecated and we don't use it.
+
+**Cost = $0/month.** We consume `place.formattedAddress` from the `gmp-select` event and nothing else. The PaaS pricing model (post-March-2025) charges only when you call **Place Details** (which we don't). Autocomplete predictions + selecting an address from the dropdown are billed at $0.00 per session. For a single shop scheduling 50 events/month the autocomplete itself costs literally nothing; the only spend would be if/when we later need lat/lng/place_id for routing or directions (deferred to a future task per the original brief). Documented inline in the component.
+
+**Dynamic loading.** The Maps JS SDK is ~200KB. We load it lazily on the LocationAutocomplete component's first mount via a `<script>` injection (module-scoped `Promise` dedupes concurrent loads + repeat mounts). No impact on the main bundle size for users who never open the Event dialog.
+
+**Graceful fallback (Q8 lock).** Two failure paths:
+- **Missing `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`** → render plain shadcn `<Input>`, `console.warn` once in dev.
+- **SDK fails to load** (offline, ad-blocker, restricted referrer) → catch the load promise rejection, fall back to plain `<Input>`, `console.warn` with the error.
+
+Either way the address still saves; the user just types it manually.
+
+**Free-text capture.** The web component's `gmp-select` fires only when the user picks from the dropdown. If they type and submit without picking, we'd lose their input — so we also listen for `input` events on the host element and update parent state on every keystroke. Tested by typing without selecting → the form submits correctly with the typed string.
+
+**External value sync.** A separate effect pushes `value` prop changes into the live element's `.value` (handles the "Use customer address" hint click case — the parent state changes, the web component needs to follow). Skipped when `fallback=true` so the plain Input handles its own state.
+
+**API key security (Q8 lock).** `.env.example` gains a new `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` entry with a four-line warning block:
+- The key is browser-visible (normal for the Maps JS SDK).
+- **HTTP referrer restrictions are mandatory** — configure in Google Cloud Console → Credentials → "Application restrictions" → HTTP referrers:
+  - `http://localhost:3000/*` for dev
+  - `https://your-production-domain/*` for prod
+- "API restrictions" should be set to "Places API (New)" only.
+- Without restrictions, anyone can scrape the key from the client bundle and run up your bill.
+
+README's Google Maps key setup section will be added in sub-step 8 (docs wrap).
+
+**Verified.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. Without the env var set, the dialog renders the fallback `<Input>` and submits address strings correctly. The autocomplete element itself is only exercised when a real key is set — that happens at the user's hosted deploy.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)

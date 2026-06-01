@@ -60,6 +60,7 @@ import {
 } from "@/lib/validators/events";
 import type { CalendarEvent, OrderForEventPicker } from "@/lib/queries/events";
 import type { CrewLite } from "@/lib/queries/crew";
+import { LocationAutocomplete } from "./location-autocomplete";
 
 type Props = {
   mode: "create" | "edit";
@@ -510,13 +511,13 @@ export function EventDialog({
             </div>
           ) : null}
 
-          {/* Location */}
+          {/* Location — Google Places autocomplete with graceful fallback */}
           <div className="space-y-1.5">
             <Label htmlFor="ev-loc">Location</Label>
-            <Input
+            <LocationAutocomplete
               id="ev-loc"
               value={locationText}
-              onChange={(e) => setLocationText(e.target.value)}
+              onChange={setLocationText}
               placeholder="1234 Maple Lane, Falls Church, VA"
             />
             {selectedOrder?.defaultLocation && locationText !== selectedOrder.defaultLocation ? (
