@@ -162,6 +162,32 @@ README's Google Maps key setup section will be added in sub-step 8 (docs wrap).
 
 **Verified.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. Without the env var set, the dialog renders the fallback `<Input>` and submits address strings correctly. The autocomplete element itself is only exercised when a real key is set — that happens at the user's hosted deploy.
 
+### Sub-step 6 — Open-in-Maps link buttons (complete)
+
+**`components/app/maps-links.tsx`** — small shared component. Two variants:
+- `variant="inline"` (default) — paired text-only links separated by a middot, sized for the dialog / table cells / list rows. `Google · Apple`.
+- `variant="buttons"` — bordered chip-style links for the public `/j/[slug]` page where the crew taps with their thumb. Larger touch target.
+
+Both render nothing when `location` is empty / null / whitespace-only. URL construction is pure string templates — no API calls:
+- Google: `https://www.google.com/maps/search/?api=1&query=<encoded>`
+- Apple: `https://maps.apple.com/?q=<encoded>`
+
+PLAN Q9 lock: render both side-by-side, **no UA sniffing**. The user picks the one they prefer; UA detection in 2026 isn't reliable enough to justify the complexity (Chromium-on-iOS shares Safari's UA, Android tablets sometimes mis-identify).
+
+**Mount points (4):**
+- `components/app/order-events-tab.tsx` — under the location line of each event row in the order detail Events tab.
+- `components/app/calendar-list.tsx` — in the Location cell. `e.stopPropagation()` on the wrapping div so the link clicks don't also open the event dialog (the row click handler).
+- `components/app/event-dialog.tsx` — to the right of the "Use customer address" hint when the location field has a value. Lets the user verify the address they typed is the right one before saving.
+- `app/j/[slug]/page.tsx` — replaces the single Google-only link from sub-step 9 with the `buttons` variant (both options for the crew).
+
+**Seed update.** Added a real Falls Church address (`6701 Wilson Blvd, Falls Church, VA 22044`) to the first upcoming install event, so the smoke and the demo UI always have something to render. Re-seeded cleanly.
+
+**Smoke now asserts both URL substrings.** `/schedule?view=list` has `expectBody: "maps.apple.com"` (the apple URL is the more distinctive substring; `google.com` would match other content). Sub-step 8's wrap will add a probe to the public page once the seed has a share link with a location.
+
+Spot-checked rendered `/j/<live-slug>` body: contains both `www.google.com/maps` and `maps.apple.com`. The earlier confusion about `maps.google.com` not appearing was my probe asserting the wrong substring — Google's URL is `www.google.com/maps`, not the older `maps.google.com` host. Documented inline.
+
+**Final.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. typecheck + lint + build green.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)

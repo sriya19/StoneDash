@@ -584,6 +584,16 @@ async function main() {
     await assign(upcomingInstalls[3].id, [mike, david]);
   }
 
+  // Demo address on the first upcoming install so the Open-in-Maps buttons
+  // (Task 3.1 sub-step 6) and the /j/[slug] location section have something
+  // to render. Real Falls Church address; nothing private about it.
+  if (upcomingInstalls[0]) {
+    await prisma.orderEvent.update({
+      where: { id: upcomingInstalls[0].id },
+      data: { locationText: "6701 Wilson Blvd, Falls Church, VA 22044" },
+    });
+  }
+
   // Two share links: one live (resolved by smoke /j/:slug-valid) and one
   // revoked (resolved by smoke /j/:slug-revoked). They cover the matrix
   // described in PLAN ADD-1.

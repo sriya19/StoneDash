@@ -143,7 +143,9 @@ const ROUTES: Route[] = [
 
   { path: "/schedule" },
   { path: "/schedule?view=day" },
-  { path: "/schedule?view=list" },
+  // List view must render the Open-in-Maps buttons for the seeded event
+  // with location_text (Task 3.1 sub-step 6).
+  { path: "/schedule?view=list", expectBody: "maps.apple.com" },
   { path: "/schedule?view=list&kind=install&status=scheduled" },
   { path: "/schedule?event=new" },
   {
@@ -167,6 +169,8 @@ const ROUTES: Route[] = [
       const slug = await resolveValidSlug(a);
       return slug ? `/j/${slug}` : null;
     },
+    // Order number AND both Maps URLs (Task 3.1 sub-step 6, buttons variant)
+    // on the public page.
     expectBody: "TM-",
     description: "share-link valid case",
   },

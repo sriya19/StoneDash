@@ -35,6 +35,7 @@ import {
   updateOrderEventStatus,
 } from "@/lib/actions/events";
 import type { CalendarEvent } from "@/lib/queries/events";
+import { MapsLinks } from "./maps-links";
 
 type Props = {
   events: CalendarEvent[];
@@ -278,10 +279,13 @@ function EventRow({
           )}
 
           {event.locationText ? (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <MapPin className="h-3 w-3" />
-              {event.locationText}
-            </p>
+            <div className="space-y-0.5">
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <MapPin className="h-3 w-3" />
+                {event.locationText}
+              </p>
+              <MapsLinks location={event.locationText} className="pl-4" />
+            </div>
           ) : null}
 
           {event.notes ? (

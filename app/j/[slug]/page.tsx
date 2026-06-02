@@ -28,6 +28,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSignedUrls } from "@/lib/actions/attachments";
 import { formatInTimeZone, tzAbbreviation } from "@/lib/tz";
 import { SharePageActions } from "@/components/app/share-page-actions";
+import { MapsLinks } from "@/components/app/maps-links";
 
 type Params = { slug: string };
 
@@ -152,10 +153,6 @@ export default async function PublicSharePage({ params }: { params: Params }) {
     .update({ last_opened_at: new Date().toISOString() })
     .eq("id", link.id);
 
-  const mapsUrl = event.location_text
-    ? `https://maps.google.com/?q=${encodeURIComponent(event.location_text)}`
-    : null;
-
   const customer = event.orders.customers;
 
   return (
@@ -197,18 +194,9 @@ export default async function PublicSharePage({ params }: { params: Params }) {
         {event.location_text ? (
           <section className="flex items-start gap-2 text-sm">
             <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex-1">
+            <div className="flex-1 space-y-1.5">
               <p>{event.location_text}</p>
-              {mapsUrl ? (
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-brand underline-offset-2 hover:underline"
-                >
-                  Open in Maps
-                </a>
-              ) : null}
+              <MapsLinks location={event.location_text} variant="buttons" />
             </div>
           </section>
         ) : null}

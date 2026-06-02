@@ -61,6 +61,7 @@ import {
 import type { CalendarEvent, OrderForEventPicker } from "@/lib/queries/events";
 import type { CrewLite } from "@/lib/queries/crew";
 import { LocationAutocomplete } from "./location-autocomplete";
+import { MapsLinks } from "./maps-links";
 
 type Props = {
   mode: "create" | "edit";
@@ -520,18 +521,23 @@ export function EventDialog({
               onChange={setLocationText}
               placeholder="1234 Maple Lane, Falls Church, VA"
             />
-            {selectedOrder?.defaultLocation && locationText !== selectedOrder.defaultLocation ? (
-              <button
-                type="button"
-                className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-                onClick={() =>
-                  selectedOrder.defaultLocation &&
-                  setLocationText(selectedOrder.defaultLocation)
-                }
-              >
-                Use customer address: {selectedOrder.defaultLocation}
-              </button>
-            ) : null}
+            <div className="flex items-center justify-between gap-3">
+              {selectedOrder?.defaultLocation && locationText !== selectedOrder.defaultLocation ? (
+                <button
+                  type="button"
+                  className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={() =>
+                    selectedOrder.defaultLocation &&
+                    setLocationText(selectedOrder.defaultLocation)
+                  }
+                >
+                  Use customer address: {selectedOrder.defaultLocation}
+                </button>
+              ) : (
+                <span />
+              )}
+              <MapsLinks location={locationText} />
+            </div>
           </div>
 
           {/* Crew */}

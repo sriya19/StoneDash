@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
 import type { CalendarEvent } from "@/lib/queries/events";
+import { MapsLinks } from "./maps-links";
 
 const PAGE_SIZE = 50;
 
@@ -177,8 +178,17 @@ export function CalendarList({ events, timeZone }: Props) {
                     ev.crew.map((c) => c.name).join(", ")
                   )}
                 </TableCell>
-                <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                  {ev.locationText ?? "—"}
+                <TableCell className="max-w-[220px] text-xs text-muted-foreground">
+                  {ev.locationText ? (
+                    <div className="space-y-0.5">
+                      <p className="truncate">{ev.locationText}</p>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <MapsLinks location={ev.locationText} />
+                      </div>
+                    </div>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
                 <TableCell className={cn("text-xs capitalize", STATUS_TONE[ev.status] ?? "")}>
                   {ev.status.replace(/_/g, " ")}
