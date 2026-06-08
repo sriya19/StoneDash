@@ -141,9 +141,29 @@ const ROUTES: Route[] = [
     },
   },
 
-  { path: "/schedule" },
-  { path: "/schedule?view=day" },
-  // List view must render the Open-in-Maps buttons for the seeded event
+  // Send-to-crew icon present on every event-display surface (Task 3.1
+  // sub-step 7b). The testid is rendered server-side on event blocks and
+  // the list-view action column; the Sheet/Dialog portal-mounted surfaces
+  // are covered by scripts/smoke_send_to_crew_dom.ts. The week view always
+  // contains some seeded event regardless of "today"; the day view is
+  // anchored to a known-event date via the resolver.
+  { path: "/schedule", expectBody: 'data-testid="send-to-crew"' },
+  {
+    path: "/schedule?view=day&date=:eventDate",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("order_events")
+        .select("starts_at")
+        .order("starts_at", { ascending: true })
+        .limit(1)
+        .maybeSingle<{ starts_at: string }>();
+      if (!data) return null;
+      const date = data.starts_at.slice(0, 10);
+      return `/schedule?view=day&date=${date}`;
+    },
+    expectBody: 'data-testid="send-to-crew"',
+  },
+  // List view also asserts the Open-in-Maps buttons for the seeded event
   // with location_text (Task 3.1 sub-step 6).
   { path: "/schedule?view=list", expectBody: "maps.apple.com" },
   { path: "/schedule?view=list&kind=install&status=scheduled" },
@@ -157,6 +177,17 @@ const ROUTES: Route[] = [
         .limit(1)
         .maybeSingle<{ id: string }>();
       return data?.id ? `/schedule?event=${data.id}` : null;
+    },
+  },
+  {
+    path: "/schedule?send=:eventId",
+    resolver: async (a) => {
+      const { data } = await a
+        .from("order_events")
+        .select("id")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      return data?.id ? `/schedule?send=${data.id}` : null;
     },
   },
 

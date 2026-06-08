@@ -14,11 +14,13 @@ import {
   listCalendarEvents,
   listOrdersForEventPicker,
 } from "@/lib/queries/events";
+import { getSendModalContext } from "@/lib/queries/share-links";
 import { listCrewLite } from "@/lib/queries/crew";
 import { Button } from "@/components/ui/button";
 import { CalendarGrid } from "@/components/app/calendar-grid";
 import { CalendarList } from "@/components/app/calendar-list";
 import { EventDialog } from "@/components/app/event-dialog";
+import { SendToCrewModal } from "@/components/app/send-to-crew-modal";
 import { ScheduleNav } from "@/components/app/schedule-nav";
 import { ScheduleFilterBar } from "@/components/app/schedule-filter-bar";
 import { ScheduleViewTabs, type ScheduleView } from "@/components/app/schedule-view-tabs";
@@ -30,6 +32,7 @@ type SearchParams = {
   event?: string;
   time?: string;
   order?: string;
+  send?: string;
   kind?: string;
   crew?: string;
   status?: string;
@@ -132,6 +135,8 @@ export default async function SchedulePage({
   const showCreate = eventParam === "new";
   const editEventId = eventParam && UUID_RE.test(eventParam) ? eventParam : null;
   const showDialog = showCreate || editEventId !== null;
+  const sendEventId =
+    searchParams.send && UUID_RE.test(searchParams.send) ? searchParams.send : null;
 
   const [events, crewLite, orders, editEvent] = await Promise.all([
     listCalendarEvents({
@@ -251,7 +256,59 @@ export default async function SchedulePage({
           initialOrderId={searchParams.order ?? null}
         />
       ) : null}
+
+      {sendEventId ? <SendModalMount eventId={sendEventId} timeZone={tz} /> : null}
     </div>
+  );
+}
+
+// Mirrors /orders' SendModalMount — sub-step 7b makes the modal reachable
+// from /schedule too. Standalone events have no order context, but the
+// modal still works (orderNumber/customerName fall back to em-dashes in
+// the formatted text).
+async function SendModalMount({
+  eventId,
+  timeZone,
+}: {
+  eventId: string;
+  timeZone: string;
+}) {
+  const ctx = await getSendModalContext(eventId);
+  if (!ctx) return null;
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+  return (
+    <SendToCrewModal
+      state={{
+        eventId,
+        timeZone,
+        baseContext: {
+          kind: ctx.event.kind,
+          startsAt: ctx.event.startsAt,
+          durationMin: ctx.event.durationMin,
+          orderNumber: ctx.order.orderNumber,
+          projectName: ctx.order.projectName,
+          location: ctx.event.locationText,
+          customerName: ctx.customer.name,
+          customerPhone: ctx.customer.phone,
+          stoneType: ctx.order.stoneType,
+          edgeProfile: ctx.order.edgeProfile,
+          sinkCutouts: ctx.order.sinkCutouts,
+          cooktopCutouts: ctx.order.cooktopCutouts,
+          notes: ctx.event.notes,
+        },
+        link: ctx.link
+          ? {
+              id: ctx.link.id,
+              slug: ctx.link.slug,
+              createdAt: ctx.link.createdAt,
+              revokedAt: ctx.link.revokedAt,
+              lastOpenedAt: ctx.link.lastOpenedAt,
+            }
+          : null,
+        siteUrl,
+      }}
+    />
   );
 }
 

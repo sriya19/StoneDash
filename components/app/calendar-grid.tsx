@@ -436,7 +436,12 @@ function DraggableEvent({
       {...attributes}
       {...listeners}
     >
-      <EventBlock event={event} timeZone={timeZone} size={size} />
+      <EventBlock
+        event={event}
+        timeZone={timeZone}
+        size={size}
+        sendHref={`?send=${event.id}`}
+      />
     </button>
   );
 }
@@ -515,7 +520,12 @@ function DraggableAllDayPill({
       {...attributes}
       {...listeners}
     >
-      <EventBlock event={event} timeZone={timeZone} variant="pill" />
+      <EventBlock
+        event={event}
+        timeZone={timeZone}
+        variant="pill"
+        sendHref={`?send=${event.id}`}
+      />
     </button>
   );
 }

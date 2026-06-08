@@ -40,13 +40,17 @@ export async function getLiveLinkForEvent(eventId: string): Promise<ShareLinkRow
   };
 }
 
-// Bundled fetch for the send-to-crew modal: event + extra order fields
-// not in v_calendar_events + customer details + any live share link.
-// Returns null if the event doesn't exist or isn't readable under RLS.
+// Bundled fetch for the send-to-crew modal: event + (when present) order +
+// customer + any live share link. Returns null if the event doesn't exist
+// or isn't readable under RLS.
+//
+// Standalone events (order_id IS NULL) return a context with the event's
+// title used as the project name; orderNumber falls back to "—" and
+// customer fields are null. The format-text helper degrades cleanly.
 export type SendModalContext = {
   event: {
     id: string;
-    orderId: string;
+    orderId: string | null;
     kind: string;
     startsAt: string;
     durationMin: number;
@@ -70,8 +74,9 @@ export type SendModalContext = {
 
 type EventForModalDb = {
   id: string;
-  order_id: string;
+  order_id: string | null;
   kind: string;
+  title: string | null;
   starts_at: string;
   duration_min: number;
   location_text: string | null;
@@ -91,11 +96,14 @@ export async function getSendModalContext(
   eventId: string,
 ): Promise<SendModalContext | null> {
   const supabase = createSupabaseServerClient();
+  // LEFT JOIN orders (no !inner) so standalone events return a row with
+  // `orders: null`. Sub-step 7b made the send modal reachable from the
+  // calendar surfaces, including standalone events.
   const [eventRes, linkRow] = await Promise.all([
     supabase
       .from("order_events")
       .select(
-        "id, order_id, kind, starts_at, duration_min, location_text, notes, orders!inner(order_number, project_name, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, customers(name, phone))",
+        "id, order_id, kind, title, starts_at, duration_min, location_text, notes, orders(order_number, project_name, stone_type, edge_profile, sink_cutouts, cooktop_cutouts, customers(name, phone))",
       )
       .eq("id", eventId)
       .maybeSingle<EventForModalDb>(),
@@ -103,7 +111,7 @@ export async function getSendModalContext(
   ]);
   if (eventRes.error) throw eventRes.error;
   const e = eventRes.data;
-  if (!e || !e.orders) return null;
+  if (!e) return null;
 
   return {
     event: {
@@ -116,16 +124,20 @@ export async function getSendModalContext(
       notes: e.notes,
     },
     order: {
-      orderNumber: e.orders.order_number,
-      projectName: e.orders.project_name,
-      stoneType: e.orders.stone_type,
-      edgeProfile: e.orders.edge_profile,
-      sinkCutouts: e.orders.sink_cutouts,
-      cooktopCutouts: e.orders.cooktop_cutouts,
+      // Standalone events have no order number; the modal's UI tolerates
+      // an em-dash but the text block looks cleaner without "📍 Install:
+      // — — ..." — formatShareText guards on a missing title for the
+      // standalone case.
+      orderNumber: e.orders?.order_number ?? "—",
+      projectName: e.orders?.project_name ?? e.title,
+      stoneType: e.orders?.stone_type ?? null,
+      edgeProfile: e.orders?.edge_profile ?? null,
+      sinkCutouts: e.orders?.sink_cutouts ?? 0,
+      cooktopCutouts: e.orders?.cooktop_cutouts ?? 0,
     },
     customer: {
-      name: e.orders.customers?.name ?? null,
-      phone: e.orders.customers?.phone ?? null,
+      name: e.orders?.customers?.name ?? null,
+      phone: e.orders?.customers?.phone ?? null,
     },
     link: linkRow,
   };

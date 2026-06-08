@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
+import { Share2 } from "lucide-react";
 
 import {
   Table,
@@ -104,6 +106,12 @@ export function CalendarList({ events, timeZone }: Props) {
     router.push(`/schedule?${params.toString()}`);
   }
 
+  function sendHref(eventId: string): string {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("send", eventId);
+    return `/schedule?${params.toString()}`;
+  }
+
   if (total === 0) {
     return (
       <div className="rounded-xl border bg-card p-12 text-center">
@@ -129,6 +137,7 @@ export function CalendarList({ events, timeZone }: Props) {
               <TableHead>Crew</TableHead>
               <TableHead>Location</TableHead>
               <SortableHead label="Status" active={sort === "status"} dir={dir} onClick={() => toggleSort("status")} />
+              <TableHead className="w-8" aria-label="Actions" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -192,6 +201,18 @@ export function CalendarList({ events, timeZone }: Props) {
                 </TableCell>
                 <TableCell className={cn("text-xs capitalize", STATUS_TONE[ev.status] ?? "")}>
                   {ev.status.replace(/_/g, " ")}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Link
+                    href={sendHref(ev.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid="send-to-crew"
+                    title="Send to crew"
+                    aria-label="Send to crew"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-accent"
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                  </Link>
                 </TableCell>
               </TableRow>
             ))}

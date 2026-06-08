@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { Check, ChevronsUpDown, Loader2, Trash2, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Loader2, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -692,6 +692,26 @@ export function EventDialog({
           <Button type="button" variant="ghost" onClick={close} disabled={pending}>
             Cancel
           </Button>
+          {mode === "edit" && initial ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                // Swap modals via URL: drop the dialog params, add ?send.
+                const params = new URLSearchParams(searchParams.toString());
+                params.delete("event");
+                params.delete("date");
+                params.delete("time");
+                params.set("send", initial.id);
+                router.push(`${pathname}?${params.toString()}`);
+              }}
+              data-testid="send-to-crew"
+              className="gap-1"
+            >
+              <Share2 className="h-4 w-4" />
+              Send to crew
+            </Button>
+          ) : null}
           <Button type="button" onClick={submit} disabled={pending} className="gap-1">
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             {mode === "edit" ? "Save" : "Create"}

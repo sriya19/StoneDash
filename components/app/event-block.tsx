@@ -1,3 +1,8 @@
+"use client";
+
+import Link from "next/link";
+import { Share2 } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
 import type { CalendarEvent } from "@/lib/queries/events";
@@ -32,6 +37,11 @@ type Props = {
   // "pill"  = one-line horizontal strip for the all-day row above the hour
   //           grid. No customer line, no crew avatars, no time (it's all-day).
   variant?: "block" | "pill";
+  // Optional: render a small Share2 icon in the top-right corner that links
+  // to ?send=<eventId>. The link stops propagation so the surrounding event
+  // click (which opens the edit dialog) doesn't also fire. Carries the
+  // standard data-testid for the DOM smoke gate.
+  sendHref?: string;
 };
 
 export function EventBlock({
@@ -39,6 +49,7 @@ export function EventBlock({
   timeZone,
   size = "sm",
   variant = "block",
+  sendHref,
 }: Props) {
   const kindClass = KIND_BG[event.kind] ?? KIND_BG.other;
   const terminal = isTerminal(event.status);
@@ -60,7 +71,7 @@ export function EventBlock({
     return (
       <div
         className={cn(
-          "flex items-center gap-1.5 overflow-hidden rounded-md border px-1.5 py-0.5 text-left text-[10px] leading-tight",
+          "relative flex items-center gap-1.5 overflow-hidden rounded-md border px-1.5 py-0.5 pr-5 text-left text-[10px] leading-tight",
           kindClass,
           terminal && "opacity-60",
         )}
@@ -78,6 +89,7 @@ export function EventBlock({
         {bodyLabel ? (
           <span className="truncate font-medium opacity-90">— {bodyLabel}</span>
         ) : null}
+        {sendHref ? <SendCorner href={sendHref} /> : null}
       </div>
     );
   }
@@ -92,13 +104,14 @@ export function EventBlock({
   return (
     <div
       className={cn(
-        "h-full overflow-hidden rounded-md border px-1.5 py-1 text-left",
+        "relative h-full overflow-hidden rounded-md border px-1.5 py-1 text-left",
         kindClass,
         terminal && "opacity-60",
       )}
       title={tooltip}
     >
-      <div className="flex items-center justify-between gap-1 text-[10px] leading-tight">
+      {sendHref ? <SendCorner href={sendHref} /> : null}
+      <div className="flex items-center justify-between gap-1 pr-5 text-[10px] leading-tight">
         <span
           className={cn(
             event.isStandalone ? "truncate font-medium" : "font-mono font-medium",
@@ -150,4 +163,23 @@ function initials(name: string): string {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+// Absolute-positioned Send-to-crew icon in the top-right corner of an
+// event block / pill. The link stops propagation so the outer event's
+// click handler (which opens the edit dialog) doesn't also fire.
+function SendCorner({ href }: { href: string }) {
+  return (
+    <Link
+      href={href}
+      data-testid="send-to-crew"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      title="Send to crew"
+      aria-label="Send to crew"
+      className="absolute right-0.5 top-0.5 z-10 inline-flex items-center justify-center rounded p-0.5 opacity-70 transition hover:bg-background/60 hover:opacity-100"
+    >
+      <Share2 className="h-3 w-3" />
+    </Link>
+  );
 }

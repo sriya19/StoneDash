@@ -14,7 +14,9 @@
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
     "db:seed": "tsx --env-file=.env.local supabase/seed.ts",
-    "smoke": "tsx --env-file=.env.local scripts/smoke_pages.ts"
+    "smoke": "pnpm smoke:ssr && pnpm smoke:dom",
+    "smoke:ssr": "tsx --env-file=.env.local scripts/smoke_pages.ts",
+    "smoke:dom": "tsx --env-file=.env.local scripts/smoke_send_to_crew_dom.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
@@ -62,6 +64,7 @@
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "playwright": "^1.60.0",
     "postcss": "^8",
     "prisma": "6.19.3",
     "tailwindcss": "^3.4.1",

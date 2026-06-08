@@ -366,7 +366,7 @@ function EventRow({
               asChild
               title="Send to crew"
             >
-              <Link href={hrefSend}>
+              <Link href={hrefSend} data-testid="send-to-crew">
                 <MessageCircle className="h-3 w-3" /> Send
               </Link>
             </Button>

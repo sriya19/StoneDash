@@ -188,6 +188,54 @@ Spot-checked rendered `/j/<live-slug>` body: contains both `www.google.com/maps`
 
 **Final.** `pnpm smoke` → **25 OK, 0 SKIP, 0 PENDING, 0 FAIL**. typecheck + lint + build green.
 
+### Sub-step 7a — Send-to-crew discoverability AUDIT (complete; no code)
+
+Five event-display surfaces, one wired:
+
+| # | Surface | Reachable? | Detail |
+|---|---|---|---|
+| 1 | `/schedule` week view event block | NO | `EventBlock` had no Send affordance |
+| 2 | `/schedule` day view event block | NO | Same component, same gap |
+| 3 | `/schedule` list view event row | NO | No action column / button |
+| 4 | Order detail Sheet → Events tab event row | YES | Sub-step 9 of Task 3 (`cd1cd66`) |
+| 5 | Event edit dialog | NO | Footer had Cancel + Save only |
+
+Diagnosis matches the user report ("cannot find Send-to-crew anywhere") — only path was orders → detail → Events tab → small Send icon. `/schedule` had **zero** discoverable path. Also flagged: `SendToCrewModal` mounted only on `/orders`; `?send=<id>` from `/schedule` URLs would have nowhere to land.
+
+### Sub-step 7b — Send-to-crew on every event surface + DOM smoke (complete)
+
+**Send buttons added (all carry `data-testid="send-to-crew"`):**
+- **`EventBlock`** — new `sendHref?: string` prop. Renders an absolute-positioned `<Share2>` icon in the top-right corner of both block + pill variants. Click stops propagation so the surrounding event-click (which opens the edit dialog) doesn't also fire. Component goes `"use client"` for the propagation handler.
+- **`calendar-grid.tsx`** — both `DraggableEvent` and `DraggableAllDayPill` pass `sendHref={?send=${event.id}}`.
+- **`calendar-list.tsx`** — new actions column at the end of the table. Small `<Share2>` icon button per row with `stopPropagation` (row click otherwise opens edit dialog). `sendHref()` helper builds the URL preserving filter state.
+- **`event-dialog.tsx`** — footer button between Cancel and Save (edit mode only — can't Send a not-yet-created event). Click swaps modals via URL: drops `?event`/`?date`/`?time`, adds `?send=<id>`, pushes to current pathname. The page server-re-renders with EventDialog unmounted and SendToCrewModal mounted.
+
+**`SendToCrewModal` mounted on `/schedule`** via a `SendModalMount` server component mirroring the `/orders` pattern from sub-step 9. URL param `?send=<uuid>` now opens the modal on either page.
+
+**`getSendModalContext` made standalone-friendly.** Was `orders!inner` → null for standalone events. Switched to `LEFT JOIN orders` + sensible fallbacks (`orderNumber → "—"`, `projectName → event.title`, customer fields → null). The format-text helper degrades cleanly; standalone events get a usable share block.
+
+**SSR smoke** asserts `data-testid="send-to-crew"` body content on `/schedule` (week), `/schedule?view=day&date=:eventDate` (anchored to a real seeded event date — week always has content but day is "today"-relative and seeded dates drift), and `/schedule?view=list`. Plus a new `/schedule?send=:eventId` route to verify the modal mounts there. **26 OK, 0 SKIP, 0 PENDING, 0 FAIL** for the SSR layer.
+
+**DOM smoke** (`scripts/smoke_send_to_crew_dom.ts`) — PLAN Q7 lock fulfilled.
+- Adds `playwright` as a devDependency. First run requires `npx playwright install chromium` (~90MB, one-time).
+- Boots headless chromium, authenticates by signing in via the anon Supabase client and pushing the cookies onto the browser context.
+- Hits each portal-mounted surface, waits for hydration (`waitForSelector` with a 3s ceiling for Radix mount animations), counts `data-testid="send-to-crew"` nodes.
+- Targets: Order detail Sheet → Events tab (verifies Sheet portal); EventDialog footer on `/schedule` (verifies Dialog portal); EventDialog footer on `/orders` (same Dialog but inside a Sheet — two stacked portals).
+- Graceful skip if playwright or chromium isn't installed: prints a warning, exits 0. Devs without it can still run `pnpm smoke:ssr`.
+- Wired into `pnpm smoke` as the second stage. `pnpm smoke:ssr` and `pnpm smoke:dom` callable individually.
+
+**Result:**
+```
+$ pnpm smoke
+26 route(s): 26 OK, 0 SKIP, 0 PENDING, 0 FAIL    [SSR]
+[OK     ] 2× testid  Order detail Sheet — Events tab
+[OK     ] 4× testid  EventDialog footer (on /schedule)
+[OK     ] 3× testid  EventDialog footer (on /orders)
+3 target(s): 3 OK, 0 FAIL                         [DOM]
+```
+
+**One bug found during smoke iteration.** The DOM smoke initially picked any order via `.limit(1)` — landed on an order with no events, the Events tab rendered empty, the testid wasn't there. Fixed by anchoring the resolver to an order **that has at least one event** (`.from("order_events").not("order_id", "is", null).limit(1)`, then use that event's `order_id`). The same class of bug — "smoke route resolver picks the wrong row" — could bite future additions; documented as a watch-item in the script's comment header.
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)
