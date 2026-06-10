@@ -294,12 +294,25 @@ people you assign work to. Most never log into the app.
 
 ```
 crew_members                     people you dispatch (not app accounts)
-order_events                     measurement / install / delivery / pickup / other
+order_events                     measurement / install / delivery / pickup / other / task
 order_event_assignments          event ↔ crew, N:M with per-assignment role
 event_share_links                public slugs for /j/[slug]
 v_calendar_events                joined read-model used by the calendar UI
 v_orders_with_event_dates        orders + next install/measurement (derived)
 ```
+
+**Standalone events and all-day events.** `order_events.order_id` is
+nullable: events that aren't tied to a job (a phone call, a payment
+pickup, a trade show) carry a `title` instead. The dialog's Type
+segmented control toggles between "For an order" and "Standalone"
+at create time; the kind is fixed at create per Q3 of Task 3.1.
+`order_events.is_all_day` flags events without a specific clock time —
+they render in a horizontal strip above the hour grid. The dialog's
+"All day" checkbox hides the time + duration pickers when set. The
+same-day CHECK constraint exempts all-day events (a 24-hour event
+necessarily crosses UTC midnight in any non-UTC org tz); the action
+layer enforces 00:00 org-local normalization as the belt-and-suspenders
+pair.
 
 **Why a forwarding trigger?** The action layer (`createOrder`) calls
 `create_order_event` directly — the new orders flow doesn't touch
@@ -377,27 +390,79 @@ end-to-end via-shared-link path: pick a live share link from the seed,
 call the RPC with `p_via_shared_link=true`, verify the resulting
 audit row has `actor_id=NULL` and `metadata.via='shared_link'`.
 
+### Google Maps API key setup (location autocomplete)
+
+The Event dialog's Location field uses the new
+`gmp-place-autocomplete` web component for address suggestions. The
+key is **browser-visible** (`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`) — that's
+how the Maps JS SDK is meant to be used. The mandatory safety net is
+**HTTP referrer restrictions**, configured in Google Cloud Console.
+
+1. Go to <https://console.cloud.google.com/apis/credentials> → **Create
+   credentials → API key**.
+2. Open the new key → **Application restrictions → HTTP referrers
+   (websites)**. Add:
+   - `http://localhost:3000/*` (dev)
+   - `https://your-production-domain/*` (prod — include trailing `/*`)
+3. **API restrictions → Restrict key → Places API (New)** only.
+4. Enable the API at **APIs & Services → Library → Places API (New) →
+   Enable**.
+5. Paste the key into `.env.local`:
+   ```sh
+   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIza...
+   ```
+
+**Cost is $0/month** in our usage. The new pricing model (post-March
+2025) bills only on **Place Details** calls — autocomplete predictions
+and selecting an address from the dropdown are free. We consume the
+selected `formattedAddress` from the `gmp-select` event and never call
+Place Details. Routing / lat-lng features that would require Place
+Details are deferred per the original brief.
+
+**Without the key**, the Location field falls back to a plain `<Input>`
+gracefully. The address still saves; users just type it manually. A
+one-time `console.warn` surfaces the missing key in dev.
+
+**Without the referrer restrictions**, anyone can scrape the key from
+your client bundle and run up the bill. The `.env.example` warning is
+not optional — set them before deploying.
+
 ### Render-time smoke gate
 
-`scripts/smoke_pages.ts` (run as `pnpm smoke`) hits every app route +
-the `/j/[slug]` matrix (valid / revoked / fake) against a running
-`pnpm dev` server, with an authenticated session. Catches the class of
-bugs `pnpm typecheck` + `next build` miss — server components that
-import non-component values from `"use client"` modules render-fail
-only at call time, and dynamic routes aren't prerendered. First
-demonstrated by the Task 2B `balanceClass` bug.
+`pnpm smoke` runs two stages in sequence against a running `pnpm dev`
+server. Catches the class of bugs `pnpm typecheck` + `next build` miss
+— server components that import non-component values from `"use client"`
+modules render-fail only at call time, and dynamic routes aren't
+prerendered. First demonstrated by the Task 2B `balanceClass` bug.
+
+**Stage 1 — SSR smoke** (`pnpm smoke:ssr`, ~3s).
+`scripts/smoke_pages.ts` fetches each route in a default list against
+the authenticated session. Asserts HTTP status (default 200) and
+optional `expectBody` substrings. Covers everything that renders
+server-side: page chrome, kanban columns, calendar event blocks,
+Open-in-Maps URLs, the public `/j/[slug]` matrix.
+
+**Stage 2 — DOM smoke** (`pnpm smoke:dom`, ~10s).
+`scripts/smoke_send_to_crew_dom.ts` boots a headless chromium via
+playwright, hits the URLs that mount Radix portals (Sheet / Dialog),
+waits for hydration, asserts `data-testid="send-to-crew"` nodes are
+present. Covers the surfaces SSR-grep can't see. Skips gracefully if
+playwright/chromium isn't installed (`pnpm add -D playwright && npx
+playwright install chromium` — one-time, ~90MB).
 
 ```sh
 pnpm dev        # in another terminal
-pnpm smoke
-pnpm smoke /j   # subset by path prefix
+pnpm smoke              # both stages
+pnpm smoke:ssr          # SSR only
+pnpm smoke:dom          # DOM only
+pnpm smoke:ssr /j       # subset by path prefix
 ```
 
-Each route has an `expectStatus` (default 200), optional `expectBody`
-substring, optional `pending` flag (= "expected 404 until the
-implementing sub-step lands; remove me once it does"), and optional
-`resolver` for dynamic templates like `:contractorId` / `:slug` that
-need a live DB row.
+Each SSR route has an `expectStatus` (default 200), optional
+`expectBody` substring, optional `pending` flag (= "expected 404 until
+the implementing sub-step lands; remove me once it does"), and optional
+`resolver` for dynamic templates (`:contractorId`, `:slug`,
+`:eventId`, etc.).
 
 ### Debugging RLS
 
@@ -489,6 +554,20 @@ Migrations don't run on deploy — apply them from your machine
 
 Out of scope for the work currently shipped — see
 [`DEVLOG.md`](./DEVLOG.md) for the per-task running deferred list.
+
+**From Task 3.1 (scheduling UX fixes):**
+
+- Recurring events (still deferred).
+- Address structured fields (lat/lng/place_id). The current location
+  field stores only the formatted string; routing-by-coordinates
+  would need Place Details calls + columns.
+- Multi-day all-day events (single-day is the v1 shape).
+- Custom event kinds beyond the six (`measurement`, `install`,
+  `delivery`, `pickup`, `other`, `task`).
+- UA-driven primary-Maps-link selection (we render both side-by-side).
+- Notifications / reminders ("ping me 1h before this event").
+- A proper Playwright test framework. The DOM smoke is a one-off
+  script; if testing pressure grows, promote it to a full suite.
 
 **From Task 3 (scheduling + crew dispatch):**
 

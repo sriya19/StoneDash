@@ -236,6 +236,62 @@ $ pnpm smoke
 
 **One bug found during smoke iteration.** The DOM smoke initially picked any order via `.limit(1)` — landed on an order with no events, the Events tab rendered empty, the testid wasn't there. Fixed by anchoring the resolver to an order **that has at least one event** (`.from("order_events").not("order_id", "is", null).limit(1)`, then use that event's `order_id`). The same class of bug — "smoke route resolver picks the wrong row" — could bite future additions; documented as a watch-item in the script's comment header.
 
+### Sub-step 8 — README + DEVLOG wrap + seed (complete)
+
+**Seed (`supabase/seed.ts`).** Two new standalone events at the end of the seed so the calendar always has Task 3.1 demo content:
+- `"Pick up checks from Ameer"` — kind=task, +2 days at 14:00 org-local, 30-min duration, location set. Shows up in the calendar as a standalone task with the Send-to-crew button reachable.
+- `"KBIS trade show"` — kind=task, +5 days, is_all_day=true (1440 duration), location set. Shows up as an all-day pill above the hour grid.
+
+Both rely on a small `localToUtc(dateOffsetDays, hhmm)` helper that converts a wall-clock-in-org-tz to UTC via `Intl.DateTimeFormat`. Could have used `lib/tz.ts`'s `parseLocalDateTime` but that's a Node-side import path the seed doesn't currently pull in; the inline helper is ~15 lines and isolated.
+
+Seed re-runs cleanly. Output:
+```
+8 customers, 3 contractors, 10 orders, 2 contractor payments,
+5 crew, 5 upcoming installs, 2 share links,
+2 standalone events (1 task, 1 all-day).
+```
+
+**README updates.**
+- "Understand the scheduling model" gains a paragraph on **Standalone events and all-day events** — title-instead-of-order, the all-day CHECK exemption rationale, the action-layer normalization.
+- Crew dispatch table's `order_events` row gains the `'task'` kind in the comment.
+- New **Google Maps API key setup** section under the scheduling how-to. Step-by-step: create credential → set HTTP referrer restrictions (`localhost:3000/*` dev + prod) → restrict API to Places API (New) → enable the API → paste into `.env.local`. Cost explained ($0/month — we don't call Place Details). Fallback behavior documented (graceful degradation to plain Input + one-time console.warn). Restrictions called out as **not optional**.
+- "Render-time smoke gate" section rewritten for the two-stage `pnpm smoke` chain (`smoke:ssr` + `smoke:dom`). Playwright install note for first-time setup.
+- "What's intentionally deferred" gains a Task 3.1 group: recurring events (still), address structured fields (still), multi-day all-day, custom event kinds, UA-driven Maps selection, notifications/reminders, full Playwright test framework.
+
+**Final smoke after re-seed:**
+```
+$ pnpm smoke
+SSR: 26 OK, 0 SKIP, 0 PENDING, 0 FAIL
+DOM: 3 targets, 3 OK, 0 FAIL
+```
+
+`pnpm typecheck` + `pnpm lint` + `pnpm build` green at the head of every commit.
+
+### Closing — deferred (Task 3.1)
+
+- **Recurring events.** Still deferred from Task 3. Every event is a one-off.
+- **Address structured fields** (lat/lng/place_id). Still deferred. The location field stores the formatted-address string only; routing-by-coordinates would need Place Details calls + columns.
+- **Multi-day all-day events.** Single-day is the v1 shape.
+- **Custom event kinds** beyond the six (`measurement`, `install`, `delivery`, `pickup`, `other`, `task`).
+- **UA-driven primary-Maps-link selection.** We render both side-by-side per Q9 lock. Revisit if user feedback explicitly asks for it.
+- **Notifications / reminders.** "Ping me 1h before this event" — separate feature.
+- **A proper Playwright test framework.** The DOM smoke is a one-off script for the Send-to-crew testids. If testing pressure grows (more portal-mounted UI to verify, drag-to-reschedule behavior, status-update flows), promote to a full suite.
+- **Pre-fill all-day on calendar empty-slot click** — flagged in sub-step 4 DEVLOG. Trivial URL param wire-up.
+- **Same-day CHECK relaxation refinement** — the simpler form approved in Q1 doesn't validate "starts_at is exactly midnight org-local"; the action layer does. Tighter PostgreSQL invariants would need a SECURITY DEFINER function called from the CHECK, which is more machinery than worth it for v1.
+
+### Closing — verified surfaces (Task 3.1)
+
+| Surface | Gate |
+|---|---|
+| Schema (nullable order_id, title, is_all_day, 'task' kind, relaxed CHECK, view LEFT JOIN) | 0016 + service-role probes for all five CHECK paths |
+| RPCs (DROP+CREATE for create/update/_validate; standalone org resolution via profiles; is_all_day branch) | 0017 + `scripts/test_event_reschedule.ts` (preserves title/is_all_day) + `scripts/test_standalone_event.ts` (full create→view→update→reject-empty-title→delete) |
+| Dialog type/title/all-day UX | Smoke + manual spot-check on rendered body |
+| All-day strip rendering + drag dispatch | Spot-check on rendered body (`all-day` label + seeded title) |
+| Google Places autocomplete | Graceful fallback covered (plain Input renders without env key); SDK path exercises on the user's hosted deploy |
+| Open-in-Maps URLs | SSR body assertion (`maps.apple.com`) on `/schedule?view=list`; spot-check both URLs on `/j/<live-slug>` |
+| Send-to-crew on every event surface | SSR `data-testid="send-to-crew"` assertions on week / day / list; DOM smoke (`playwright`) on Sheet + 2 Dialog mounts |
+| `/j/[slug]` matrix (valid / revoked / fake) | Unchanged from Task 3 sub-step 9 — still 3 entries in the SSR smoke |
+
 ---
 
 ## Server-side timezone discipline (code rule, 2026-05-26)

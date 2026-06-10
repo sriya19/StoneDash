@@ -622,6 +622,78 @@ async function main() {
     linksCreated++;
   }
 
+  // 9. Standalone + all-day demo events (Task 3.1 sub-step 8).
+  //
+  // Two events that don't fit the order-tied / timed shape — so the
+  // calendar always has examples of the Task 3.1 features:
+  //
+  //   * Standalone "task" — "Pick up checks from Ameer" — no order, no
+  //     crew, +2 days at 2 PM org-local.
+  //   * Standalone all-day "task" — "Trade show" — no order, all-day,
+  //     +5 days.
+  //
+  // org.timezone is the IANA tz used to anchor both. We construct each
+  // starts_at by appending the local time-of-day, then casting via
+  // Date so Prisma sends a timestamptz the action layer would produce.
+  function localToUtc(dateOffsetDays: number, hhmm: string): Date {
+    const target = new Date();
+    target.setUTCHours(0, 0, 0, 0);
+    target.setUTCDate(target.getUTCDate() + dateOffsetDays);
+    const dateStr = target.toISOString().slice(0, 10);
+    // Treat "<dateStr> <hhmm>" as wall-clock in org.timezone.
+    // Use Intl to compute the UTC offset for that wall-clock; then
+    // subtract to get the UTC moment.
+    const local = new Date(`${dateStr}T${hhmm}:00`);
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: org.timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = Object.fromEntries(
+      fmt.formatToParts(local).map((p) => [p.type, p.value]),
+    );
+    const wallInOrg = new Date(
+      `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`,
+    );
+    const offsetMs = wallInOrg.getTime() - local.getTime();
+    return new Date(local.getTime() - offsetMs);
+  }
+
+  await prisma.orderEvent.create({
+    data: {
+      orgId: org.id,
+      orderId: null,
+      title: "Pick up checks from Ameer",
+      kind: "task",
+      startsAt: localToUtc(2, "14:00"),
+      durationMin: 30,
+      isAllDay: false,
+      locationText: "Ameer Construction office, Falls Church, VA",
+      notes: "Owner has the envelope; ring the back door.",
+      createdBy: userId,
+    },
+  });
+
+  await prisma.orderEvent.create({
+    data: {
+      orgId: org.id,
+      orderId: null,
+      title: "KBIS trade show",
+      kind: "task",
+      startsAt: localToUtc(5, "00:00"),
+      durationMin: 1440,
+      isAllDay: true,
+      locationText: "Orange County Convention Center, Orlando, FL",
+      notes: "Closed all day. No installs scheduled.",
+      createdBy: userId,
+    },
+  });
+
   // eslint-disable-next-line no-console
   console.warn(
     `Seed complete. Demo logins:\n` +
@@ -631,7 +703,7 @@ async function main() {
       `${customers.length} customers, ${contractors.length} contractors, ` +
       `${orderSeeds.length} orders, 2 contractor payments, ` +
       `${crewMembers.length} crew, ${upcomingInstalls.length} upcoming installs, ` +
-      `${linksCreated} share links.`,
+      `${linksCreated} share links, 2 standalone events (1 task, 1 all-day).`,
   );
 }
 
