@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { SignupForm } from "@/components/app/signup-form";
 
-export const metadata = { title: "Sign up · Stone & Design Board" };
+export const metadata = { title: "Sign up" };
 
 export default function SignupPage() {
   return (

@@ -80,7 +80,7 @@ function parseContractorList(value: string | undefined): string[] {
     .filter((s) => UUID_RE.test(s));
 }
 
-export const metadata = { title: "Orders · Stone & Design Board" };
+export const metadata = { title: "Orders" };
 
 export default async function OrdersPage({
   searchParams,

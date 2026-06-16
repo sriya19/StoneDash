@@ -24,7 +24,7 @@ import { RecordPaymentSheet } from "@/components/app/record-payment-sheet";
 type Params = { id: string };
 type SearchParams = { tab?: string; payment?: string };
 
-export const metadata = { title: "Contractor · Stone & Design Board" };
+export const metadata = { title: "Contractor" };
 
 export default async function ContractorDetailPage({
   params,

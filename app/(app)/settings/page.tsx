@@ -24,7 +24,7 @@ type MemberRow = {
 };
 type ProfileLookup = { id: string; full_name: string | null };
 
-export const metadata = { title: "Settings · Stone & Design Board" };
+export const metadata = { title: "Settings" };
 
 export default async function SettingsPage({
   searchParams,

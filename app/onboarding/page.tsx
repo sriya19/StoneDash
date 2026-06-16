@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertNoQueryError } from "@/lib/supabase/errors";
 import type { ProfileRow } from "@/lib/supabase/types";
 
-export const metadata = { title: "Set up your shop · Stone & Design Board" };
+export const metadata = { title: "Set up your shop" };
 
 export default async function OnboardingPage() {
   const supabase = createSupabaseServerClient();

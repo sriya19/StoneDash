@@ -18,9 +18,33 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stone & Design Board",
+  metadataBase: process.env.NEXT_PUBLIC_SITE_URL
+    ? new URL(process.env.NEXT_PUBLIC_SITE_URL)
+    : undefined,
+  title: {
+    default: "StoneDash",
+    template: "%s · StoneDash",
+  },
   description:
-    "Order and operations dashboard for stone, marble, granite, and quartz fabrication shops.",
+    "The dashboard stone shops actually use. Track every order, manage contractor payments, dispatch your crew.",
+  applicationName: "StoneDash",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", sizes: "any" }],
+  },
+  manifest: "/manifest.json",
+  openGraph: {
+    title: "StoneDash",
+    description:
+      "The dashboard stone shops actually use. Track every order, manage contractor payments, dispatch your crew.",
+    siteName: "StoneDash",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "StoneDash",
+    description: "The dashboard stone shops actually use.",
+  },
 };
 
 export default function RootLayout({

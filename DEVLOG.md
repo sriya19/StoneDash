@@ -1,6 +1,61 @@
-# DEVLOG — Stone&DesignBoard
+# DEVLOG — StoneDash
 
 Running log of decisions, assumptions, and deferred items. Newest first.
+
+---
+
+## Task 4 — UI overhaul + real-data import (2026-06-15)
+
+Two-part task driven by direct customer feedback after a live demo: "I want to see it working — full functional model — and I want to see better UI." The brand + visual language land first so all subsequent UI work happens in the new design system; CSV import lands last as the unlock for real-world validation. See `PLAN.md` for the full sub-step breakdown.
+
+### Sub-step 1 — Brand rename + favicon + meta (complete)
+
+**Renamed `Stone&DesignBoard` / `Stone & Design Board` → `StoneDash`** across the codebase. Tenants (`Top Marble & Granite`, etc.) are unchanged — they're customers inside the platform, not the platform brand.
+
+**Files touched (13 source/doc files, 14 string replacements):**
+
+| File | Replacements | Notes |
+|---|---|---|
+| `app/layout.tsx` | 1 → expanded | Default title now `"StoneDash"` with `template: "%s · StoneDash"`; description + OG + icons + manifest wired here |
+| `app/(app)/customers/page.tsx` | 1 | Per-page metadata title collapsed to `"Customers"` (template appends suffix) |
+| `app/(app)/settings/page.tsx` | 1 | Same |
+| `app/(app)/schedule/page.tsx` | 1 | Same |
+| `app/(app)/team/page.tsx` | 1 | Same |
+| `app/(app)/orders/page.tsx` | 1 | Same |
+| `app/(app)/contractors/[id]/page.tsx` | 1 | Same |
+| `app/(app)/contractors/page.tsx` | 1 | Same |
+| `app/invite/[token]/page.tsx` | 1 | Same |
+| `app/(auth)/signup/page.tsx` | 1 | Same |
+| `app/(auth)/login/page.tsx` | 1 | Same |
+| `app/onboarding/page.tsx` | 1 | Same |
+| `supabase/seed.ts` | 1 | Header comment only — no demo content reads the platform name |
+| `package.json` | 1 | `"name": "stone-design-board"` → `"stonedash"` |
+| `README.md` | 2 | Heading + tagline + example Vercel domain |
+| `DEVLOG.md` | 1 | Heading |
+
+**Title-template pattern.** Instead of touching all 12 page metadata files every time the brand changes, I switched the root layout's title to a `{ default, template }` shape:
+
+```ts
+title: { default: "StoneDash", template: "%s · StoneDash" }
+```
+
+Each page now only supplies its own segment (`"Customers"`, `"Schedule"`, etc.) and Next.js synthesizes the full document title. Cleaner contract for future rebranding and reduces the surface area of any future audit.
+
+**`metadataBase`** now reads `NEXT_PUBLIC_SITE_URL` so OG / Twitter tags get absolute URLs in production. Falls back to `undefined` in dev (Next.js handles relative paths fine there).
+
+**Favicon + icons + manifest.**
+- `public/favicon.svg` — 32×32, terracotta `S` on a warm cream square. Renders crisp at 16px through 180px. Geist with system-font fallback chain.
+- `public/icon.svg` — 180×180 apple-touch / maskable icon. Solid terracotta background, off-white `S`. Apple home-screen icons get OS-rounded corners; the SVG draws a full-bleed background so the rounding looks clean.
+- `public/manifest.json` — `name: "StoneDash"`, `theme_color: #C2410C`, `background_color: #FAFAF7`, `start_url: /dashboard`, display standalone.
+- Wired via `app/layout.tsx` metadata.icons + .manifest. No `apple-touch-icon.png` because modern iOS (14+) accepts SVG; documented as a known gap if we ever need to support older iOS reliably (no current evidence we do).
+
+**Verification.** Grep across `*.{ts,tsx,json,md,css,mjs,js}` excluding `node_modules/` and `.next/`:
+- `Stone&DesignBoard` / `Stone & Design Board` / `stone-design-board` → **0 hits in source/docs** (only `PLAN.md` mentions remain, intentionally — they describe the rename).
+- `DEVLOG.md` historical entries had no brand mentions to preserve. The rename is the audit trail.
+
+The local filesystem path `/Users/sriyapothula/stone-design-board/` is out of scope (renaming the dir would break the user's tooling).
+
+**Gates.** `pnpm typecheck` + `pnpm lint` + `pnpm build` + `pnpm smoke` all green. Package name in build output reads `stonedash@0.1.0` confirming the rename took.
 
 ---
 

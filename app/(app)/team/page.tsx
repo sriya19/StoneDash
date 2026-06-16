@@ -22,7 +22,7 @@ type SearchParams = {
   id?: string;
 };
 
-export const metadata = { title: "Team · Stone & Design Board" };
+export const metadata = { title: "Team" };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

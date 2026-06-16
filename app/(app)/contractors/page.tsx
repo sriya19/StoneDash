@@ -19,7 +19,7 @@ type SearchParams = {
   new?: string;
 };
 
-export const metadata = { title: "Contractors · Stone & Design Board" };
+export const metadata = { title: "Contractors" };
 
 export default async function ContractorsPage({
   searchParams,

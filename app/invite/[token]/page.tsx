@@ -11,7 +11,7 @@ type InviteLookup = {
   organizations: { id: string; name: string } | null;
 };
 
-export const metadata = { title: "Accept invite · Stone & Design Board" };
+export const metadata = { title: "Accept invite" };
 
 export default async function InvitePage({
   params,

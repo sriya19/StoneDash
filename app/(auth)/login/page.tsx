@@ -4,7 +4,7 @@ import { LoginForm } from "@/components/app/login-form";
 
 type SearchParams = { next?: string; error?: string };
 
-export const metadata = { title: "Log in · Stone & Design Board" };
+export const metadata = { title: "Log in" };
 
 export default function LoginPage({
   searchParams,

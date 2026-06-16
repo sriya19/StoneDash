@@ -17,7 +17,7 @@ type SearchParams = {
   new?: string;
 };
 
-export const metadata = { title: "Customers · Stone & Design Board" };
+export const metadata = { title: "Customers" };
 
 export default async function CustomersPage({
   searchParams,

@@ -1,4 +1,4 @@
-// supabase/seed.ts — Demo data for Stone & Design Board.
+// supabase/seed.ts — Demo data for StoneDash.
 //
 // Usage: `pnpm db:seed` (requires NEXT_PUBLIC_SUPABASE_URL,
 // SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL in .env.local).

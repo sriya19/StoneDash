@@ -1,6 +1,8 @@
-# Stone & Design Board
+# StoneDash
 
-Operations dashboard for stone, marble, granite, and quartz fabrication
+**The dashboard stone shops actually use.**
+
+Operations platform for stone, marble, granite, and quartz fabrication
 shops. Multi-tenant SaaS built with Next.js 14 (App Router), Supabase
 (Auth + Postgres + Storage + RLS), Prisma for types, shadcn/ui, Zod,
 react-hook-form, @dnd-kit, and nuqs.
@@ -526,7 +528,7 @@ schema foreign key with its `ON DELETE` action, straight from
 3. Set the same env vars from `.env.local` in **Project Settings →
    Environment Variables**. Mark `SUPABASE_SERVICE_ROLE_KEY` sensitive.
 4. Set `NEXT_PUBLIC_SITE_URL` to your Vercel domain (e.g.
-   `https://stone-design-board.vercel.app`).
+   `https://stonedash.vercel.app`).
 5. Add that URL to **Supabase → Authentication → URL Configuration →
    Site URL** and **Additional Redirect URLs**, and to the Google OAuth
    credentials if you enabled Google sign-in.

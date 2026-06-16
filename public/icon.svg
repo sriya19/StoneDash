@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- StoneDash apple-touch / maskable icon. Solid background, larger
+       safe area than the favicon — Apple home-screen icons get rounded
+       corners applied by the OS, so we draw a full-bleed background. -->
+  <rect width="180" height="180" rx="36" fill="#C2410C"/>
+  <text
+    x="90"
+    y="125"
+    font-family="Geist, 'Geist Sans', system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="120"
+    font-weight="700"
+    text-anchor="middle"
+    fill="#FAFAF7"
+    letter-spacing="-0.04em"
+  >S</text>
+</svg>
