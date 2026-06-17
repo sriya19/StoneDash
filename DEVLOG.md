@@ -57,6 +57,47 @@ The local filesystem path `/Users/sriyapothula/stone-design-board/` is out of sc
 
 **Gates.** `pnpm typecheck` + `pnpm lint` + `pnpm build` + `pnpm smoke` all green. Package name in build output reads `stonedash@0.1.0` confirming the rename took.
 
+### Sub-step 2 — Design tokens migration (complete)
+
+**The visible visual shift.** Every component that reads `bg-primary`, `text-primary-foreground`, `bg-accent`, `border-border`, `ring-ring`, `bg-card`, etc. now inherits the new warm terracotta-on-cream palette automatically. No per-component rewrites in this sub-step — that's what sub-step 6–8 are for. This sub-step just changes what the existing classes resolve to.
+
+**`app/globals.css` — total rewrite of the token block.**
+- Switched from `oklch()` to hex literals throughout. Modern CSS handles both; Tailwind's `bg-primary/90` opacity modifier resolves via `color-mix(...)` either way. Hex is easier to verify against the brief (terracotta = `#C2410C`, not `oklch(0.55 0.18 38)`).
+- Light-mode tokens: `--background: #FAFAF7` (warm cream), `--foreground: #18181B` (zinc-900), `--primary: #C2410C` (terracotta = brand). `--brand` mirrors `--primary` for backward-compatible class names; `--brand-hover: #9A3412`, `--brand-muted: #FED7AA` are new variables Tailwind picks up via the config below.
+- `--accent: #FFF7ED` (orange-50) for warm hovers per brief.
+- `--destructive: #DC2626` kept neutral red — brief was explicit about not warming it.
+- Dark-mode tokens shift the brand one stop lighter (`#EA580C` orange-600 instead of `#C2410C` orange-700) so contrast against the dark `#18181B` background reads clean. Same hue family; just a lightness pump.
+- New `--success: #16A34A` / `--success-foreground` token (was hardcoded green elsewhere; now centralized).
+- Sidebar tokens re-rooted on the same palette. Active state will use `bg-sidebar-accent` (orange-50 light / warm-dark dark) once sub-step 6 wires it.
+- Chart palette goes warm-leaning (terracotta → orange-600 → orange-500 → orange-400 → orange-200) so any future data viz inherits a brand-consistent gradient.
+
+**Typography.**
+- Body bumps from 14px → 15px in the `body` base rule. Tables / dense surfaces opt back to 13–14px via Tailwind `text-xs` / `text-sm` classes they already had.
+- New global rule: `h1, h2, h3, h4, h5, h6 { font-family: var(--font-geist-sans), ...; letter-spacing: -0.01em; }`. Cascades automatically — no per-heading className change required across the codebase. Geist comes via the `geist` npm package, not `next/font/google`.
+
+**Geist install — `next/font/google` fallback realized (PLAN Q9).** Next 14.2.35 was built before Geist landed in Google Fonts, so `Geist` isn't an export of `next/font/google` — typecheck caught this immediately. Switched to Vercel's `geist` npm package (`pnpm add geist`); imports `GeistSans` from `geist/font/sans` and wires `GeistSans.variable` into the body className. The variable name the package exposes is `--font-geist-sans`, so `tailwind.config.ts` and the heading CSS rule both reference that exact name.
+
+**`tailwind.config.ts`.**
+- `fontFamily.geist` family added alongside `sans` (Inter) and `mono` (JetBrains Mono). Class `font-geist` is now usable directly when explicit override is needed (the wordmark in sub-step 6 will use it).
+- `colors.brand` gains `hover` and `muted` keys → `bg-brand-hover` and `bg-brand-muted` are now valid Tailwind classes.
+- `colors.success` added (matches the new `--success` CSS var).
+- Borderradius config unchanged — Tailwind's defaults (`rounded-lg = 8px`, `rounded-xl = 12px`, `rounded-2xl = 16px`) already hit the brief's targets at the right component layers (buttons / cards / modals).
+
+**shadcn primitive updates** to hit the brief's radius scale at the component layer:
+- `components/ui/button.tsx` — every `rounded-md` (6px) → `rounded-lg` (8px). Default variant still `bg-primary text-primary-foreground` → renders terracotta automatically.
+- `components/ui/dialog.tsx` — `DialogContent`'s `sm:rounded-lg` → `sm:rounded-2xl` (16px).
+- `components/ui/sheet.tsx` — each `side` variant gets inner-edge rounding: `top/bottom` get `rounded-b-2xl` / `rounded-t-2xl`, `left/right` get `rounded-r-2xl` / `rounded-l-2xl`. Outer edge stays square (the sheet butts against the viewport, no need to round into nothing).
+- Raw-`<div>` "cards" throughout the codebase already use `rounded-xl` (12px) where they exist — the brief's 12px target is met without further per-file edits.
+
+**`#4A5D7E` audit.** Grep across `*.{ts,tsx,css,json,mjs,js}` excluding `node_modules` / `.next`: **zero hits.** The old slate-blue was always defined via the `--brand` CSS variable in `globals.css`; no component had the hex literal embedded. Replacing the CSS var was sufficient.
+
+**Verification.**
+- `pnpm typecheck` + `lint` + `build` all green after the Geist swap.
+- `pnpm smoke` → **26 SSR OK + 3 DOM OK / 0 FAIL.** No route regressions from the palette change.
+- Probed the compiled CSS at `/_next/static/css/app/layout.css` — contains `#C2410C`, `#FAFAF7`, `--brand`, `--brand-hover`, `--primary:`, `--font-geist-sans`, `rounded-2xl`. All tokens shipping.
+
+**Known visual state.** Pages aren't redesigned yet; they're rendering with old layout + new colors. Some surfaces (sidebar active state, buttons everywhere) now show terracotta where they used to show slate-blue — that's the only visible difference until sub-step 3+ start touching layouts. Per PLAN, this is a natural pause point: the customer-visible regression risk is at its peak. Sub-steps 3–8 walk it back into a coherent designed surface.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)

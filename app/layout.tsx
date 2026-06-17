@@ -1,15 +1,26 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
+// Inter — body. Already in place from Task 1.
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
 });
+
+// Geist — headings + wordmark. New in Task 4 sub-step 2. Next 14.2's
+// `next/font/google` doesn't have Geist yet (it was donated to Google
+// Fonts after that build); the `geist` npm package that Vercel
+// publishes is the working alternative for now. PLAN.md Q9 anticipated
+// this fallback.
+//
+// GeistSans already exposes `.variable` and the right weights. We rebind
+// it to `--font-geist` via a CSS variable on the body className below.
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -53,7 +64,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${inter.variable} ${GeistSans.variable} ${jetbrainsMono.variable} antialiased`}
       >
         <ThemeProvider
           attribute="class"

@@ -11,79 +11,143 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+ * StoneDash design tokens (Task 4 sub-step 2)
+ *
+ * Warm terracotta accent on a warm-cream / warm-zinc neutral base. Replaces
+ * the previous cool slate-blue palette. All Tailwind semantic colors
+ * (primary, secondary, muted, accent, destructive, ring, border, input)
+ * are re-rooted on this palette — components that read `bg-primary` /
+ * `text-primary-foreground` etc. inherit the brand automatically.
+ *
+ * Brand:
+ *   #C2410C  warm terracotta / rust (Tailwind orange-700)
+ *   #9A3412  hover (orange-800)
+ *   #FED7AA  muted accent backgrounds (orange-200)
+ *
+ * Neutrals:
+ *   #FAFAF7  warm cream background (light)
+ *   #18181B  zinc-900 background (dark)
+ *   #71717A  zinc-500 muted foreground
+ *   #E4E4E7  zinc-200 border (light)
+ *   #27272A  zinc-800 border (dark)
+ *
+ * Status:
+ *   #16A34A  success (green-600)
+ *   #DC2626  destructive (red-600, deliberately neutral / not warm)
+ * -------------------------------------------------------------------------- */
+
 @layer base {
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.46 0.04 252);
-    --brand: oklch(0.46 0.04 252);
-    --brand-foreground: oklch(0.985 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
+    /* Surfaces */
+    --background: #FAFAF7;            /* warm cream */
+    --foreground: #18181B;            /* zinc-900 */
+    --card: #FFFFFF;
+    --card-foreground: #18181B;
+    --popover: #FFFFFF;
+    --popover-foreground: #18181B;
+
+    /* Brand / primary action color — terracotta */
+    --primary: #C2410C;
+    --primary-foreground: #FAFAF7;
+    --brand: #C2410C;
+    --brand-foreground: #FAFAF7;
+    --brand-hover: #9A3412;
+    --brand-muted: #FED7AA;
+
+    /* Secondary / muted / accent — warm neutrals */
+    --secondary: #F4F4F1;             /* slightly warmer than zinc-100 */
+    --secondary-foreground: #18181B;
+    --muted: #F4F4F1;
+    --muted-foreground: #71717A;
+    --accent: #FFF7ED;                /* orange-50 — used for warm hovers */
+    --accent-foreground: #9A3412;
+
+    /* Status */
+    --destructive: #DC2626;
+    --destructive-foreground: #FAFAF7;
+    --success: #16A34A;
+    --success-foreground: #FAFAF7;
+
+    /* Form chrome */
+    --border: #E4E4E7;
+    --input: #E4E4E7;
+    --ring: #C2410C;
+
+    /* Chart palette — warm-leaning. Used by future data viz. */
+    --chart-1: #C2410C;
+    --chart-2: #EA580C;
+    --chart-3: #F97316;
+    --chart-4: #FB923C;
+    --chart-5: #FED7AA;
+
+    /* Sidebar */
+    --sidebar: #FAFAF7;
+    --sidebar-foreground: #18181B;
+    --sidebar-primary: #C2410C;
+    --sidebar-primary-foreground: #FAFAF7;
+    --sidebar-accent: #FFF7ED;        /* orange-50 — active state tint */
+    --sidebar-accent-foreground: #9A3412;
+    --sidebar-border: #E4E4E7;
+    --sidebar-ring: #C2410C;
+
+    /* Radius scale — Tailwind defaults map to brief targets:
+     *   rounded-lg = 0.5rem  = 8px   buttons / inputs
+     *   rounded-xl = 0.75rem = 12px  cards
+     *   rounded-2xl = 1rem   = 16px  modals / sheets
+     * --radius drives shadcn primitives via the borderRadius extension
+     * in tailwind.config.ts. Set to 0.5rem so default `rounded-lg` matches
+     * the buttons/inputs target. */
     --radius: 0.5rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.46 0.04 252);
   }
+
   .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.72 0.04 252);
-    --brand: oklch(0.72 0.04 252);
-    --brand-foreground: oklch(0.145 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.72 0.04 252);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.72 0.04 252);
+    --background: #18181B;            /* zinc-900 */
+    --foreground: #FAFAF7;
+    --card: #1F1F23;                  /* slight elevation from background */
+    --card-foreground: #FAFAF7;
+    --popover: #1F1F23;
+    --popover-foreground: #FAFAF7;
+
+    /* Brand stays the same hue; lightness shifts slightly so the contrast
+     * against the dark background works without re-tuning every component. */
+    --primary: #EA580C;               /* orange-600 — brighter for dark bg */
+    --primary-foreground: #18181B;
+    --brand: #EA580C;
+    --brand-foreground: #18181B;
+    --brand-hover: #F97316;           /* orange-500 */
+    --brand-muted: #7C2D12;           /* orange-900 — for muted backgrounds */
+
+    --secondary: #27272A;             /* zinc-800 */
+    --secondary-foreground: #FAFAF7;
+    --muted: #27272A;
+    --muted-foreground: #A1A1AA;      /* zinc-400 */
+    --accent: #2A1E16;                /* warm dark — hover tint */
+    --accent-foreground: #FED7AA;
+
+    --destructive: #EF4444;           /* red-500 — brighter for dark bg */
+    --destructive-foreground: #FAFAF7;
+    --success: #22C55E;
+    --success-foreground: #18181B;
+
+    --border: #27272A;
+    --input: #27272A;
+    --ring: #EA580C;
+
+    --chart-1: #EA580C;
+    --chart-2: #F97316;
+    --chart-3: #FB923C;
+    --chart-4: #FDBA74;
+    --chart-5: #FED7AA;
+
+    --sidebar: #18181B;
+    --sidebar-foreground: #FAFAF7;
+    --sidebar-primary: #EA580C;
+    --sidebar-primary-foreground: #18181B;
+    --sidebar-accent: #2A1E16;
+    --sidebar-accent-foreground: #FED7AA;
+    --sidebar-border: #27272A;
+    --sidebar-ring: #EA580C;
   }
 }
 
@@ -93,13 +157,21 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
+    /* Body sizing bump per brief — 15px default (up from 14px) for more
+     * breathing room. Tables and other dense surfaces opt back down to
+     * 13–14px via Tailwind text-xs/text-sm classes. */
+    font-size: 15px;
+    line-height: 1.5;
     font-feature-settings: "cv11", "ss01";
     font-variation-settings: "opsz" 32;
   }
-  code,
-  pre,
-  kbd,
-  samp {
+  /* Headings use Geist semibold with slightly tighter tracking. Cascades
+   * automatically — no per-heading className change required. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-geist-sans), var(--font-sans), system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+  code, pre, kbd, samp {
     font-family: var(--font-mono), ui-monospace, monospace;
   }
 }

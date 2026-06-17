@@ -12,6 +12,10 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+        // Geist is reserved for headings + the wordmark. Body stays Inter
+        // (--font-sans). Falls back through the sans stack if Geist hasn't
+        // hydrated yet.
+        geist: ["var(--font-geist-sans)", "var(--font-sans)", "system-ui", "sans-serif"],
       },
       colors: {
         background: "var(--background)",
@@ -47,6 +51,12 @@ const config: Config = {
         brand: {
           DEFAULT: "var(--brand)",
           foreground: "var(--brand-foreground)",
+          hover: "var(--brand-hover)",
+          muted: "var(--brand-muted)",
+        },
+        success: {
+          DEFAULT: "var(--success)",
+          foreground: "var(--success-foreground)",
         },
         border: "var(--border)",
         input: "var(--input)",
