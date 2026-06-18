@@ -37,6 +37,11 @@ type Route = {
   // implements it hasn't landed yet. The smoke still hits it; if it returns
   // anything other than 404, the script prints a "remove pending flag" nudge.
   pending?: boolean;
+  // public: hit this route WITHOUT the auth cookies attached. Used for
+  // marketing surfaces (landing, share-link pages) where an authenticated
+  // request would silently redirect away (e.g. / → /dashboard for a
+  // logged-in user) and mask whether the public path actually works.
+  public?: boolean;
   description?: string;
 };
 
@@ -76,6 +81,14 @@ async function resolveRevokedSlug(admin: SupabaseClient): Promise<string | null>
 }
 
 const ROUTES: Route[] = [
+  // Public landing — must render without auth and contain the wordmark
+  // + hero headline. An authenticated request would 307 to /dashboard.
+  {
+    path: "/",
+    public: true,
+    expectBody: "The dashboard stone shops actually use.",
+    description: "marketing landing",
+  },
   { path: "/dashboard" },
   { path: "/orders" },
   { path: "/orders?new=1" },
@@ -335,8 +348,11 @@ async function main() {
       resolved = route.path;
     }
 
+    // Public routes (landing, share-link pages) fetch without the auth
+    // cookies. An authenticated request to `/` would 307 to /dashboard
+    // and mask whether the marketing landing actually renders.
     const res = await fetch(`${devUrl}${resolved}`, {
-      headers: { Cookie: cookieHeader },
+      headers: route.public ? {} : { Cookie: cookieHeader },
       redirect: "manual",
     });
     const body = await res.text();

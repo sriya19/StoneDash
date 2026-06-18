@@ -155,6 +155,12 @@
   * {
     @apply border-border;
   }
+  html {
+    /* Smooth in-page anchor scroll for the landing "See it in action"
+     * link (#features) and any future fragment links. CSS-only — no JS
+     * dependency for the marketing page. */
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground font-sans;
     /* Body sizing bump per brief — 15px default (up from 14px) for more

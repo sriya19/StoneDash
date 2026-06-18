@@ -98,6 +98,36 @@ The local filesystem path `/Users/sriyapothula/stone-design-board/` is out of sc
 
 **Known visual state.** Pages aren't redesigned yet; they're rendering with old layout + new colors. Some surfaces (sidebar active state, buttons everywhere) now show terracotta where they used to show slate-blue — that's the only visible difference until sub-step 3+ start touching layouts. Per PLAN, this is a natural pause point: the customer-visible regression risk is at its peak. Sub-steps 3–8 walk it back into a coherent designed surface.
 
+### Sub-step 3 — Landing page at `/` (complete)
+
+**Replaces the placeholder marketing page** with a six-section landing that puts the product, the story, and a single conversion action in front of an unauthenticated visitor.
+
+**Auth-aware root.** `app/(marketing)/page.tsx` calls `getCurrentUser()` (the lightweight, non-redirecting accessor from `lib/auth.ts`) and `redirect("/dashboard")`s when a session exists. Anonymous visitors get the landing. The `(marketing)` route group means `/` resolves to this page without inheriting the `(app)` layout's auth gate — same separation Vercel / Linear / Notion use for their marketing surfaces.
+
+**`app/(marketing)/_components/`** (underscore prefix so Next doesn't treat the directory as a route):
+
+- **`nav.tsx`** — sticky header. The ONLY client component on the landing. Tiny `useEffect` listens for `window.scroll`; background transitions from transparent → `bg-background/80 backdrop-blur-lg` past 8px. StoneDash wordmark left (Geist semibold), Log in + Get started CTAs right.
+- **`hero.tsx`** — server component. Centered max-w-3xl. Eyebrow ("OPERATIONS SOFTWARE FOR STONE FABRICATORS"), Geist 4xl→6xl headline, Inter subhead, primary + outline CTA, "Free during open beta" microcopy. **Product screenshot is a placeholder** — a 16:10 aspect-ratio gradient div with rounded-2xl + shadow-2xl. Sub-step 5 captures the live dashboard PNG and swaps in the image. The aspect-ratio match means layout doesn't shift when the image lands.
+- **`feature-grid.tsx`** — six-up responsive grid (1 / 2 / 3 cols at sm / md / lg). Each tile: 36px terracotta-on-brand-muted icon square, Geist 18px headline, Inter 14px blurb. Tiles match the brief verbatim (orders kanban, contractor ledger, scheduling, files, fast UI, multi-tenant RLS).
+- **`built-inside.tsx`** — two-column at lg, single-column below. Left: 3-paragraph shop story paraphrased per brief. Right: author card (SP placeholder avatar circle, "Sriya Pothula · Founder & engineer", LinkedIn link to `#` per Q10 — real URL when provided). `lg:sticky lg:top-24` so the author card pins as the reader scrolls the story.
+- **`cta-band.tsx`** — full-width terracotta-tinted band (`bg-brand-muted/40` = orange-200 at 40%, with matching border above/below). Single primary CTA → /signup.
+- **`footer.tsx`** — wordmark left, Product + Company columns right (with placeholder `#` href for items not yet built). Copyright row separated by a top border.
+
+**Smooth scroll** via a CSS-only `html { scroll-behavior: smooth }` rule in `globals.css`. Hero's "See it in action" link to `#features` triggers it. No JS needed for fragment navigation.
+
+**Metadata override.** The landing's `Metadata` uses `title: { absolute: "StoneDash — The dashboard..." }` so the root layout's `template: "%s · StoneDash"` doesn't append a duplicated " · StoneDash" on the home page (the wordmark is already StoneDash; the suffix would read as repetition). Open Graph + Twitter card tags include the tagline.
+
+**Smoke schema extended (PLAN Q7).** Added a `public: true` flag to the `Route` shape. Routes with `public: true` are fetched **without** the auth cookies — important for the landing because an authenticated request to `/` would 307 to `/dashboard` and mask whether the public path actually works. The `/` entry asserts the headline string is in the body. Smoke output:
+```
+27 route(s): 27 OK, 0 SKIP, 0 PENDING, 0 FAIL    [SSR]
+3 target(s): 3 OK, 0 FAIL                         [DOM]
+```
+(Up from 26 SSR routes — the landing is the new one.)
+
+**Lighthouse score** deferred to a manual run during sub-step 14's wrap (when all UI is polished and the screenshot has landed; running it now would score the placeholder which isn't representative). Documented as a sub-step 14 verification step.
+
+**Stale `app/favicon.ico` removed.** Was a legacy Next-scaffolded artifact that overrode the new SVG favicon in browser tabs.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
