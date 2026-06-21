@@ -4,13 +4,13 @@ import {
   Truck,
   Wallet,
 } from "lucide-react";
-import { addDays } from "date-fns";
+import { addDays, subDays } from "date-fns";
 import type { OrderStage } from "@prisma/client";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatInTimeZone, parseLocalDateTime } from "@/lib/tz";
-import { KpiCard } from "@/components/app/kpi-card";
+import { KpiCard, type KpiTrend } from "@/components/app/kpi-card";
 import {
   PipelineStrip,
   STAGE_ORDER,
@@ -23,6 +23,7 @@ type OrderForKpis = {
   stage: OrderStage;
   quote_amount: string | null;
   balance_due: string;
+  created_at: string;
 };
 
 type InstallEvent = {
@@ -45,6 +46,8 @@ type ActivityDbRow = {
 
 type ProfileLookup = { id: string; full_name: string | null };
 
+type ContractorBalanceRow = { balance_owed: string | null };
+
 function toNumber(value: string | null | undefined): number {
   if (value == null) return 0;
   const n = Number(value);
@@ -59,21 +62,77 @@ function formatMoney(value: number, currency: string): string {
   }).format(value);
 }
 
+function greetingFor(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function firstNameOf(full: string | null | undefined): string | null {
+  if (!full) return null;
+  const trimmed = full.trim();
+  if (!trimmed) return null;
+  return trimmed.split(/\s+/)[0] ?? null;
+}
+
+// Compute a window comparison: how many rows fall inside [windowStart,
+// now] vs the equal-length window immediately preceding it. Returns a
+// signed percent delta, or null when the prior window was empty (no
+// meaningful baseline to compare against).
+function windowDelta(
+  rows: { created_at: string }[],
+  windowStartUtc: string,
+  priorStartUtc: string,
+): number | null {
+  const wStart = new Date(windowStartUtc).getTime();
+  const wPrior = new Date(priorStartUtc).getTime();
+  let current = 0;
+  let prior = 0;
+  for (const r of rows) {
+    const t = new Date(r.created_at).getTime();
+    if (t >= wStart) current += 1;
+    else if (t >= wPrior) prior += 1;
+  }
+  if (prior === 0) {
+    return current === 0 ? 0 : null;
+  }
+  return Math.round(((current - prior) / prior) * 100);
+}
+
 export default async function DashboardPage() {
-  const { org } = await getCurrentUserAndOrg();
+  const { profile, org } = await getCurrentUserAndOrg();
   const supabase = createSupabaseServerClient();
 
-  // "Installs this week" = events in [today 00:00 org-local, today+7 23:59 org-local],
-  // expressed as UTC for the query (server-side timezone discipline).
+  // Greeting uses the *org's* local hour, not the request server's. Two
+  // owners in different time zones logging in should each see the right
+  // greeting for their shop.
+  const orgHour = Number(formatInTimeZone(new Date(), org.timezone, "H"));
+  const firstName = firstNameOf(profile.full_name);
+  const greeting = firstName
+    ? `${greetingFor(orgHour)}, ${firstName}.`
+    : `${greetingFor(orgHour)}.`;
+
+  // "Installs this week" = events in [today 00:00 org-local, today+7
+  // 23:59 org-local], expressed as UTC for the query (server-side
+  // timezone discipline). We also slice out installs strictly within
+  // today's window for the urgent KPI variant + ops summary.
   const todayDateStr = formatInTimeZone(new Date(), org.timezone, "yyyy-MM-dd");
   const sevenDateStr = formatInTimeZone(addDays(new Date(), 7), org.timezone, "yyyy-MM-dd");
   const todayStartUtc = parseLocalDateTime(todayDateStr, "00:00", org.timezone).toISOString();
+  const todayEndUtc = parseLocalDateTime(todayDateStr, "23:59:59", org.timezone).toISOString();
   const sevenEndUtc = parseLocalDateTime(sevenDateStr, "23:59:59", org.timezone).toISOString();
 
-  const [ordersRes, installsRes, activityRes] = await Promise.all([
+  // Trend window: rolling 7 days vs the prior 7 days. We don't track
+  // historical stage transitions, so orders.created_at is the proxy for
+  // intake velocity — accurate for the directional indicator the brief
+  // calls for.
+  const sevenDaysBackUtc = subDays(new Date(), 7).toISOString();
+  const fourteenDaysBackUtc = subDays(new Date(), 14).toISOString();
+
+  const [ordersRes, installsRes, activityRes, contractorBalRes] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, stage, quote_amount, balance_due")
+      .select("id, stage, quote_amount, balance_due, created_at")
       .returns<OrderForKpis[]>(),
     supabase
       .from("v_calendar_events")
@@ -90,6 +149,10 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(15)
       .returns<ActivityDbRow[]>(),
+    supabase
+      .from("v_contractor_balances")
+      .select("balance_owed")
+      .returns<ContractorBalanceRow[]>(),
   ]);
 
   const orders = ordersRes.data ?? [];
@@ -97,6 +160,7 @@ export default async function DashboardPage() {
     (e) => e.stage !== "cancelled" && e.stage !== "paid",
   );
   const activity = activityRes.data ?? [];
+  const contractorBalances = contractorBalRes.data ?? [];
 
   // KPI aggregates
   const inFabrication = orders.filter((o) => o.stage === "fabrication");
@@ -109,6 +173,26 @@ export default async function DashboardPage() {
   const outstanding = orders
     .filter((o) => o.stage !== "paid" && o.stage !== "cancelled")
     .reduce((s, o) => s + toNumber(o.balance_due), 0);
+
+  // Ops summary inputs
+  const installsToday = installEvents.filter(
+    (e) => e.starts_at >= todayStartUtc && e.starts_at <= todayEndUtc,
+  );
+  const unpaidContractorTotal = contractorBalances.reduce((s, row) => {
+    const n = toNumber(row.balance_owed);
+    return n > 0 ? s + n : s;
+  }, 0);
+
+  // Trend: intake velocity over the trailing 7d window vs the 7d before it.
+  const fabTrendDelta = windowDelta(
+    orders,
+    sevenDaysBackUtc,
+    fourteenDaysBackUtc,
+  );
+  const fabTrend: KpiTrend | null =
+    fabTrendDelta === null
+      ? null
+      : { delta: fabTrendDelta, label: "from last week" };
 
   // Pipeline strip per-stage aggregates
   const summaries: StageSummary[] = STAGE_ORDER.map((stage) => {
@@ -144,13 +228,26 @@ export default async function DashboardPage() {
     metadata: row.metadata,
   }));
 
+  // Ops summary: one friendly sentence at the top. Branches by what's
+  // actually happening so we don't render "0 installs and $0 in unpaid
+  // balances" — that reads as a system message rather than a heads-up.
+  const opsSummary = buildOpsSummary({
+    installsToday: installsToday.length,
+    unpaidContractorTotal,
+    currency: org.currency,
+    orgName: org.name,
+  });
+
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
-      <header className="space-y-1">
+    <div className="mx-auto max-w-7xl space-y-7 px-6 py-10">
+      <header className="space-y-2">
         <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
           {org.slug}
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight">{org.name}</h1>
+        <h1 className="font-geist text-[28px] font-semibold leading-tight tracking-tight">
+          {greeting}
+        </h1>
+        <p className="text-[15px] text-muted-foreground">{opsSummary}</p>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -162,6 +259,7 @@ export default async function DashboardPage() {
           }
           icon={Factory}
           href="/orders?stage=fabrication"
+          trend={fabTrend}
         />
         <KpiCard
           label="Installs this week"
@@ -179,6 +277,7 @@ export default async function DashboardPage() {
           }
           icon={Truck}
           href="/schedule"
+          urgent={installsToday.length > 0}
         />
         <KpiCard
           label="Awaiting measurement"
@@ -210,4 +309,28 @@ export default async function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function buildOpsSummary(args: {
+  installsToday: number;
+  unpaidContractorTotal: number;
+  currency: string;
+  orgName: string;
+}): string {
+  const { installsToday, unpaidContractorTotal, currency, orgName } = args;
+  if (installsToday === 0 && unpaidContractorTotal === 0) {
+    return `${orgName} — quiet day. Nothing scheduled, contractor balances clear.`;
+  }
+  const parts: string[] = [];
+  if (installsToday > 0) {
+    parts.push(
+      `${installsToday} install${installsToday === 1 ? "" : "s"} today`,
+    );
+  }
+  if (unpaidContractorTotal > 0) {
+    parts.push(
+      `${formatMoney(unpaidContractorTotal, currency)} in unpaid contractor balances`,
+    );
+  }
+  return `Here at ${orgName} you have ${parts.join(" and ")}.`;
 }

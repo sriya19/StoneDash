@@ -1,10 +1,8 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-
-// Centered hero. Sub-step 5 (dashboard redesign) replaces the placeholder
-// screenshot div with a real PNG capture of the redesigned /dashboard.
 
 export function MarketingHero() {
   return (
@@ -37,19 +35,20 @@ export function MarketingHero() {
         </p>
       </div>
 
-      {/* Product screenshot. Sub-step 5 will swap in the captured PNG. */}
+      {/* Product screenshot — captured from the live /dashboard via
+          scripts/capture_landing_hero.ts. Re-run that script after any
+          dashboard redesign to refresh the PNG. */}
       <div className="relative mx-auto mt-16 max-w-5xl px-2 sm:px-6">
-        <div
-          className="aspect-[16/10] w-full overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-muted to-secondary shadow-2xl shadow-brand/10"
-          aria-label="StoneDash dashboard preview"
-          role="img"
-        >
-          {/* Placeholder gradient until sub-step 5 captures the live dashboard.
-              The aspect ratio matches the eventual PNG so layout doesn't shift
-              when the image lands. */}
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground/60">
-            <span>Dashboard preview lands in sub-step 5</span>
-          </div>
+        <div className="overflow-hidden rounded-2xl border border-border/80 shadow-2xl shadow-brand/10">
+          <Image
+            src="/landing/dashboard-hero.png"
+            alt="StoneDash dashboard — greeting, KPIs, pipeline, and recent activity"
+            width={1280}
+            height={800}
+            priority
+            sizes="(min-width: 1024px) 1024px, 100vw"
+            className="h-auto w-full"
+          />
         </div>
       </div>
     </section>
