@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import type { OrderStage } from "@prisma/client";
+import { Wrench } from "lucide-react";
 
 import {
   Table,
@@ -18,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { OrderStageBadge } from "@/components/app/order-stage-badge";
 import { balanceClass } from "@/lib/contractors/balance-display";
+import { EmptyState } from "./empty-state";
 import type { ContractorJob } from "@/lib/queries/contractors";
 
 type Props = {
@@ -41,12 +43,11 @@ export function ContractorJobsTab({ jobs, currency }: Props) {
 
   if (active.length === 0 && cancelled.length === 0) {
     return (
-      <div className="rounded-xl border bg-card p-12 text-center">
-        <p className="text-sm font-medium">No jobs yet.</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Tag a new or existing order with this contractor to see it here.
-        </p>
-      </div>
+      <EmptyState
+        icon={Wrench}
+        title="No jobs yet."
+        description="Tag a new or existing order with this contractor to see it here."
+      />
     );
   }
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { format, parseISO } from "date-fns";
-import { Search } from "lucide-react";
+import { HardHat, Search } from "lucide-react";
 
 import {
   Table,
@@ -24,6 +24,7 @@ import {
   formatBalance,
 } from "@/lib/contractors/balance-display";
 import type { ContractorListRow } from "@/lib/queries/contractors";
+import { EmptyState } from "./empty-state";
 
 type Props = {
   rows: ContractorListRow[];
@@ -118,16 +119,17 @@ export function ContractorsTable({ rows, currency, totalInOrg }: Props) {
 
       {emptyShown ? (
         emptyState === "org" ? (
-          <div className="rounded-xl border bg-card p-12 text-center">
-            <p className="text-sm font-medium">No contractors yet.</p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-              Add one when a job comes in through a general contractor, dealer,
-              or builder.
-            </p>
-          </div>
+          <EmptyState
+            icon={HardHat}
+            title="No contractors yet."
+            description="Add one when a job comes in through a general contractor, dealer, or builder."
+          />
         ) : (
-          <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-            No contractors match the current filter.
+          <div className="rounded-xl border bg-card">
+            <EmptyState
+              variant="inline"
+              title="No contractors match the current filter."
+            />
           </div>
         )
       ) : (

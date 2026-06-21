@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { formatDistanceToNow, parseISO } from "date-fns";
-import { Search } from "lucide-react";
+import { Search, Users2 } from "lucide-react";
 
 import {
   Table,
@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { CrewListRow } from "@/lib/queries/crew";
+import { EmptyState } from "./empty-state";
 
 type Props = {
   rows: CrewListRow[];
@@ -117,17 +118,17 @@ export function CrewTable({ rows, totalInOrg }: Props) {
 
       {emptyShown ? (
         emptyState === "org" ? (
-          <div className="rounded-xl border bg-card p-12 text-center">
-            <p className="text-sm font-medium">No crew yet.</p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-              Add the people you assign installs and measurements to. They
-              don&apos;t need to log in — you just need a name, a role, and a
-              phone number to text the address to.
-            </p>
-          </div>
+          <EmptyState
+            icon={Users2}
+            title="No crew yet."
+            description="Add the people you assign installs and measurements to. They don't need to log in — you just need a name, a role, and a phone number to text the address to."
+          />
         ) : (
-          <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-            No crew match the current filter.
+          <div className="rounded-xl border bg-card">
+            <EmptyState
+              variant="inline"
+              title="No crew match the current filter."
+            />
           </div>
         )
       ) : (

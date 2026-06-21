@@ -36,6 +36,7 @@ import {
 } from "@/lib/actions/events";
 import type { CalendarEvent } from "@/lib/queries/events";
 import { MapsLinks } from "./maps-links";
+import { EmptyState } from "./empty-state";
 
 type Props = {
   events: CalendarEvent[];
@@ -157,14 +158,11 @@ export function OrderEventsTab({ events, orderId, timeZone }: Props) {
       </div>
 
       {events.length === 0 ? (
-        <div className="rounded-md border bg-muted/30 p-8 text-center">
-          <Calendar className="mx-auto mb-2 h-6 w-6 text-muted-foreground/50" />
-          <p className="text-sm font-medium">No events for this order yet.</p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-            Add a measurement or install to put it on the calendar and assign
-            crew. The customer&apos;s address will pre-fill the location.
-          </p>
-        </div>
+        <EmptyState
+          icon={Calendar}
+          title="No events for this order yet."
+          description="Add a measurement or install to put it on the calendar and assign crew. The customer's address will pre-fill the location."
+        />
       ) : null}
 
       {future.length > 0 ? (

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { ArrowDown, ArrowUp, HardHat, Plus, StickyNote } from "lucide-react";
+import { ArrowDown, ArrowUp, HardHat, Plus, StickyNote, Wrench } from "lucide-react";
 
 import {
   Table,
@@ -25,6 +25,7 @@ import { OrderStageBadge } from "./order-stage-badge";
 import { NotesPopover } from "./notes-popover";
 import { InstallDate } from "./install-date";
 import { TablePagination } from "./table-pagination";
+import { EmptyState } from "./empty-state";
 
 type Props = {
   rows: OrderListRow[];
@@ -120,12 +121,11 @@ export function OrdersTable({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border bg-card p-12 text-center">
-        <p className="text-sm font-medium">No orders match.</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Try clearing filters or create a new order.
-        </p>
-      </div>
+      <EmptyState
+        icon={Wrench}
+        title="No orders match."
+        description="Try clearing filters or create a new order."
+      />
     );
   }
 

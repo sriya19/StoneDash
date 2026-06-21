@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { format, parseISO } from "date-fns";
+import { Users } from "lucide-react";
 
 import {
   Table,
@@ -12,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { CustomerWithOrders } from "@/lib/queries/customers-full";
+import { EmptyState } from "./empty-state";
 
 type Props = {
   rows: CustomerWithOrders[];
@@ -38,12 +40,11 @@ export function CustomersTable({ rows }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border bg-card p-12 text-center">
-        <p className="text-sm font-medium">No customers yet.</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Add your first customer to start logging orders.
-        </p>
-      </div>
+      <EmptyState
+        icon={Users}
+        title="No customers yet."
+        description="Add your first customer to start logging orders."
+      />
     );
   }
 

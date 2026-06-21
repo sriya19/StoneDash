@@ -215,6 +215,32 @@ The standalone `components/app/theme-toggle.tsx` was deleted; the theme switch o
 - `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL** (after the seed refresh).
 - Re-captured `public/landing/dashboard-hero.png` against the fresh seed so the marketing screenshot stays in sync with what a brand-new demo session would show.
 
+### Sub-step 8 — Empty + loading + toast polish (complete)
+
+**Shared `<EmptyState>`** at `components/app/empty-state.tsx`. One component, two variants:
+- **`default`** — rounded-xl card with optional icon in a `bg-brand-muted/40` circle, title, optional description, optional action slot. Used for "you have no Xs yet" / "no Xs match" first-touch surfaces.
+- **`inline`** — compact text-only block for filter-mismatch states inside an already-bordered shell (contractors/crew tables had their own different-from-everything-else compact variant).
+
+Migrated all the page-level empties: orders-table (Wrench), customers-table (Users), contractors-table (HardHat + inline variant for filter mismatch), crew-table (Users2 + inline), calendar-list (CalendarDays), contractor-jobs-tab (Wrench), order-events-tab (Calendar). Six different copy-paste blocks with subtly different padding/copy/tone collapsed into one component that every list surface inherits. Tab-embedded inline empties (e.g. customer detail's "No orders yet for this customer.") stay as plain text — they're contextually different and don't need the empty-state chrome.
+
+**`<TableSkeleton>`** at `components/app/table-skeleton.tsx`. Shapes like a real list page: optional header strip, filters row, column-header bar, then rows with varied column widths (cycling through `w-20 / w-32 / w-40 / w-24 / w-16 / w-28`). Varied widths matter — equal-width grey bars read as "loading bar" rather than "data coming". Used by:
+- `app/(app)/orders/loading.tsx` (7 cols, 10 rows)
+- `app/(app)/customers/loading.tsx` (6 cols, 8 rows)
+- `app/(app)/contractors/loading.tsx` (6 cols, 6 rows)
+
+**Dashboard-specific skeleton** at `app/(app)/dashboard/loading.tsx` — mirrors the eventual dashboard shape (greeting block → 4 KPI cards → pipeline strip + activity feed) at the same outer max-width and spacing as `page.tsx`. The 7-column pipeline skeleton shows that all seven stage cells will be there. Nothing reflows when data lands.
+
+**Why route-level `loading.tsx` files rather than client-side spinners:** App Router's `loading.tsx` files automatically wrap the segment in a `<Suspense>` boundary, so the layout (sidebar, topbar, wordmark, breadcrumbs) stays visible while the page-level data loads. Spinners in the page body would leave the sidebar / topbar feeling frozen during slow Supabase calls.
+
+**Toast polish** at `components/ui/sonner.tsx`. Toast radius bumped to `rounded-lg` (`var(--radius)` = 8px) so toasts match cards/dialogs. Shadow swapped to `shadow-[0_8px_24px_-8px_rgb(194_65_12_/_0.18)]` — a soft terracotta tint at 18% so toasts read as a StoneDash surface rather than an OS notification. Action button now uses `bg-brand` instead of `bg-primary` so it explicitly ties to the brand color (in practice the same value, but the explicit token name makes the intent legible).
+
+**What I deliberately did *not* change.** Kept `richColors` enabled on the Toaster mount in `app/layout.tsx` — Sonner's built-in green/red for success/error severity is correct (those colors don't belong to any one brand). Kept `position="top-right"` and `closeButton`. Kept the toast copy across the app as-is; the polish is purely structural / visual.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
+- Captured an empty-state preview against `/orders?q=zzzzz_nothing_here` to confirm the terracotta-circle icon + "No orders match." + description renders inside the card cleanly, with the rest of the chrome (sidebar active strip, topbar wordmark, filter row) intact around it.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
-import { Share2 } from "lucide-react";
+import { CalendarDays, Share2 } from "lucide-react";
 
 import {
   Table,
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
 import type { CalendarEvent } from "@/lib/queries/events";
 import { MapsLinks } from "./maps-links";
+import { EmptyState } from "./empty-state";
 
 const PAGE_SIZE = 50;
 
@@ -114,12 +115,11 @@ export function CalendarList({ events, timeZone }: Props) {
 
   if (total === 0) {
     return (
-      <div className="rounded-xl border bg-card p-12 text-center">
-        <p className="text-sm font-medium">No events match.</p>
-        <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-          Adjust the filters above, or use <strong>+ New event</strong> to add one.
-        </p>
-      </div>
+      <EmptyState
+        icon={CalendarDays}
+        title="No events match."
+        description="Adjust the filters above, or use + New event to add one."
+      />
     );
   }
 
