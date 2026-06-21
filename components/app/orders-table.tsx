@@ -24,6 +24,7 @@ import type { OrderListRow } from "@/lib/queries/orders";
 import { OrderStageBadge } from "./order-stage-badge";
 import { NotesPopover } from "./notes-popover";
 import { InstallDate } from "./install-date";
+import { TablePagination } from "./table-pagination";
 
 type Props = {
   rows: OrderListRow[];
@@ -91,7 +92,14 @@ export function OrdersTable({
       <Button
         variant="ghost"
         size="sm"
-        className="-ml-2 h-7 gap-1 px-2 text-xs font-medium text-muted-foreground"
+        className={cn(
+          // -ml-3 negates the TableHead's px-3 so the button label aligns
+          // with the cell's natural left edge. text-[11px] uppercase
+          // tracking-wider matches the static TableHead style; active
+          // sort flips the color to brand so the column is glanceable.
+          "-ml-3 h-7 gap-1 px-3 text-[11px] font-medium uppercase tracking-wider",
+          active ? "text-brand hover:text-brand" : "text-muted-foreground",
+        )}
         onClick={() => router.push(withParams({ sort: key, dir: nextDir, page: "1" }))}
       >
         {SORTABLE[key]}
@@ -109,8 +117,6 @@ export function OrdersTable({
   function openDetail(id: string) {
     router.push(withParams({ order: id }));
   }
-
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   if (rows.length === 0) {
     return (
@@ -211,31 +217,13 @@ export function OrdersTable({
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {total.toLocaleString()} order{total === 1 ? "" : "s"} · page {page} of {totalPages}
-        </span>
-        <div className="flex gap-1">
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            className={cn(page <= 1 && "pointer-events-none opacity-50")}
-          >
-            <Link href={withParams({ page: String(page - 1) })}>Prev</Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            className={cn(page >= totalPages && "pointer-events-none opacity-50")}
-          >
-            <Link href={withParams({ page: String(page + 1) })}>Next</Link>
-          </Button>
-        </div>
-      </div>
+      <TablePagination
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        hrefForPage={(p) => withParams({ page: String(p) })}
+        unit={{ singular: "order", plural: "orders" }}
+      />
     </div>
   );
 }

@@ -193,6 +193,28 @@ The standalone `components/app/theme-toggle.tsx` was deleted; the theme switch o
 - `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
 - Re-captured `public/landing/dashboard-hero.png` so the marketing landing reflects the new chrome (wordmark, terracotta left edge on active sidebar item, brand-tinted icon, brand avatar at sidebar foot).
 
+### Sub-step 7 — Table-wide polish + pagination extraction (complete)
+
+**Table primitive polish** (`components/ui/table.tsx`). Three changes, applied site-wide so every list surface inherits them:
+- `TableHead` bumped from `h-10 px-2` text-sm to `h-11 px-3` with `text-[11px] font-medium uppercase tracking-wider`. The uppercase tracked label gives the header a clear visual rank without being heavy — matches the Notion-warm direction from the brief.
+- `TableCell` bumped from `p-2` to `px-3 py-2.5`. Adds 2px of vertical breathing room per row without dropping density to a level that hurts scannability on long lists.
+- `TableRow` hover softened from `bg-muted/50` to `bg-muted/40`. The old hover was strong enough to read as "selected"; the new one reads as "ready to click".
+
+**Sortable headers in `OrdersTable`** (`components/app/orders-table.tsx`) re-tuned to fit the new TableHead style: `-ml-3` (was `-ml-2`) negates the new `px-3` cell padding so the button label aligns with the cell's natural left edge; text uses the same `text-[11px] uppercase tracking-wider` as static headers. Active sort column flips the button text to `text-brand` so the sort axis is glanceable without a separate badge.
+
+**`<TablePagination>` extracted** to `components/app/table-pagination.tsx`. Takes `{ total, page, pageSize, hrefForPage, unit }`, renders the `N items · page X of Y` indicator + Prev/Next buttons with chevrons. The component owns disabled-state styling (`pointer-events-none opacity-50`) and the `asChild` toggle that switches between `<Link>` (active) and plain `<span>` (disabled — `<Link>` can't be `disabled`-attributed cleanly). Callers pass an `hrefForPage(p)` function so this works on any route and preserves the current URL state — typical wiring is `hrefForPage={(p) => withParams({ page: String(p) })}`.
+
+**`OrdersTable` now consumes `<TablePagination>`**. Dropped the local `totalPages` derivation (now lives inside `TablePagination`) and the inline Button/Link pair. The unit prop (`{ singular: "order", plural: "orders" }`) keeps the "3 orders" / "1 order" reading natural — important when the same component drops into customers/contractors/imports later.
+
+**Why a unit prop instead of hardcoded "items":** when the CSV import previews land in sub-steps 9-12, each will paginate ("3 errors · page 1 of 2", "412 rows · page 1 of 5"). Burning "items" into the component would force every caller to wrap it in their own label, defeating the extraction. The unit-prop default is "item / items" so generic surfaces (admin tables, future settings lists) still read fine without configuration.
+
+**One operational hiccup.** First smoke run after the Table changes reported 1 FAIL on `/schedule` (body missing `data-testid="send-to-crew"`). Spent a beat sanity-checking my changes — none of them touched event-block.tsx or the week view. Root cause was seed-data date drift: `supabase/seed.ts` builds events at offsets from `new Date()`, so a seed run from late May placed events at 2026-05-04. The default `/schedule` view is "this week starting today" — by 2026-06-21 those events were a month behind, so the week view rendered empty (no event blocks → no testid in body). `pnpm db:seed` re-populated relative-to-today and smoke went green. Same gotcha is worth keeping in mind for any future smoke surface that depends on seeded calendar data.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL** (after the seed refresh).
+- Re-captured `public/landing/dashboard-hero.png` against the fresh seed so the marketing screenshot stays in sync with what a brand-new demo session would show.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
