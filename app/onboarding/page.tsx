@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
+import { AuthLayout } from "@/components/app/auth-layout";
 import { OnboardingForm } from "@/components/app/onboarding-form";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertNoQueryError } from "@/lib/supabase/errors";
@@ -38,31 +38,24 @@ export default async function OnboardingPage() {
       : "");
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted/30">
-      <header className="flex items-center justify-between px-6 py-5">
-        <Link href="/" className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
-          Stone &amp; Design Board
-        </Link>
+    <AuthLayout
+      title="Set up your shop"
+      subtitle="A few details so we can tailor orders, team invites, and reports."
+      // Onboarding skips the marketing pull-quote (user is already
+      // authenticated; quote is a conversion tool, not a setup tool).
+      quote={null}
+      topRight={
         <form action="/logout" method="post">
           <button
             type="submit"
-            className="text-xs text-muted-foreground underline underline-offset-4"
+            className="text-xs text-muted-foreground hover:text-foreground"
           >
             Sign out
           </button>
         </form>
-      </header>
-      <main className="flex flex-1 items-center justify-center px-6 py-10">
-        <div className="w-full max-w-md space-y-6 rounded-xl border bg-background p-8 shadow-sm">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold tracking-tight">Set up your shop</h1>
-            <p className="text-sm text-muted-foreground">
-              A few details so we can tailor orders, team invites, and reports.
-            </p>
-          </div>
-          <OnboardingForm initialFullName={initialFullName} />
-        </div>
-      </main>
-    </div>
+      }
+    >
+      <OnboardingForm initialFullName={initialFullName} />
+    </AuthLayout>
   );
 }

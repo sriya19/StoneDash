@@ -128,6 +128,29 @@ The local filesystem path `/Users/sriyapothula/stone-design-board/` is out of sc
 
 **Stale `app/favicon.ico` removed.** Was a legacy Next-scaffolded artifact that overrode the new SVG favicon in browser tabs.
 
+### Sub-step 4 — Login + signup + onboarding polish (complete)
+
+**Two-column shell** lives in `components/app/auth-layout.tsx`. Used by all three auth pages. Form on the left, terracotta-tinted pull-quote on the right at `lg`+; collapses to single-column below. Pull-quote can be set to `null` to drop the right column entirely (onboarding does this — user is already authenticated, the quote is a conversion tool).
+
+**Layout contract.** Wordmark in Geist semibold top-left. Optional `topRight` slot (used by onboarding for a "Sign out" form-button). Page-supplied `title` (Geist 2xl semibold) + optional `subtitle`. Optional `switcher` block at the bottom of the form column for the "Don't have an account? Sign up" / "Already have an account? Log in" cross-link, using the brand-accent color for the link instead of a generic underline.
+
+**Pull-quote** (PLAN Q10 placeholder, with a TODO note in `auth-layout.tsx`): *"I haven't lost track of an install in three weeks." — Owner, Top Marble & Granite — Sterling, VA.* Background is a soft gradient from `bg-brand-muted/60 → /30 → bg-accent`. A giant `&ldquo;` glyph at `text-brand/15` sits behind the quote text — gives the right column visual weight without competing with the form.
+
+**Forms reordered** (`components/app/login-form.tsx`, `signup-form.tsx`):
+1. **Google OAuth button at the top.** Fast path for repeat visitors who've already linked Google. Now uses the official 4-color Google G mark (`components/app/google-icon.tsx`) — Google's branding guidelines require their exact mark for "Sign in with Google" buttons; a single-color lucide icon wouldn't meet identity requirements.
+2. **"or continue with email" divider** — `Separator` flanking a small uppercase label. Replaces the previous bare "or".
+3. **Email + password** below. Label sized 13px medium per brief. Password row has a **"Forgot?" link** on the right edge of the label row, pointing to `/login?reset=1` (the actual reset flow isn't built — query param is the seam for it).
+4. Submit button uses the new terracotta primary automatically (sub-step 2 reroots `--primary`).
+
+**Onboarding** (`app/onboarding/page.tsx`) gets the same shell. Server-side auth check is unchanged from before; the only difference is now it renders inside `AuthLayout` with `quote={null}` and a `topRight` sign-out form. The "Set up your shop" form (`OnboardingForm`) is untouched — it gets the visual treatment from its container.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
+- Spot-checked rendered bodies for `/login`, `/signup`, `/onboarding`: wordmark, headlines, Google button, divider copy, switcher link copy, and the pull-quote text all appear as expected.
+
+**One operational hiccup worth recording.** First smoke run after this sub-step reported 6 failures (3 contractor detail + 3 `/j/:slug-*` routes 500'ing) — but no contractor / share-link code changed in this sub-step. Root cause: two `next dev` processes were racing on port 3000 (the user had started one manually for review while I had one running). Stale `.next/` chunks from the colliding builds 500'd the dynamic routes. Killed both, wiped `.next/`, restarted clean — smoke returned to 27 OK. This is the same workflow gotcha already documented in the Task 2B post-ship DEVLOG entry; logging it again here because it cost a few minutes to diagnose.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)

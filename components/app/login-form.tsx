@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { GoogleIcon } from "./google-icon";
 
 type Props = { next?: string };
 
@@ -52,10 +53,36 @@ export function LoginForm({ next }: Props) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Google OAuth at the top — fast path for repeat visitors. */}
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full gap-2"
+        onClick={onGoogleLogin}
+        disabled={oauthPending || pending}
+      >
+        {oauthPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <GoogleIcon className="h-4 w-4" />
+        )}
+        Continue with Google
+      </Button>
+
+      <div className="flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          or continue with email
+        </span>
+        <Separator className="flex-1" />
+      </div>
+
       <form onSubmit={onEmailLogin} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="email" className="text-[13px] font-medium">
+            Email
+          </Label>
           <Input
             id="email"
             type="email"
@@ -63,10 +90,21 @@ export function LoginForm({ next }: Props) {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@yourshop.com"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password" className="text-[13px] font-medium">
+              Password
+            </Label>
+            <Link
+              href="/login?reset=1"
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Forgot?
+            </Link>
+          </div>
           <Input
             id="password"
             type="password"
@@ -82,30 +120,6 @@ export function LoginForm({ next }: Props) {
           Log in
         </Button>
       </form>
-
-      <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
-        <Separator className="flex-1" />
-      </div>
-
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        onClick={onGoogleLogin}
-        disabled={oauthPending}
-      >
-        {oauthPending && <Loader2 className="h-4 w-4 animate-spin" />}
-        Continue with Google
-      </Button>
-
-      <p className="text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="underline underline-offset-4">
-          Create one
-        </Link>
-      </p>
     </div>
   );
 }

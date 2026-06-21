@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -11,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { GoogleIcon } from "./google-icon";
 
 export function SignupForm() {
   const router = useRouter();
@@ -65,10 +65,35 @@ export function SignupForm() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full gap-2"
+        onClick={onGoogleSignup}
+        disabled={oauthPending || pending}
+      >
+        {oauthPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <GoogleIcon className="h-4 w-4" />
+        )}
+        Continue with Google
+      </Button>
+
+      <div className="flex items-center gap-3">
+        <Separator className="flex-1" />
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          or continue with email
+        </span>
+        <Separator className="flex-1" />
+      </div>
+
       <form onSubmit={onSignup} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="fullName">Full name</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="fullName" className="text-[13px] font-medium">
+            Full name
+          </Label>
           <Input
             id="fullName"
             autoComplete="name"
@@ -77,8 +102,10 @@ export function SignupForm() {
             onChange={(event) => setFullName(event.target.value)}
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="email">Work email</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="email" className="text-[13px] font-medium">
+            Work email
+          </Label>
           <Input
             id="email"
             type="email"
@@ -86,10 +113,13 @@ export function SignupForm() {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@yourshop.com"
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="password" className="text-[13px] font-medium">
+            Password
+          </Label>
           <Input
             id="password"
             type="password"
@@ -106,30 +136,6 @@ export function SignupForm() {
           Create account
         </Button>
       </form>
-
-      <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">or</span>
-        <Separator className="flex-1" />
-      </div>
-
-      <Button
-        type="button"
-        variant="outline"
-        className="w-full"
-        onClick={onGoogleSignup}
-        disabled={oauthPending}
-      >
-        {oauthPending && <Loader2 className="h-4 w-4 animate-spin" />}
-        Continue with Google
-      </Button>
-
-      <p className="text-center text-sm text-muted-foreground">
-        Already have an account?{" "}
-        <Link href="/login" className="underline underline-offset-4">
-          Log in
-        </Link>
-      </p>
     </div>
   );
 }
