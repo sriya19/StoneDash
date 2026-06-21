@@ -40,7 +40,7 @@ export function Sidebar({ initialCollapsed, activeOrgId, orgs, user }: Props) {
       )}
       aria-label="Primary"
     >
-      <div className="flex h-12 items-center gap-1 border-b border-sidebar-border px-2">
+      <div className="flex h-14 items-center gap-1 border-b border-sidebar-border px-2">
         <div className="flex-1 min-w-0">
           <OrgSwitcher activeOrgId={activeOrgId} orgs={orgs} collapsed={collapsed} />
         </div>

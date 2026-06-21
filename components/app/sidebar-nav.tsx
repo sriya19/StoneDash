@@ -56,19 +56,25 @@ export function SidebarNav({ collapsed }: Props) {
                 key={entry.label}
                 href={entry.href}
                 className={cn(
-                  "flex h-9 items-center gap-3 rounded-md px-2.5 text-sm transition-colors",
+                  // 2px left-edge terracotta strip on active; reserved
+                  // gutter (border-l-transparent) keeps inactive items
+                  // aligned with active ones so nothing reflows on hover
+                  // or route change.
+                  "relative flex h-9 items-center gap-3 rounded-md border-l-2 border-l-transparent px-2.5 text-sm transition-colors",
                   active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    ? "border-l-brand bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   collapsed && "justify-center px-0",
                 )}
                 aria-current={active ? "page" : undefined}
               >
-                <entry.icon className="h-4 w-4 shrink-0" />
+                <entry.icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    active && "text-brand",
+                  )}
+                />
                 {!collapsed ? <span className="truncate">{entry.label}</span> : null}
-                {active && !collapsed ? (
-                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand" />
-                ) : null}
               </Link>
             );
             return collapsed ? (
@@ -87,7 +93,7 @@ export function SidebarNav({ collapsed }: Props) {
               type="button"
               disabled
               className={cn(
-                "flex h-9 items-center gap-3 rounded-md px-2.5 text-sm text-sidebar-foreground/40 cursor-not-allowed",
+                "flex h-9 cursor-not-allowed items-center gap-3 rounded-md border-l-2 border-l-transparent px-2.5 text-sm text-sidebar-foreground/40",
                 collapsed && "justify-center px-0",
               )}
               aria-label={`${entry.label} — coming soon`}

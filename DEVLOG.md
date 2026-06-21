@@ -172,6 +172,27 @@ The local filesystem path `/Users/sriyapothula/stone-design-board/` is out of sc
 - `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
 - Manual: re-ran `pnpm tsx --env-file=.env.local scripts/capture_landing_hero.ts` after the label tightening and confirmed the captured PNG shows all seven pipeline columns single-line, the urgent terracotta wash on Installs This Week, the trend badge on In Fabrication, and the collapsed `Demo Owner made 13 changes` group at the top of the activity feed.
 
+### Sub-step 6 — Sidebar + top bar polish (complete)
+
+**StoneDash wordmark in the topbar** (`components/app/topbar.tsx`). Left edge of the topbar gets a small terracotta dot + `StoneDash` in Geist semibold, linking to `/dashboard`. Hidden below `md` (mobile uses the sidebar's org pill for branding). A `/` glyph separates it from the breadcrumbs so the wordmark reads as a root crumb rather than as competing chrome. The wordmark intentionally lives in the topbar — not the sidebar — because the sidebar header is dedicated to the per-tenant `OrgSwitcher`, and giving the platform name top-billing there would crowd the org identity that owners actually care about.
+
+**Topbar + sidebar header heights aligned at `h-14`** (was `h-12`). The 8px bump gives the topbar enough room for the wordmark + breadcrumbs without feeling cramped, and matching the sidebar header keeps the horizontal rule a single straight line across the viewport.
+
+**Sidebar nav active treatment** (`components/app/sidebar-nav.tsx`) swaps the small terracotta dot on the right for a 2px terracotta **left-edge strip** + a brand-tinted icon. The Linear / Vercel pattern, basically. To prevent reflow on hover or route change, every nav row (including the disabled `coming_soon` stubs) reserves the gutter via `border-l-2 border-l-transparent`; only the active row paints it `border-l-brand`.
+
+**User popover** (`components/app/user-menu.tsx`) is now a single richer surface instead of the prior "tiny dropdown + standalone theme toggle button" pair. The popover content:
+- **Header row** with a larger 36px avatar (bg-brand for warmth), full name on top, email below.
+- **Theme segmented control** — three-up Light / System / Dark with the active option carrying a `bg-card shadow-sm` lift inside a `bg-muted/40` track. Implemented as a small `ThemeSegmented` component inside `user-menu.tsx` (couldn't share with the old `ThemeToggle` shape because the segmented variant is fundamentally different ergonomics — picking from three visible options vs. opening a second dropdown).
+- **Sign out** row at the bottom.
+The standalone `components/app/theme-toggle.tsx` was deleted; the theme switch only ever appeared inside the sidebar foot, so consolidating it into the user popover removed an orphan icon that wasn't pulling its weight.
+
+**Avatar color in the sidebar foot** is now `bg-brand text-brand-foreground` (was the default neutral). Small thing — but it makes the sidebar terminate with a visible brand cue, matching the org pill at the top.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
+- Re-captured `public/landing/dashboard-hero.png` so the marketing landing reflects the new chrome (wordmark, terracotta left edge on active sidebar item, brand-tinted icon, brand avatar at sidebar foot).
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
