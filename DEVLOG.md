@@ -241,6 +241,44 @@ Migrated all the page-level empties: orders-table (Wrench), customers-table (Use
 - `pnpm smoke` → **27 SSR OK + 3 DOM OK / 0 FAIL.**
 - Captured an empty-state preview against `/orders?q=zzzzz_nothing_here` to confirm the terracotta-circle icon + "No orders match." + description renders inside the card cleanly, with the rest of the chrome (sidebar active strip, topbar wordmark, filter row) intact around it.
 
+### Sub-step 9 — CSV import infrastructure (complete)
+
+Infrastructure-only sub-step: the parse pipeline, the commit orchestrator, the shared dialog shell, and the import helpers all land here. Sub-steps 10-12 each instantiate the shell + plug a per-entity commit handler — they should be ~150 lines each once this scaffolding exists.
+
+**Dependencies.** `papaparse@5.5.4` + `@types/papaparse@5.5.2`. Standard CSV parser; the one Node ecosystem agreement on which library to use for this.
+
+**Helpers** at `lib/import/helpers.ts`:
+- `sanitizeCell(raw)` — strips a leading `=`, `+`, `-`, `@`, TAB, or CR per OWASP CSV-injection guidance. Returns `{ value, sanitized }` so the caller can count touched cells and surface the count in the import summary. Conservative shape: only strips the *lead* offender so legitimate cells like `"+1 (555) 123-4567"` survive when the `+` sits inside the value rather than at position 0.
+- `parseFlexibleDate(raw)` — tries `yyyy-MM-dd`, `MM/dd/yyyy`, `M/d/yyyy`, `MMM d, yyyy`, `MMMM d, yyyy`, `MM/dd/yy`, `M/d/yy` in order via date-fns. First successful parse wins; returns `null` when none match. Order matters — more specific first so `"2026-06-21"` hits ISO and two-digit-year patterns sit last to avoid ambiguous parses.
+- `normalizeHeader(raw)` + `autoMapHeaders(headers, aliases)` — turns `"Customer Name"` and `"customer_name"` into the same shape, then matches each parsed header against the per-entity alias list so the user gets a pre-filled column mapping. Uses each canonical field at most once (a duplicate-header CSV won't bind the same field twice).
+- `cleanCell(raw)` — convenience wrapper: trim → sanitize → `""` becomes `null`. The transform every non-required text field will need.
+
+**Parse route** at `app/api/import/parse/route.ts`:
+- Auth-gated via `getCurrentUserAndOrg()` even though no writes happen.
+- 5 MB ceiling on file size (PLAN Q2 lock — Next 14 Server Actions cap at 1 MB which is why this is a route handler, not an action).
+- Returns `{ ok, headers, rows: rows.slice(0, 10), totalRows, sanitizedCells }`. Sanitizes every row up-front (not just the preview slice) so the count is honest before the user commits.
+- `dynamicTyping: false` so every cell stays string — the sanitizer sees the raw input, the entity importer coerces.
+
+**Shared commit orchestrator** at `lib/import/commit.ts`:
+- `runImportCommit(request, config)` is the one-shot entry point each per-entity route will call. Handles auth, multipart parsing, mapping JSON validation (rejects unknown target fields server-side — never trust the client gate alone), required-field re-validation, CSV parsing, sanitization, chunked inserts.
+- Per PLAN Q2 lock: 100-row chunks. The per-entity handler receives `(chunk, rowOffsets)` and returns `{ inserted, skipped, warnings }`; the orchestrator aggregates across chunks into the final response.
+- Per-entity handlers code against `{ canonicalField: rawValue }` shape — the orchestrator applies the user's column mapping uniformly, so each handler stays focused on "given a list of customer fields, insert customers".
+
+**Shared dialog shell** at `components/app/csv-import-sheet.tsx`:
+- Three steps: **pick** (drag-target card + native file input), **preview** (file summary, sanitized-cells count, column mapping table with auto-guessed values, required-field validator, "Import N rows" CTA), **done** (success card with inserted/skipped counts + first 10 warnings, or error state with a "Try again" button).
+- A `committing` step in between with a centered loader and "Importing N rows…" copy so the user has continuity feedback during the longest part.
+- File ref kept across stages via `useRef` — the commit POST re-uploads the same File bytes (no JSON serialization of large row arrays through the 1 MB Server Action ceiling). Same file the parse route already saw.
+- Calls `router.refresh()` on success so the underlying page (customers / contractors / orders) re-fetches and the freshly-imported rows appear without a reload.
+- Required fields are visually flagged with a terracotta dot in the mapping picker; the commit button stays disabled until every required field is mapped.
+
+**Smoke** at `scripts/smoke_import_parse.ts` + wired into `pnpm smoke` via `pnpm smoke:import`. Uploads a tiny CSV with one CSV-injection cell (`=SUM(A1:A9)`) and asserts six things: response ok, headers in file order, totalRows = 3, preview slice length = 3, sanitizedCells = 1, and the sanitized value reads as `SUM(A1:A9)` (lead `=` stripped). Six checks because each one catches a different failure mode in the parse + sanitize chain.
+
+**What this sub-step does NOT include.** No entity-specific commit routes yet — those land in sub-steps 10 (customers), 11 (contractors), 12 (orders). No UI trigger to open the dialog from /customers etc.; that wires up per-entity in the next three sub-steps. Quick Add on /orders is sub-step 13.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build shows `/api/import/parse` as a registered route handler.
+- `pnpm smoke` → **27 SSR OK + 3 DOM OK + 6 import-parse checks OK / 0 FAIL.**
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)

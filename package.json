@@ -14,9 +14,10 @@
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
     "db:seed": "tsx --env-file=.env.local supabase/seed.ts",
-    "smoke": "pnpm smoke:ssr && pnpm smoke:dom",
+    "smoke": "pnpm smoke:ssr && pnpm smoke:dom && pnpm smoke:import",
     "smoke:ssr": "tsx --env-file=.env.local scripts/smoke_pages.ts",
-    "smoke:dom": "tsx --env-file=.env.local scripts/smoke_send_to_crew_dom.ts"
+    "smoke:dom": "tsx --env-file=.env.local scripts/smoke_send_to_crew_dom.ts",
+    "smoke:import": "tsx --env-file=.env.local scripts/smoke_import_parse.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
@@ -50,6 +51,7 @@
     "next": "14.2.35",
     "next-themes": "^0.4.6",
     "nuqs": "^2.8.9",
+    "papaparse": "^5.5.4",
     "react": "^18",
     "react-day-picker": "^9.14.0",
     "react-dom": "^18",
@@ -61,6 +63,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
