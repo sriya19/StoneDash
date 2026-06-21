@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { CustomersTable } from "@/components/app/customers-table";
 import { CustomerDetailSheet } from "@/components/app/customer-detail-sheet";
 import { NewCustomerDialog } from "@/components/app/new-customer-dialog";
+import { CustomersImportButton } from "@/components/app/customers-import-button";
 
 type SearchParams = {
   id?: string;
@@ -44,11 +45,14 @@ export default async function CustomersPage({
           </p>
         </div>
         {canCreate ? (
-          <Button asChild size="sm" className="gap-1">
-            <Link href="/customers?new=1">
-              <Plus className="h-4 w-4" /> New customer
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <CustomersImportButton />
+            <Button asChild size="sm" className="gap-1">
+              <Link href="/customers?new=1">
+                <Plus className="h-4 w-4" /> New customer
+              </Link>
+            </Button>
+          </div>
         ) : null}
       </header>
 

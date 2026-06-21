@@ -279,6 +279,37 @@ Infrastructure-only sub-step: the parse pipeline, the commit orchestrator, the s
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build shows `/api/import/parse` as a registered route handler.
 - `pnpm smoke` → **27 SSR OK + 3 DOM OK + 6 import-parse checks OK / 0 FAIL.**
 
+### Sub-step 10 — Customers CSV import (complete)
+
+First per-entity instantiation of the import infrastructure from sub-step 9. Thin layer; most of the work is the entity field config + the row-level validator.
+
+**Split-module shape.** The customers import lives in two peer modules so the field config can be shared between client and server without dragging server-only imports into the client bundle:
+- `lib/import/entities/customers.config.ts` — client-safe. Defines `CustomerField`, `CUSTOMER_IMPORT_FIELDS` (with per-field aliases for the auto-mapper), and the `CUSTOMER_IMPORT_CONFIG` consumed by `<CsvImportSheet>`.
+- `lib/import/entities/customers.ts` — `import "server-only"`. Defines the Zod validator + the chunk handler. Imports the field list from `.config.ts` so a future field addition lives in one place.
+
+**Required field: just `name`.** Mirrors the existing `CustomerFields` validator from `lib/validators/customers.ts`. Eight optional fields cover the realistic QuickBooks / Excel customer export shape (company, email, phone, address × 5, notes). Aliases include common spreadsheet variants — "customer", "customer_name", "contact" all map to `name`; "phone", "telephone", "mobile", "cell" all map to `phone`; etc.
+
+**Per-row validation.** `ImportCustomerRow` is a Zod object that mirrors the existing CustomerFields validator but operates on the canonical-key shape `runImportCommit` produces. Validation failures are caught per-row and surface as `Row N: <message>` warnings; the rest of the chunk still inserts. Whole-chunk failures (RLS denial, constraint violation) skip every row in the chunk and emit one chunk-scoped warning so the user gets actionable feedback instead of just "0 inserted".
+
+**Commit route** at `app/api/import/customers/route.ts`. Three-line body: auth-gate → RBAC gate (`canManageCustomers`) → `return runImportCommit(request, config)`. The RBAC check sits in the route (not in the orchestrator) because permissions are per-entity — contractor and order imports will have their own gates.
+
+**Trigger button** at `components/app/customers-import-button.tsx`. Thin client wrapper that owns the `open` state for `<CsvImportSheet>`. Wired into the `/customers` page header next to "+ New customer" (only rendered when `canManageCustomers(role)` is true — same gate as the server route).
+
+**One pre-flight bug caught by the new smoke.** First run of `scripts/smoke_import_customers.ts` reported the validation message for a blank-name row as `"expected string, received undefined"` instead of `"Name is required"`. Cause: I was filtering empty strings out of the row before passing to Zod ("coerce empty strings → undefined so optional() applies cleanly"). For required fields that turned a clean validator message into a generic Zod default. Fix: pass the row through with empty strings intact, let `z.string().trim().min(1, "Name is required")` produce the right message, and lean on the existing union schemas on optional fields (already accept `z.literal("")`) plus a `blankToNull` pass on the insert side. One-line change in `customers.ts`, both warning messages now read correctly.
+
+**Smoke** at `scripts/smoke_import_customers.ts`. End-to-end:
+1. Pre-cleanup any leftover `__SMOKE_CUSTOMER__*` rows from a prior failed run.
+2. Sign in as demo owner.
+3. POST a 5-row CSV (3 valid rows, 1 invalid email, 1 empty name) plus the column mapping to `/api/import/customers`.
+4. Assert response.ok, inserted=3, skipped=2, both expected warning messages present.
+5. Service-role-read to verify the 3 rows actually exist in the DB.
+6. Cleanup. Wired into `pnpm smoke` via `pnpm smoke:import` (chained after the parse smoke).
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build registers `/api/import/customers` as a route handler; `/customers` bundle grew from 9.22 kB → 13.2 kB (the import sheet + papaparse type imports pulled into the client).
+- `pnpm smoke` → **27 SSR + 3 DOM + 6 import-parse + 6 import-customers / 0 FAIL.**
+- Captured `/customers` in a browser to confirm the "Import CSV" outline button sits next to "+ New customer" without crowding, and the polished table chrome (uppercase headers, brand avatar at sidebar foot) reads as intended.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
