@@ -310,6 +310,22 @@ First per-entity instantiation of the import infrastructure from sub-step 9. Thi
 - `pnpm smoke` → **27 SSR + 3 DOM + 6 import-parse + 6 import-customers / 0 FAIL.**
 - Captured `/customers` in a browser to confirm the "Import CSV" outline button sits next to "+ New customer" without crowding, and the polished table chrome (uppercase headers, brand avatar at sidebar foot) reads as intended.
 
+### Sub-step 11 — Contractors CSV import (complete)
+
+Second per-entity instantiation. Same split-module pattern as customers (sub-step 10) — the only deltas are the field set, the destination table, and the RBAC gate.
+
+**Field set** (11 fields): `name` (required); `primaryContact`, `phone`, `email`, address × 5, `paymentTerms`, `notes`. The validator mirrors `ContractorFields` from `lib/validators/contractors.ts` for shape parity — same length caps, same email validation, same trimming.
+
+**`isActive` is deliberately NOT in the import schema.** All imported contractors default to active via the table's `is_active boolean DEFAULT true`. Surfacing an `isActive` column on the mapping picker would either force every importer to pick something for a column 99% of files won't have, or quietly mis-map a "Status" header to a boolean it can't represent. If an owner needs to deactivate a freshly imported contractor they can do it on the contractor detail page where the toggle is already wired.
+
+**Payment terms** mapped as free-form text per the existing validator's shape (`paymentTerms: optionalString(z.string().trim().max(100))`). The `PAYMENT_TERMS_SUGGESTIONS` array in the validator only powers a datalist on the manual New Contractor dialog — imports accept anything the CSV provides, which is right for messy real-world data where one shop's "Net30" and another's "30 days" should both survive.
+
+**Smoke** at `scripts/smoke_import_contractors.ts`. Same 5-row pattern as the customers smoke (3 valid, 1 bad email, 1 empty name), plus a 7th check that verifies `payment_terms` round-trips through the import unchanged — caught a class of bugs where a future entity-handler refactor could drop a non-required string field silently.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. New route registered at `/api/import/contractors`.
+- `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors / 0 FAIL.**
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)

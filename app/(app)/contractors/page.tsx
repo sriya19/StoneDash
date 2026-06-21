@@ -10,6 +10,7 @@ import { canManageContractors } from "@/lib/rbac";
 import { Button } from "@/components/ui/button";
 import { ContractorsTable } from "@/components/app/contractors-table";
 import { NewContractorDialog } from "@/components/app/new-contractor-dialog";
+import { ContractorsImportButton } from "@/components/app/contractors-import-button";
 
 type SearchParams = {
   q?: string;
@@ -47,11 +48,14 @@ export default async function ContractorsPage({
           </p>
         </div>
         {canCreate ? (
-          <Button asChild size="sm" className="gap-1">
-            <Link href="/contractors?new=1">
-              <Plus className="h-4 w-4" /> New contractor
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <ContractorsImportButton />
+            <Button asChild size="sm" className="gap-1">
+              <Link href="/contractors?new=1">
+                <Plus className="h-4 w-4" /> New contractor
+              </Link>
+            </Button>
+          </div>
         ) : null}
       </header>
 
