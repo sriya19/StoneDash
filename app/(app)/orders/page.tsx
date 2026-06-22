@@ -1,5 +1,8 @@
+import Link from "next/link";
 import type { OrderStage } from "@prisma/client";
+import { Zap } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listOrders, getOrderDetail } from "@/lib/queries/orders";
@@ -21,6 +24,7 @@ import { OrdersTable } from "@/components/app/orders-table";
 import { OrdersBoard } from "@/components/app/orders-board";
 import { NewOrderDialog } from "@/components/app/new-order-dialog";
 import { OrdersImportButton } from "@/components/app/orders-import-button";
+import { QuickAddOrderSheet } from "@/components/app/quick-add-order-sheet";
 import {
   OrderDetailSheet,
   type AttachmentRow,
@@ -39,6 +43,7 @@ type SearchParams = {
   page?: string;
   order?: string;
   new?: string;
+  quick?: string;
   tab?: string;
   event?: string;
   date?: string;
@@ -119,6 +124,7 @@ export default async function OrdersPage({
   ]);
 
   const showNewDialog = searchParams.new === "1";
+  const showQuickAdd = searchParams.quick === "1";
   const detailOrderId = searchParams.order ?? null;
   const detailTab = parseTab(searchParams.tab);
 
@@ -130,7 +136,7 @@ export default async function OrdersPage({
   const sendEventId =
     searchParams.send && UUID_RE.test(searchParams.send) ? searchParams.send : null;
 
-  const customers = showNewDialog ? await listCustomersLite() : [];
+  const customers = showNewDialog || showQuickAdd ? await listCustomersLite() : [];
 
   let detailOrder = null;
   let attachments: AttachmentRow[] = [];
@@ -200,6 +206,13 @@ export default async function OrdersPage({
       <header className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <div className="flex items-center gap-2">
+          {canCreateOrder(role) ? (
+            <Button asChild variant="outline" size="sm" className="gap-1">
+              <Link href="/orders?quick=1">
+                <Zap className="h-4 w-4" /> Quick Add
+              </Link>
+            </Button>
+          ) : null}
           {canCreateOrder(role) ? <OrdersImportButton /> : null}
           <OrdersViewToggle />
         </div>
@@ -228,6 +241,8 @@ export default async function OrdersPage({
           currency={org.currency}
         />
       ) : null}
+
+      {showQuickAdd ? <QuickAddOrderSheet customers={customers} /> : null}
 
       {detailOrderId ? (
         <OrderDetailSheet

@@ -361,6 +361,30 @@ The DB assertions verify count, contractor link count, install-date population, 
 
 This is the third planned pause point per the original Task 4 PLAN — all three import flows working. A good moment for the customer to actually try importing his real shop data before Quick Add (sub-step 13) + docs wrap (sub-step 14).
 
+### Sub-step 13 — Quick Add on /orders (complete)
+
+**`<QuickAddOrderSheet>`** at `components/app/quick-add-order-sheet.tsx`. The "10 orders in 5 minutes" surface PLAN Q5 spec'd. Unlike `<NewOrderDialog>` (a 4-step wizard for one rich order at a time), Quick Add is a single lean form with five fields:
+1. **Customer** — combobox over the SSR-supplied list, with an inline "+ New" affordance that swaps in a 2-field mini-form (name + phone). Per PLAN Q5 lock: "the whole point of Quick Add is '10 orders in 5 minutes'; forcing a /customers detour kills that." Same `customer: { existingCustomerId | newCustomer }` shape the existing `CreateOrderInput` validator already accepts, so no server-side changes were needed.
+2. **Project name** — required (matches the existing validator).
+3. **Stone type** — optional.
+4. **Quote** + **Install date** side-by-side at the bottom — both optional, both use `tabular-nums` so the numbers align.
+
+**Reset-on-submit, sheet stays open.** The whole flow is built around `resetForNext()` — on successful create, the form clears, the customer mode flips back to `pick`, focus jumps to the project input, and the sheet stays mounted so the user can immediately type the next order. A small `Zap`-iconed counter at the top tracks **`N orders added this session`** — turns repetitive entry into a small game and gives the user a concrete sense of progress.
+
+**Surfaces / wiring.**
+- `/orders` page header gets a `Quick Add` outline button (with the `Zap` icon, brand-tinted) next to the existing `Import CSV` outline button. Behind the `canCreateOrder(role)` gate, same as the import button.
+- Triggered via `?quick=1` URL param. The page already had `?new=1` for the full dialog; `?quick=1` is the same pattern for the lean sheet. The page also extends `listCustomersLite()` to fire when *either* param is present: `showNewDialog || showQuickAdd`.
+- After each successful create, `router.refresh()` pulls fresh data (so the new customer appears in the picker if we inlined one, and the underlying orders table updates underneath the sheet).
+
+**Why a Sheet, not a Dialog.** Sheets slide in from the side; the user keeps the orders table visible in the background so they can see the running total grow. Dialogs are modal-blocking and would lose that context. The visual confirmation of "yes, I created TM-1041 just now, I can see it appear in the list behind the sheet" is the whole point of staying on `/orders` rather than navigating to a detail page.
+
+**Validator-shape note.** The existing `CreateOrderInput` type expects all optional fields as explicit keys (value-can-be-undefined), so the Quick Add submit explicitly passes `undefined` for every field it doesn't expose (`contractorId`, `edgeProfile`, `estimatedSqft`, `depositReceived`, `measuredAt`, `fabricationStartDate`, `assignedTo`, `notes`). Slightly verbose but matches the validator contract and survives a future refactor that tightens the input type to `exactOptionalPropertyTypes: true`.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. `/orders` bundle grew from 25.7 → 25.8 kB (Quick Add reuses the Sheet + Popover + Command primitives that were already on the page for `NewOrderDialog`).
+- `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** Quick Add itself is exercised by the same `createOrder` action the existing flows hit; no new smoke needed since the import + manual smokes already cover the action's success and failure paths.
+- Captured `/orders?quick=1` in a headless browser to confirm the sheet opens to the right with the terracotta `Zap` glyph in the title, the customer combobox + "+ New" affordance, and the two-column Quote / Install date row reading cleanly.
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
