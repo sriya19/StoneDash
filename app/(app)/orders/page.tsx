@@ -14,11 +14,13 @@ import {
 import { getSendModalContext } from "@/lib/queries/share-links";
 import { createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
+import { canCreateOrder } from "@/lib/rbac";
 import { OrdersFilterBar } from "@/components/app/orders-filter-bar";
 import { OrdersViewToggle } from "@/components/app/orders-view-toggle";
 import { OrdersTable } from "@/components/app/orders-table";
 import { OrdersBoard } from "@/components/app/orders-board";
 import { NewOrderDialog } from "@/components/app/new-order-dialog";
+import { OrdersImportButton } from "@/components/app/orders-import-button";
 import {
   OrderDetailSheet,
   type AttachmentRow,
@@ -197,7 +199,10 @@ export default async function OrdersPage({
     <div className="mx-auto max-w-7xl space-y-4 px-6 py-6">
       <header className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
-        <OrdersViewToggle />
+        <div className="flex items-center gap-2">
+          {canCreateOrder(role) ? <OrdersImportButton /> : null}
+          <OrdersViewToggle />
+        </div>
       </header>
 
       <OrdersFilterBar contractorOptions={contractorOptions} />

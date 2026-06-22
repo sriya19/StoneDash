@@ -17,7 +17,7 @@
     "smoke": "pnpm smoke:ssr && pnpm smoke:dom && pnpm smoke:import",
     "smoke:ssr": "tsx --env-file=.env.local scripts/smoke_pages.ts",
     "smoke:dom": "tsx --env-file=.env.local scripts/smoke_send_to_crew_dom.ts",
-    "smoke:import": "tsx --env-file=.env.local scripts/smoke_import_parse.ts && tsx --env-file=.env.local scripts/smoke_import_customers.ts && tsx --env-file=.env.local scripts/smoke_import_contractors.ts"
+    "smoke:import": "tsx --env-file=.env.local scripts/smoke_import_parse.ts && tsx --env-file=.env.local scripts/smoke_import_customers.ts && tsx --env-file=.env.local scripts/smoke_import_contractors.ts && tsx --env-file=.env.local scripts/smoke_import_orders.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",

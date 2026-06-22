@@ -326,6 +326,41 @@ Second per-entity instantiation. Same split-module pattern as customers (sub-ste
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. New route registered at `/api/import/contractors`.
 - `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors / 0 FAIL.**
 
+### Sub-step 12 — Orders CSV import (complete)
+
+Third per-entity importer, materially more complex than the first two because each row resolves two foreign keys (customer required, contractor optional) and a flexible date, and each order needs a sequence-generated `order_number`.
+
+**Field set** (10 fields, 2 required): `customerName` and `projectName` required; `contractorName`, `stoneType`, `edgeProfile`, `quoteAmount`, `depositReceived`, `stage`, `scheduledInstallDate`, `notes` optional. `projectName` matches the existing `CreateOrderInput.projectName.min(1)` constraint so the import doesn't admit rows the manual create flow would reject.
+
+**FK resolution by name, not by ID.** Customers and contractors are matched by name within the org. Lookups are case-insensitive and whitespace-collapsed (`John Smith` / `john smith` / `JOHN  SMITH` all match) via a `nameKey()` normalizer. The two lookup tables are pre-fetched **once per import** (cached in the closure across all 100-row chunks) so a 5000-row import does two queries up-front instead of 10,000 per-row lookups. A `customersByName: Map<string, string> | null` sentinel handles lazy load on first chunk.
+
+**Per-row failure policy.** Three different paths matter and the handler is deliberate about each:
+- **Customer not found → skip** with `Row N: customer "X" not found — import customers first or fix the name.` Skipping is the safe choice: if we silently auto-created stub customers from import rows we'd erode the customer roster's authoritative shape (no phone, no company, no nothing). The error copy steers the user to the right fix.
+- **Contractor not found → warn + import** with `contractor_id = null`. Less critical: orders are still useful without a contractor link, and many real orders ARE direct rather than contractor-attributed. Losing the link is annoying; losing the order entirely is worse.
+- **Install date doesn't parse → warn + import** with `scheduled_install_date = null`. Same logic — better to land the order with no date than lose it because of a typo. The warning names the original input so the user knows which row's date to fix.
+
+**Stage validation** uses a `stageImport` Zod transform that lowercases + replaces whitespace/hyphens with underscores before matching against `ORDER_STAGES`. So `"Ready For Install"`, `"ready-for-install"`, and `"ready_for_install"` all resolve to the canonical value. Empty stage → default to `quote` on insert (matches the existing DB column default).
+
+**Money parsing** accepts `"1234.56"`, `"$1,234.56"`, and `"1,234.56"` via a strip-and-Number transform. Real spreadsheets are messy; if QuickBooks exports money with currency symbols, the import shouldn't fail on the dollar sign.
+
+**order_number generation** uses the existing `generate_order_number(p_org_id)` RPC, called per row. This means N RPCs for an N-row import — not great for huge files, but it's the same per-org sequence the manual New Order flow uses, so imported orders get numbers from a contiguous series (no gaps, no collisions). If a 5000-row import becomes a bottleneck we'd batch the RPC or pre-allocate a range; for now correctness-first.
+
+**Smoke** at `scripts/smoke_import_orders.ts` is the most thorough of the four import smokes — 10 checks covering all three failure paths. The CSV exercises:
+1. Everything valid (flexible MM/DD/YYYY date, money with `$` and `,`).
+2. No contractor.
+3. Misspelled contractor (warns, imports without).
+4. Customer not found (skipped).
+5. Garbage date "sometime next month" (warns, imports without date).
+The DB assertions verify count, contractor link count, install-date population, and that stage round-trips. Pre-seeds two customers + one contractor with `__SMOKE_ORDERS_*` prefixes; cleanup deletes everything it touched (including the orders by `__SMOKE_ORDERS_PROJ__` project-name prefix) so the smoke is repeatable.
+
+**One subtlety in the seed step.** The seed needs to look up the demo org by slug (`top-marble-granite`) to scope inserted customers/contractors to the org the import expects to match against. The smoke uses the service-role client for that, same pattern as the existing `smoke_send_to_crew_dom.ts`.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. New route at `/api/import/orders`.
+- `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
+This is the third planned pause point per the original Task 4 PLAN — all three import flows working. A good moment for the customer to actually try importing his real shop data before Quick Add (sub-step 13) + docs wrap (sub-step 14).
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
