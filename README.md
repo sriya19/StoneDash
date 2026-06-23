@@ -9,6 +9,22 @@ react-hook-form, @dnd-kit, and nuqs.
 
 ---
 
+## Screenshots
+
+Live captures of the current UI. Regenerate with
+`pnpm tsx --env-file=.env.local scripts/capture_docs_screenshots.ts`
+against a running `pnpm dev` server.
+
+| Surface | Preview |
+|---|---|
+| Public landing — `/` | ![landing](./docs/screenshots/landing.png) |
+| Auth — `/login` | ![login](./docs/screenshots/login.png) |
+| Dashboard | ![dashboard](./docs/screenshots/dashboard.png) |
+| Orders list | ![orders](./docs/screenshots/orders.png) |
+| Quick Add — `/orders?quick=1` | ![quick add](./docs/screenshots/quick-add.png) |
+
+---
+
 ## Prerequisites
 
 - **Node.js 20+** (tested on 24.10)
@@ -349,6 +365,58 @@ Conversion to the org's IANA tz happens exclusively in React render
 paths via `lib/tz.ts`. See the **"Server-side timezone discipline"**
 header note at the top of `DEVLOG.md`.
 
+### CSV import (customers, contractors, orders)
+
+Each of the three entity list pages has an **Import CSV** button next
+to its primary `+ New` action. The flow is the same across all three:
+
+1. Pick a CSV file (≤ 5 MB; headers in the first row).
+2. **Preview + map** — the dialog shows the first 10 rows, auto-guesses
+   each column → StoneDash field via the per-entity alias list, and
+   lets you fix anything that looks wrong. Required fields are flagged
+   with a terracotta dot; the Import button stays disabled until every
+   required field is mapped.
+3. **Done** — server inserts in 100-row chunks. Per-row validation
+   failures (bad email, empty required cell, etc.) surface as warnings
+   you can read inline; the rest of the chunk still inserts.
+
+**OWASP CSV-injection sanitization** strips a leading `=`, `+`, `-`,
+`@`, TAB, or CR from every cell server-side. The preview surfaces a
+count so you know how many cells were touched.
+
+**Architecture.** Two files per entity — `lib/import/entities/X.config.ts`
+(client-safe field list + aliases) and `lib/import/entities/X.ts`
+(`import "server-only"`, Zod validator, chunk handler). The shared
+orchestrator at `lib/import/commit.ts` handles auth, mapping
+validation, sanitization, and chunking; each per-entity route at
+`app/api/import/X/route.ts` is three lines (auth → RBAC gate →
+`runImportCommit`). The shared dialog at
+`components/app/csv-import-sheet.tsx` is parameterized by the entity
+config, so adding a fourth importer (e.g. slabs) is ~150 LOC of
+config + handler + route.
+
+**Orders import resolves foreign keys by name.** `customerName` is
+required and the row skips if the name doesn't match anything in the
+org (intentional — auto-creating stub customers would erode the
+customer roster). `contractorName` is optional and a mismatch warns
+but still imports the order with `contractor_id = null`. Install date
+runs through `parseFlexibleDate` (accepts MM/DD/YYYY, YYYY-MM-DD,
+`Jun 15 2026`, and similar). Lookups are pre-fetched once per import
+and cached in the handler closure, so a 5000-row import does two name-
+table queries up-front rather than 10,000 per-row lookups.
+
+### Quick Add on /orders
+
+`/orders` has a **Quick Add** outline button next to Import CSV. Opens
+a side sheet with the minimum-viable order form: customer combobox
+(with inline `+ New` mini-form for name + phone), project name, stone
+type, quote, install date — that's it. After each successful submit
+the form resets but the sheet stays open, focus jumps back to the
+project input, and a counter at the top shows "N orders added this
+session". The workflow is built for "10 orders in 5 minutes" sit-down
+backlog entry; full single-order detail still lives in the `+ New`
+wizard accessed via `?new=1`.
+
 ### The /j/[slug] public surface
 
 Each `event_share_links` row has a 16-char base62 slug (~95 bits
@@ -431,7 +499,7 @@ not optional — set them before deploying.
 
 ### Render-time smoke gate
 
-`pnpm smoke` runs two stages in sequence against a running `pnpm dev`
+`pnpm smoke` runs three stages in sequence against a running `pnpm dev`
 server. Catches the class of bugs `pnpm typecheck` + `next build` miss
 — server components that import non-component values from `"use client"`
 modules render-fail only at call time, and dynamic routes aren't
@@ -452,11 +520,22 @@ present. Covers the surfaces SSR-grep can't see. Skips gracefully if
 playwright/chromium isn't installed (`pnpm add -D playwright && npx
 playwright install chromium` — one-time, ~90MB).
 
+**Stage 3 — Import smoke** (`pnpm smoke:import`, ~5s).
+Four scripts under `scripts/smoke_import_*.ts` that exercise the CSV
+import end-to-end. The parse script POSTs a CSV with a
+CSV-injection cell and asserts the sanitizer fired. The three entity
+scripts (customers, contractors, orders) upload a small CSV with a
+mix of valid and validation-failing rows, assert the
+`{ inserted, skipped, warnings }` shape, then service-role-read the
+DB to verify the rows actually exist. Each cleans up after itself
+(pre-cleanup + post-cleanup) so the smoke is repeatable.
+
 ```sh
 pnpm dev        # in another terminal
-pnpm smoke              # both stages
+pnpm smoke              # all three stages
 pnpm smoke:ssr          # SSR only
 pnpm smoke:dom          # DOM only
+pnpm smoke:import       # CSV import end-to-end
 pnpm smoke:ssr /j       # subset by path prefix
 ```
 
@@ -541,12 +620,20 @@ Migrations don't run on deploy — apply them from your machine
 
 ## Design language
 
-- Neutral grayscale base, single accent **stone slate blue (`#4A5D7E`)**
-  bound to `--brand` and used for focus rings + active indicators.
-- Inter (sans) + JetBrains Mono (monospace for order numbers and
-  amounts).
-- Desktop-first, dense, operational — think Linear or Ramp, not a
-  consumer app.
+- Warm cream base (`#FAFAF7`), single accent **terracotta (`#C2410C`)**
+  bound to `--brand` and used for primary actions, active-sidebar
+  strip, focus rings, urgent-KPI tint, and the toast shadow. Dark mode
+  flips the brand to `#EA580C` (orange-600) for contrast against the
+  zinc surface.
+- **Geist** (Vercel's typeface, via the `geist` npm package) for
+  headings + KPI numbers + the wordmark. **Inter** for body text at
+  15px. **JetBrains Mono** for IDs and tabular numerics where alignment
+  matters.
+- Rounded radii: 8px inputs/buttons, 12px cards, 16px modals.
+- Notion/Vercel-warm visual direction — generous whitespace, soft
+  shadows, hover-tint not hover-border. Earlier passes leaned Linear-
+  dense; the Task 4 redesign pivoted to feel friendlier without losing
+  scannability for the shop owner's daily-driver workflow.
 - shadcn/ui **pinned to 2.10.0** (npm `@latest` is 4.x, which swaps
   Radix UI for `@base-ui/react` — not compatible with this codebase).
 
@@ -556,6 +643,26 @@ Migrations don't run on deploy — apply them from your machine
 
 Out of scope for the work currently shipped — see
 [`DEVLOG.md`](./DEVLOG.md) for the per-task running deferred list.
+
+**From Task 4 (UI overhaul + real-data import):**
+
+- Server-side de-duplication on CSV import (today every row inserts,
+  even if a customer with the same name already exists). The fix is a
+  pre-flight lookup against existing rows + a "skip duplicates" toggle
+  on the import dialog.
+- Auto-create stub customers for unknown names in the orders import
+  (today we skip the row with a "import customers first" warning).
+  Behind a checkbox on the dialog when added.
+- A re-runnable seed of "before" / "after" UI screenshots committed to
+  `docs/screenshots/before/` so visual-regression diffs are possible
+  the next time the design language pivots. Today only the "after" set
+  exists.
+- Reverse-mapping: download the current customers / contractors /
+  orders tables back to a CSV. The import side ships; the export side
+  is the natural symmetric follow-up.
+- Telemetry on import runs (inserted/skipped counts per org, time-to-
+  first-row, time-to-commit) so we can see which fields are most
+  commonly mis-mapped and tune the alias lists.
 
 **From Task 3.1 (scheduling UX fixes):**
 

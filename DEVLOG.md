@@ -385,6 +385,32 @@ This is the third planned pause point per the original Task 4 PLAN — all three
 - `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** Quick Add itself is exercised by the same `createOrder` action the existing flows hit; no new smoke needed since the import + manual smokes already cover the action's success and failure paths.
 - Captured `/orders?quick=1` in a headless browser to confirm the sheet opens to the right with the terracotta `Zap` glyph in the title, the customer combobox + "+ New" affordance, and the two-column Quote / Install date row reading cleanly.
 
+### Sub-step 14 — README + DEVLOG wrap + docs screenshots (complete)
+
+**Docs screenshots committed** at `docs/screenshots/` (5 PNGs, ~1.2 MB total): `landing.png`, `login.png`, `dashboard.png`, `orders.png`, `quick-add.png`. Captured at 1280×800 with `deviceScaleFactor: 2` so they look sharp in the README table. The capture script (`scripts/capture_docs_screenshots.ts`) signs in as the demo owner, drives a headless chromium across the five surfaces in one browser session, and writes the PNGs into the docs folder. Re-runnable whenever the visual language changes.
+
+**One scope decision worth recording: no `before/` set.** The original Task 4 brief mentioned "before/after screenshots committed to docs/screenshots/" as a deliverable. We didn't capture a true "before" set at the start of Task 4 (the design pivot happened across sub-steps 2-8 in one continuous push), so the only screenshots that exist are the "after" set. Rather than fabricate a "before" by checking out an earlier commit and re-capturing, the README + the new "From Task 4" deferred list call out that a re-runnable seed of before/after captures is the natural follow-up if the design language pivots again.
+
+**README updates:**
+- New **Screenshots** section near the top with a table linking the five PNGs. Same `pnpm tsx --env-file=.env.local scripts/capture_docs_screenshots.ts` invocation documented so anyone refreshing the docs runs the same script.
+- **Design language** section rewritten — old copy still said `#4A5D7E` slate blue + Inter/JBM only + "think Linear or Ramp". Now reflects the actual terracotta `#C2410C` brand, Geist heading typography, 8/12/16 rounded radii, and the Notion/Vercel-warm pivot.
+- New **CSV import** section under How-to, covering the upload→preview→commit flow, the OWASP sanitization, the two-files-per-entity architecture (`X.config.ts` client-safe + `X.ts` server-only handler), and the orders-specific FK-by-name resolution + cached lookup tables.
+- New **Quick Add on /orders** section.
+- **Smoke gate** section extended to three stages (the import smoke now sits alongside SSR + DOM). Lists the four import scripts and what each asserts.
+- **What's intentionally deferred** gets a **From Task 4** section: server-side import de-duplication, auto-create stub customers for unknown names in orders import (behind a toggle), the missing `before/` screenshots seed, CSV export (reverse mapping), import telemetry.
+
+**DEVLOG wrap.** This sub-step closes Task 4. Across 14 sub-steps:
+- The product got a new brand (`StoneDash`, terracotta `#C2410C`), a public landing page, a redesigned auth shell with a two-column pull-quote layout, a greeting-driven dashboard with KPI trends, polished sidebar/topbar/tables/empties/toasts, and a hero screenshot the marketing page actually references rather than placeholders.
+- The product gained three CSV import flows + a Quick Add path so the customer's "I want to see it working — full functional model" ask now has a concrete answer: load your real shop data via Import CSV, punch in new orders via Quick Add, see them on the dashboard immediately.
+- The infrastructure side picked up `lib/import/` (helpers + commit orchestrator), an `app/api/import/` route handler family, a shared `<CsvImportSheet>` dialog, an `<EmptyState>` + `<TableSkeleton>` + `<TablePagination>` component triad, a `<KpiCard>` with trend + urgent variants, and a `scripts/capture_landing_hero.ts` + `scripts/capture_docs_screenshots.ts` pair so the marketing PNGs stay in sync with the live UI.
+- The smoke chain went from 2 stages (SSR + DOM) to 3 (SSR + DOM + import), with 4 new entity smokes wired into `pnpm smoke:import`. Final tally: **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders = 59 checks**, all green.
+- Three planned pause points were used as intended (after sub-step 2, 8, 12). Two operational hiccups got caught during the work + documented inline (the port-3000 next-dev race during sub-step 4, the date-drift on `/schedule` smoke during sub-step 7); both are in the per-sub-step DEVLOG entries above.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **27 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+- README renders correctly on GitHub (screenshots resolve, anchor links land on the right sections).
+
 ---
 
 ## Task 3.1 — Scheduling UX fixes from shop-floor use (2026-05-31)
