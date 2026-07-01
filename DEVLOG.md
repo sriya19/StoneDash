@@ -46,6 +46,37 @@ See `PLAN.md` for the twelve Q-locks (fire-and-forget vs. queue, PDF-to-image vs
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. `/reminders` bundle is 2.13 kB (the actions client island + the filter Link nav).
 - `pnpm smoke` couldn't run: DNS resolution to `*.supabase.co` failed from this machine during the sub-step (same infra issue that blocked the DB push). The four `/reminders*` routes were added to `scripts/smoke_pages.ts` for the next successful smoke run.
 
+**Post-hoc verification.** After the infra recovered, the migration was pushed (`pnpm db:migrate` — one migration, 0018_extractions, applied cleanly) and the full smoke chain ran green: **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders = 63 checks / 0 FAIL.** The four new `/reminders*` routes are in the 31 SSR count.
+
+### Sub-step 3 — Extraction pipeline backend (complete)
+
+**No new npm dependencies.** The OpenAI wrapper is 80 lines of `fetch` — pulling in the `openai` SDK would double the install size just for two endpoints. Everything under `lib/extraction/` sits in the existing dependency graph.
+
+**Files under `lib/extraction/`:**
+- `types.ts` — shared shapes: `ExtractionResult`, per-doc-type field types (`TemplateFields`, `ContractFields`, `InvoiceFields`, `InvoiceLineItem`, `LicenseFields`, `InsuranceFields`), and the `isSupportedType` predicate the pipeline uses to decide whether to run step 2.
+- `cost.ts` — `costCents(model, inputTokens, outputTokens)` with hard-coded rates for `gpt-4o-mini` and `gpt-4o`. Rounds UP to the nearest cent so sub-cent calls (which are typical for the classifier) still get counted — better to over-report than silently drop.
+- `prompts.ts` — the classifier system prompt (six-way categorical) and per-doc-type extraction system prompts. Each extraction prompt sets `response_format: json_schema` with `additionalProperties: false` so the model can't invent keys; date fields carry `pattern: "^\\d{4}-\\d{2}-\\d{2}$"` so the schema itself enforces ISO format at the API boundary.
+- `mock.ts` — one canned `template` extraction returned when `NEXT_PUBLIC_MOCK_AI=1` or `?mode=mock`. Shape-compatible with a real extraction so downstream code has no special path.
+- `openai.ts` — `callChatCompletions({ model, system, userContent, jsonSchema })` returns `{ content, costCents, usage }`. `temperature: 0` — same input, same output for extraction. Missing key throws AND fires a one-time `process.stderr.write` warn (matches the Google Maps discoverability pattern).
+- `pipeline.ts` — `runExtractionPipeline(fileDataUrl)` orchestrates the two-step flow. Confidence returned is `min(classifier, extractor)` — if step 1 wasn't sure, step 2's answer can't be more sure. Unsupported classifications skip step 2 and return `fields={}`.
+- `internal-token.ts` — HMAC-SHA256 signed token binding `(fileId, timestamp)`. 5-minute TTL, 60-second future skew tolerance. Signing key from `EXTRACTION_INTERNAL_SECRET`, with a `SUPABASE_SERVICE_ROLE_KEY`-derived fallback so dev/CI works without an extra env. `timingSafeEqual` for signature comparison.
+
+**Route handler** at `app/api/extract/[fileId]/route.ts`. Flow:
+1. Verify HMAC token from `Authorization: Internal <tok>` header.
+2. Load the attachment row via the service-role client (the internal call has no user session — the HMAC IS the auth).
+3. Short-circuit for mock mode → canned response + write to DB → return.
+4. Short-circuit for unsupported mime → `document_type='other'`, `fields={}`, no LLM call, write + return.
+5. Download bytes from the `order-files` bucket, wrap as a `data:*;base64,...` URL, run the pipeline, write the result.
+6. Any thrown error writes `status='failed'` + `error_message` and returns 500. The row always transitions out of `processing` — no stuck rows from unhandled exceptions.
+
+**`.env.example` gains three lines:** `NEXT_PUBLIC_MOCK_AI` (empty by default, with a comment noting the misleading `NEXT_PUBLIC_` prefix is intentional per the brief), `OPENAI_API_KEY` (required for real extractions), `EXTRACTION_INTERNAL_SECRET` (optional; falls back to a derived value).
+
+**What's NOT in this sub-step.** The `kickOffExtraction()` server action is sub-step 4 — this sub-step lands the endpoint that action will call. The `file_extractions` row insert on upload is also sub-step 4. Without those, the route is exercised only by sub-step 11's smoke; that's expected — the whole point of splitting is to keep each sub-step's diff auditable.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. `/api/extract/[fileId]` registered as a route handler.
+- `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** No new smoke stage yet — the extraction route needs sub-step 4 (row insert) + sub-step 11 (dedicated stage) before it can be exercised end-to-end without a real file upload.
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
