@@ -129,3 +129,71 @@ export type ActivityLogRow = {
   metadata: Record<string, unknown>;
   created_at: string;
 };
+
+// Task 5 — file_extractions + reminders. Kept hand-typed rather than
+// pulled from Prisma so we don't couple runtime shape to `pnpm db:pull`
+// timing — the migration lands at 0018_extractions.sql; these rows
+// describe the same columns.
+
+export type ReminderKind =
+  | "license_expiry"
+  | "insurance_expiry"
+  | "invoice_due"
+  | "custom";
+
+export type ReminderSourceType =
+  | "file_extraction"
+  | "manual"
+  | "contractor"
+  | "order";
+
+export type ReminderRow = {
+  id: string;
+  org_id: string;
+  user_id: string;
+  title: string;
+  body: string | null;
+  remind_at: string;
+  kind: ReminderKind;
+  source_type: ReminderSourceType | null;
+  source_id: string | null;
+  link_url: string | null;
+  dismissed_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+export type ExtractionDocumentType =
+  | "template"
+  | "contract"
+  | "invoice"
+  | "license"
+  | "insurance"
+  | "other";
+
+export type ExtractionStatus =
+  | "processing"
+  | "review"
+  | "confirmed"
+  | "declined"
+  | "failed";
+
+export type ExtractionConfidence = "high" | "medium" | "low";
+
+export type FileExtractionRow = {
+  id: string;
+  org_id: string;
+  file_id: string;
+  document_type: ExtractionDocumentType;
+  status: ExtractionStatus;
+  raw_response: Record<string, unknown> | null;
+  extracted_fields: Record<string, unknown> | null;
+  confidence: ExtractionConfidence | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  applied_actions: unknown[] | null;
+  error_message: string | null;
+  cost_cents: number | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -4,6 +4,50 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 5 — AI document extraction (2026-06-30)
+
+**Prioritize revalidating Task 4 flows once real data is imported.** This task is being built ahead of a real-data validation of Task 4's CSV import — Top Marble's actual shop data hasn't yet been loaded through the import path. Once it is, expect a follow-up pass to fix whatever Task 4 rough edges the real data exposes. Task 5 changes `registerAttachment()` (sub-step 4) but doesn't touch the CSV import code paths, so the risk of Task 5 masking a Task 4 bug is low; the risk of building Task 5 UX that assumes shapes real data won't produce is higher.
+
+The "AI in the product" feature. Every file uploaded to an order runs a two-step classification + extraction (GPT-4o-mini classifies, GPT-4o extracts on supported types). Users see proposed fields, edit or accept, and the confirmed extraction becomes real state — order fields filled, expiry reminders scheduled. The AI never writes without a human in the loop.
+
+See `PLAN.md` for the twelve Q-locks (fire-and-forget vs. queue, PDF-to-image vs. direct-PDF, one-model vs. two-model, confidence as advisory-only, etc.). Three natural pause points: after sub-step 4 (backend green), sub-step 7 (first end-to-end feature loop), sub-step 11 (feature-complete + tested).
+
+### Sub-step 1 — Migration 0018: file_extractions + reminders (complete, DB push pending)
+
+**One migration file covers both new tables + two `organizations` columns**, so the schema for Task 5 lands atomically:
+- `organizations.ai_auto_extract boolean NOT NULL DEFAULT true` — flip off and uploads skip the extraction row insert entirely.
+- `organizations.ai_email_on_review boolean NOT NULL DEFAULT false` — UI-only toggle; email delivery is out-of-scope for Task 5.
+- `file_extractions` — six-type / five-status CHECK-constrained rows keyed by `file_id UNIQUE` (re-extract is DELETE + INSERT, not UPDATE). Three indexes: `(org_id, status)` for filter queries, `(org_id, created_at desc)` for the recent-activity aggregate, and the implicit unique index on `file_id`.
+- `reminders` — user-scoped SELECT (bell counts differ per user), plus a `link_url text` column so `create_reminder` can encode the "click me to jump to source" URL at write time rather than reconstructing it at render time from `source_type + source_id`.
+
+**RLS mirrors the existing manager+ pattern.** File-role users can SELECT extractions (needed to render the status chip on file cards for anyone viewing the order) but not confirm / decline / re-extract. Reminders UPDATE is target-user-only so a user's dismiss action only touches their own bell. INSERT for reminders is manager+ so a field user can't manufacture reminders for themselves.
+
+**Two partial indexes on `reminders`** (`WHERE dismissed_at IS NULL`) — bell popover and /reminders page both filter out dismissed rows in the hot path, and partial indexes keep the working set small as the dismissed history grows.
+
+**Audit triggers write activity_log rows** for CREATE on both tables and `status_changed` on `file_extractions`. BEFORE DELETE cleanup mirrors the pattern from `0011_contractors.sql` so a re-extract (DELETE + re-INSERT) doesn't leave orphaned polymorphic feed rows pointing at nothing. All triggers are `SECURITY DEFINER` with `search_path` locked to `public, pg_temp`.
+
+**One operational hiccup worth recording.** `pnpm db:migrate` failed at the CLI stage with a connection timeout error against the hosted Supabase project. Root cause on inspection: local disk was at 99% used (132 MiB free), and separately DNS resolution to `*.supabase.co` was intermittently failing from this machine (`ENOTFOUND` on the Supabase host in the smoke run that followed). Freed 189 MiB by removing `.next` build artifacts + a stale `/tmp/dev.log`, but the DB push itself couldn't complete during the sub-step, so the migration file is committed to git with the push deferred. Follow-up: `SUPABASE_DB_PASSWORD='...' pnpm db:migrate` once network + disk are back.
+
+### Sub-step 2 — Reminders foundation UI (complete, smoke pending real DB)
+
+**`ReminderBell` in the topbar** (`components/app/reminder-bell.tsx`). Server-rendered initial state (count + first 50 active rows loaded via `lib/queries/reminders.ts`) so the badge is populated on first paint. Client-side polling then takes over per PLAN Q6: 60s timer + focus listener + visibility listener. Timer stops when `document.hidden` so an open-but-hidden tab doesn't hammer the endpoint. Popover shows the first N reminders inline with Dismiss / Complete buttons and a "See all" link that routes to `/reminders`.
+
+**`/reminders` full-page view** at `app/(app)/reminders/page.tsx`. Four tabs: Active (dismissed_at NULL AND remind_at <= now — same shape as the bell), Upcoming (future-dated, not dismissed), Dismissed, All. Empty states differentiate: "You're all caught up." on Active vs. "Nothing here." on the archives so the copy doesn't read as celebratory on a filter that's normally empty for a reason. `<ReminderRowActions>` is a tiny client island inside the Server-rendered rows so Dismiss / Complete + `router.refresh()` work without turning the whole page client.
+
+**`GET /api/reminders/active`** — the endpoint the bell polls. RLS scopes the query to `auth.uid()`; the endpoint just does the two queries (`countActiveDueReminders` + `listActiveDueReminders`) and returns them. `dynamic = "force-dynamic"` so this never gets edge-cached.
+
+**Defensive-empty query pattern.** Because the Task 5 migration hasn't been pushed to the hosted DB yet, `lib/queries/reminders.ts` catches Supabase errors and returns `[]` / `0` rather than 500ing the topbar. Once the migration is applied, the same code paths return real rows with no changes — the safeguard is invisible in prod. Rationale: the bell is a shared-chrome component; a query error on any authenticated page shouldn't cascade to blank pages across the whole app.
+
+**Two `use` decisions I intentionally didn't make.**
+- No sidebar entry for Reminders. The bell + "See all" link matches how Linear / Notion / Vercel handle their equivalent notifications page; a sidebar entry would compete with primary navigation for a surface most users touch once a week.
+- No SWR / react-query library. The bell's polling is 90 lines of `useEffect` + `setInterval` — pulling in a data-fetching library for this one surface is overkill.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. `/reminders` bundle is 2.13 kB (the actions client island + the filter Link nav).
+- `pnpm smoke` couldn't run: DNS resolution to `*.supabase.co` failed from this machine during the sub-step (same infra issue that blocked the DB push). The four `/reminders*` routes were added to `scripts/smoke_pages.ts` for the next successful smoke run.
+
+---
+
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
 
 Two-part task driven by direct customer feedback after a live demo: "I want to see it working — full functional model — and I want to see better UI." The brand + visual language land first so all subsequent UI work happens in the new design system; CSV import lands last as the unlock for real-world validation. See `PLAN.md` for the full sub-step breakdown.

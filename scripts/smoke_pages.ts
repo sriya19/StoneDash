@@ -246,6 +246,12 @@ const ROUTES: Route[] = [
       return `/orders?order=${order.id}&tab=events&send=${ev.id}`;
     },
   },
+  // Task 5 sub-step 2. Route works even if the reminders table
+  // migration hasn't been applied yet — queries return [] on error.
+  { path: "/reminders" },
+  { path: "/reminders?filter=upcoming" },
+  { path: "/reminders?filter=dismissed" },
+  { path: "/reminders?filter=all" },
 ];
 
 type Result =

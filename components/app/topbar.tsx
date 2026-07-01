@@ -1,10 +1,23 @@
 import Link from "next/link";
 
+import {
+  countActiveDueReminders,
+  listActiveDueReminders,
+} from "@/lib/queries/reminders";
 import { Breadcrumbs } from "./breadcrumbs";
 import { CommandPalette } from "./command-palette";
 import { NewMenu } from "./new-menu";
+import { ReminderBell } from "./reminder-bell";
 
-export function Topbar() {
+export async function Topbar() {
+  // Load the initial bell count + first page of reminders server-side
+  // so the badge is populated on first paint. <ReminderBell> then
+  // takes over with its 60s + focus poll.
+  const [initialCount, initialReminders] = await Promise.all([
+    countActiveDueReminders(),
+    listActiveDueReminders(),
+  ]);
+
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-4 border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Subtle wordmark on the left edge of the topbar. Keeps the
@@ -28,6 +41,10 @@ export function Topbar() {
         <Breadcrumbs />
       </div>
       <CommandPalette />
+      <ReminderBell
+        initialCount={initialCount}
+        initialReminders={initialReminders}
+      />
       <NewMenu />
     </header>
   );
