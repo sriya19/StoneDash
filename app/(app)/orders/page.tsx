@@ -18,6 +18,10 @@ import { getSendModalContext } from "@/lib/queries/share-links";
 import { createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
 import { canCreateOrder } from "@/lib/rbac";
+import type {
+  ExtractionDocumentType,
+  ExtractionStatus,
+} from "@/lib/supabase/types";
 import { OrdersFilterBar } from "@/components/app/orders-filter-bar";
 import { OrdersViewToggle } from "@/components/app/orders-view-toggle";
 import { OrdersTable } from "@/components/app/orders-table";
@@ -138,11 +142,25 @@ export default async function OrdersPage({
 
   const customers = showNewDialog || showQuickAdd ? await listCustomersLite() : [];
 
+  type ExtractionSummaryRow = {
+    id: string;
+    file_id: string;
+    document_type: ExtractionDocumentType;
+    status: ExtractionStatus;
+  };
+  type ExtractionSummaryClient = {
+    id: string;
+    fileId: string;
+    documentType: ExtractionDocumentType;
+    status: ExtractionStatus;
+  };
+
   let detailOrder = null;
   let attachments: AttachmentRow[] = [];
   let activity: ActivityRow[] = [];
   let photoUrls: Record<string, string> = {};
   let detailEvents: Awaited<ReturnType<typeof listEventsForOrder>> = [];
+  let extractions: ExtractionSummaryClient[] = [];
   let lastNotesEdit: Awaited<ReturnType<typeof getOrderDetail>>["lastNotesEdit"] = null;
   if (detailOrderId) {
     const supabase = createSupabaseServerClient();
@@ -199,6 +217,23 @@ export default async function OrdersPage({
       .filter((a) => a.mime?.startsWith("image/"))
       .map((a) => a.storage_path);
     photoUrls = await createSignedUrls(photoPaths, 60 * 60);
+
+    // Task 5: fetch extraction status for every attachment in one
+    // batch so the file-card chip renders on first paint.
+    const fileIds = attachments.map((a) => a.id);
+    if (fileIds.length > 0) {
+      const { data: exRows } = await supabase
+        .from("file_extractions")
+        .select("id, file_id, document_type, status")
+        .in("file_id", fileIds)
+        .returns<ExtractionSummaryRow[]>();
+      extractions = (exRows ?? []).map((r) => ({
+        id: r.id,
+        fileId: r.file_id,
+        documentType: r.document_type,
+        status: r.status,
+      }));
+    }
   }
 
   return (
@@ -258,6 +293,7 @@ export default async function OrdersPage({
           events={detailEvents}
           defaultTab={detailTab}
           orgTimezone={org.timezone}
+          extractions={extractions}
         />
       ) : null}
 

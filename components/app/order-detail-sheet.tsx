@@ -60,6 +60,11 @@ import { FileGallery, type GalleryPhoto } from "./file-gallery";
 import type { OrderDetailRow } from "@/lib/queries/orders";
 import type { ContractorLite } from "@/lib/queries/contractors";
 import type { CalendarEvent } from "@/lib/queries/events";
+import {
+  useExtractionsPolling,
+  type ExtractionSummary,
+} from "@/lib/hooks/use-extractions-polling";
+import { ExtractionChip } from "./extraction-chip";
 import { OrderEventsTab } from "./order-events-tab";
 
 export type AttachmentRow = {
@@ -85,6 +90,7 @@ type Props = {
   events: CalendarEvent[];
   defaultTab: "overview" | "events" | "files" | "activity";
   orgTimezone: string;
+  extractions: ExtractionSummary[];
 };
 
 const ALL_PICKABLE_STAGES: OrderStage[] = [...STAGE_ORDER, "cancelled"];
@@ -119,6 +125,7 @@ export function OrderDetailSheet({
   events,
   defaultTab,
   orgTimezone,
+  extractions,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,6 +135,20 @@ export function OrderDetailSheet({
   const [pendingStage, setPendingStage] = useState<OrderStage | null>(null);
   const [stageDialogBusy, setStageDialogBusy] = useState(false);
   const [contractorPickerOpen, setContractorPickerOpen] = useState(false);
+
+  // Bind file_id -> latest extraction summary. Initial map from SSR;
+  // the hook polls (2s) while any file is 'processing' and swaps in
+  // updates. See lib/hooks/use-extractions-polling.
+  const fileIds = attachments.map((a) => a.id);
+  const initialExtractions: Record<string, ExtractionSummary | undefined> = {};
+  for (const ex of extractions) initialExtractions[ex.fileId] = ex;
+  const extractionByFile = useExtractionsPolling(fileIds, initialExtractions);
+
+  function openExtractionReview(fileId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("extraction", fileId);
+    router.push(`/orders?${params.toString()}`);
+  }
 
   function close() {
     const params = new URLSearchParams(searchParams.toString());
@@ -552,10 +573,12 @@ export function OrderDetailSheet({
                         Documents · {documents.length}
                       </h3>
                       <ul className="divide-y rounded-md border bg-card">
-                        {documents.map((att) => (
+                        {documents.map((att) => {
+                          const extraction = extractionByFile[att.id];
+                          return (
                           <li key={att.id} className="flex items-center gap-3 px-4 py-3">
                             <FileText className="h-4 w-4 text-muted-foreground" />
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 space-y-1">
                               <p className="truncate text-sm font-medium">
                                 {att.original_name ?? att.storage_path.split("/").slice(-1)[0]}
                               </p>
@@ -563,6 +586,19 @@ export function OrderDetailSheet({
                                 {att.kind} · {bytesHuman(att.size_bytes)} ·{" "}
                                 {format(parseISO(att.created_at), "MMM d, HH:mm")}
                               </p>
+                              {extraction ? (
+                                <ExtractionChip
+                                  data={{
+                                    status: extraction.status,
+                                    documentType: extraction.documentType,
+                                  }}
+                                  onReview={
+                                    !isFieldRole && extraction.status === "review"
+                                      ? () => openExtractionReview(att.id)
+                                      : undefined
+                                  }
+                                />
+                              ) : null}
                             </div>
                             <Button
                               size="icon"
@@ -583,7 +619,8 @@ export function OrderDetailSheet({
                               </Button>
                             ) : null}
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     </section>
                   ) : null}

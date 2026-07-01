@@ -99,6 +99,22 @@ All three steps are wrapped in `try/catch`. **Extraction failures never fail the
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** Actions themselves aren't smoked yet (needs a real file upload to exercise the kickoff path); sub-step 11 lands a mocked kickoff smoke.
 
+### Sub-step 5 — File-card status chip + polling (complete)
+
+**`<ExtractionChip>`** at `components/app/extraction-chip.tsx`. One component covering all five statuses: `processing` shows three animated pulse dots + "Reading…" in terracotta; `review` is a clickable Sparkles pill with document-type-specific copy ("Review template", "Review COI", etc.); `confirmed`/`declined`/`failed` render as informational-only tints.
+
+**`useExtractionsPolling(fileIds, initial)`** at `lib/hooks/use-extractions-polling.ts`. Starts a 2s `setInterval` ONLY when at least one tracked file is currently `processing`; stops the moment they've all moved. Visibility + focus listeners retrigger a one-shot refresh. Hits `POST /api/extractions/status` with a JSON body bounded at 100 file_ids per call.
+
+**Endpoint at `POST /api/extractions/status`** — RLS-gated via the existing `file_extractions_select` policy so a URL-guessed file_id can't leak status across orgs.
+
+**Wired into the Files tab.** `OrderDetailSheet` gained an `extractions: ExtractionSummary[]` prop. The `/orders` page batches the extraction fetch alongside the existing attachments + activity + events + photo URLs query. Chip renders below the file kind/size/date row on each document. `?extraction={fileId}` in the URL will open the review sheet — that mount lands in sub-step 6.
+
+**Photos don't get chips today.** The gallery has its own overlay UI and images almost always classify as `other` (job progress shots). If we start extracting from images meaningfully in Task 6+ (auto-tagging before/after photos?), the gallery gets a pass.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
