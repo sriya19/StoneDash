@@ -5,6 +5,12 @@ import { z } from "zod";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  insertExtractionRow,
+  kickOffExtraction,
+} from "@/lib/actions/extractions";
+
+type OrgAiSetting = { ai_auto_extract: boolean };
 
 const RegisterInput = z.object({
   orderId: z.string().uuid(),
@@ -43,6 +49,39 @@ export async function registerAttachment(input: unknown): Promise<
 
   if (error || !data) {
     return { ok: false, error: error?.message ?? "Could not register attachment" };
+  }
+
+  // Task 5: kick off an AI extraction unless the org has opted out.
+  // Wrapped in try/catch so an extraction failure never fails the
+  // upload — the storage bytes + order_attachments row stay
+  // authoritative. Q7 lock: the file_extractions row is INSERTed
+  // synchronously so the chip renders at the same beat as the file
+  // card.
+  try {
+    const { data: orgRow } = await supabase
+      .from("organizations")
+      .select("ai_auto_extract")
+      .eq("id", org.id)
+      .maybeSingle<OrgAiSetting>();
+
+    if (orgRow?.ai_auto_extract !== false) {
+      const insertRes = await insertExtractionRow(supabase, {
+        orgId: org.id,
+        fileId: data.id,
+      });
+      if (insertRes.ok) {
+        await kickOffExtraction(data.id);
+      } else {
+        process.stderr.write(
+          `[attachments] extraction insert failed for ${data.id}: ${insertRes.error}\n`,
+        );
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[attachments] extraction kickoff threw for ${data.id}: ${msg}\n`,
+    );
   }
 
   revalidatePath("/orders");

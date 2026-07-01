@@ -77,6 +77,28 @@ See `PLAN.md` for the twelve Q-locks (fire-and-forget vs. queue, PDF-to-image vs
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. `/api/extract/[fileId]` registered as a route handler.
 - `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** No new smoke stage yet — the extraction route needs sub-step 4 (row insert) + sub-step 11 (dedicated stage) before it can be exercised end-to-end without a real file upload.
 
+### Sub-step 4 — Server actions (complete)
+
+**`lib/actions/extractions.ts`** with four exports:
+- `kickOffExtraction(fileId)` — fire-and-forget POST to `/api/extract/[fileId]` with the HMAC-signed `Authorization: Internal <token>` header. `keepalive: true` so a serverless runtime doesn't tear the socket mid-flight. Explicitly does NOT await — the caller returns immediately. Any thrown error becomes a stderr line and the row stays in `processing` (future reaper task cleans up stragglers).
+- `insertExtractionRow(supabase, {orgId, fileId})` — the synchronous companion insert per Q7 lock. Exported so `registerAttachment` can call it inside the same request as the attachment insert; also reused by `reExtractFile`.
+- `confirmExtraction({id, editedFields})` — manager+ gated. Sets `status='confirmed'`, stores possibly-edited fields, records `reviewed_by` + `reviewed_at`. Downstream action application (update_order_field / create_reminder) lands in sub-step 7 — today's implementation is a clean state transition with no side effects.
+- `declineExtraction({id, reason})` — manager+ gated. Sets `status='declined'`, stores the optional reason in `error_message`.
+- `reExtractFile({fileId})` — manager+ gated. DELETEs the existing extraction row (the audit trigger cleans up the polymorphic activity_log rows), re-INSERTs a fresh `processing` row, re-kicks the pipeline. For "the extraction was wrong, try again."
+
+**`registerAttachment` extended** (`lib/actions/attachments.ts`). After the `order_attachments` insert:
+1. Read the org's `ai_auto_extract` toggle. If explicitly `false`, skip extraction entirely.
+2. `insertExtractionRow()` — the row exists with `status='processing'` before the server action returns, so the UI's `router.refresh()` sees both the file card AND the chip on the same beat.
+3. `kickOffExtraction()` — fire-and-forget.
+
+All three steps are wrapped in `try/catch`. **Extraction failures never fail the upload.** The storage bytes + `order_attachments` row stay authoritative; a broken extraction is visible via the `failed` chip state but doesn't hide the file from the Files tab.
+
+**RBAC gate uses `hasAtLeast(role, "manager")`.** Field users get a specific error message. Also enforced at the DB level via the sub-step 1 RLS policies — belt and suspenders.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** Actions themselves aren't smoked yet (needs a real file upload to exercise the kickoff path); sub-step 11 lands a mocked kickoff smoke.
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
