@@ -1,303 +1,185 @@
-# PLAN — Task 4: UI overhaul + real-data import
+# PLAN — Task 5: AI document extraction
 
 Status: **DRAFT — awaiting "go"**
 
-Two parts in one task: (1) the product gets a real brand + a real visual language so it's presentable, and (2) the customer can import his actual jobs so the demo stops being a demo.
+Turn StoneDash from a data tracker into a smart assistant. Every file uploaded to an order runs through a classification + extraction pipeline; the user sees a proposal, confirms or edits, and the confirmed extraction becomes real state (order fields filled in, expiry reminders scheduled). The AI never writes without a human in the loop.
 
-This task is **large**. The brief explicitly notes it will span multiple Claude Code sessions. I'll batch sub-steps and call out three natural pause points where you should review before I keep going.
+This task builds ahead of real-data validation of Task 4's CSV import. The Task 5 DEVLOG opening entry will carry: **"Built before real-data validation of Task 4 CSV import. Prioritize revalidating Task 4 flows once real data is imported."**
 
 ## Scope acknowledgment
 
 I understand:
-- Brand rename: `Stone&DesignBoard` → `StoneDash` (platform name; tenants like `Top Marble & Granite` are unchanged).
-- New palette: terracotta accent (`#C2410C`), warm cream / zinc neutrals. Replace existing `#4A5D7E` everywhere.
-- Typography: Geist for headings, Inter for body (already installed), JBM for mono. Body sizing bumps from 14px → 15px.
-- Design pivot: Linear-dense → Notion/Vercel-warm. Generous whitespace, soft shadows, hover-tint not hover-border, rounded 8 / 12 / 16 on inputs / cards / modals.
-- New public landing at `/` (currently `/` redirects to `/dashboard` via the `(app)` layout gate).
-- Login + signup redesigned with the two-column quote layout.
-- Dashboard becomes the polished hero surface — greeting, ops summary, upgraded KPIs.
-- Sidebar polish, table polish, empty/loading/toast polish across every surface.
-- CSV import for customers / contractors / orders, plus a Quick Add path on `/orders`.
+- Every uploaded file gets a `file_extractions` row. Status flows `processing → review → confirmed | declined | failed`.
+- Six document types: `template`, `contract`, `invoice`, `license`, `insurance`, `other`. Each type has a defined field set + downstream effects.
+- The `Files` tab in the order-detail Sheet gets a status chip per card plus a "Review extraction" pill that opens a two-column review sheet.
+- A brand-new `reminders` surface: bell icon + badge in the top bar (with client polling), a `/reminders` full-page view, dismiss / complete actions. This is the first "notifications-adjacent" surface in the app.
+- Settings gets a new `AI & extraction` tab (org-scoped toggles + spend readout).
+- Dashboard gets a fifth KPI card (`AI extractions this month`) and the activity feed learns new `file_extraction:*` verbs.
+- OpenAI is used directly (no abstraction layer yet). `gpt-4o-mini` for classification (~15× cheaper), `gpt-4o` for extraction of supported types. Never send org / user identifiers to the model — only file contents and generic instructions.
+- `NEXT_PUBLIC_MOCK_AI=1` short-circuits the OpenAI call with canned responses. Smoke uses this; real dev use flips it off to test the real path.
+- New `pnpm smoke:extraction` stage: `/reminders` + `/settings?tab=ai` renders + DOM assertion that a review chip appears when the mocked kickoff completes.
 
 ---
 
 ## Decisions & questions I'd like you to weigh in on (before I start)
 
-### Q1. Hero screenshot — where does the PNG come from?
+### Q1. Fire-and-forget vs. queue for kickOffExtraction
 
-Two paths:
-- **(A)** Take a real screenshot of the redesigned `/dashboard` via Playwright (chromium is already installed for Task 3.1's DOM smoke). Commit as `public/landing/dashboard-hero.png`.
-- **(B)** Build a hand-coded mockup that visually approximates a dashboard. No binary commit, but extra effort + drifts from reality.
+The brief calls out two options for background execution:
+- **(A) fire-and-forget internal fetch** — `kickOffExtraction()` calls `POST /api/extract/[fileId]` via `fetch` with `keepalive`, doesn't await. Works in dev + Vercel Node runtime without extra infra.
+- **(B) Vercel Cron / Supabase Edge Function** — cleaner semantics, but adds infra + differs between dev and prod.
 
-**Recommendation: (A).** Sub-step 3 lands the landing page with a placeholder block. Sub-step 5 (dashboard redesign) captures the real screenshot and replaces the placeholder. The PNG updates rarely (≤ once per design pass), so the binary commit is fine.
+**Recommendation: (A) for v1.** Same tradeoff already accepted for other async patterns in the codebase (the send-to-crew "SMS" is a copy-paste modal, not a real dispatch job). The DEVLOG entry for sub-step 3 will note the fire-and-forget caveat: if the Node runtime is torn down between the response returning and the fetch completing, the extraction can silently drop. In practice on Vercel that window is `~50ms` and `keepalive` covers it; on long-running Node dev servers it's a non-issue. Follow-up task if it ever matters: a `stuck_processing` reaper that finds `status='processing'` rows older than 5 minutes and re-kicks.
 
-### Q2. Server-side CSV parse + 5MB file limit
+The `/api/extract/[fileId]` route uses a **signed internal token** in the `Authorization` header (HMAC of `fileId + timestamp` with a server-only secret) so the route accepts the fire-and-forget call without a user session. That token is verified alongside the "user is a member of the org that owns the file" check on the *originating* server action — so authorization ends up as: (server action verifies user + org) → (server action mints HMAC + fires fetch) → (route verifies HMAC + reloads org context from `file_id`). Prevents cross-org kicking via URL guessing.
 
-Next.js server actions default to a 1MB request body cap. A 5MB CSV needs a different path.
+### Q2. Where extraction runs during dev without OPENAI_API_KEY
 
-**Recommendation:** Route handler at `app/api/import/parse/route.ts` that accepts `multipart/form-data`, parses with `papaparse` server-side, returns `{ headers, rows: rows.slice(0, 10), totalRows }` for the preview. A second server action `commitImport({mapping, rows, options})` does the actual transactional inserts in 100-row chunks.
+`OPENAI_API_KEY` is required for real extractions. Dev workflow without it:
+- **Missing key** — dev-server prints one-time `console.warn` on the first `kickOffExtraction()` call. The extraction row is written with `status='failed'`, `error_message='OpenAI key missing'`. UI still renders the failed-chip state so you can develop UI without the key.
+- **Mock mode (`NEXT_PUBLIC_MOCK_AI=1`)** — the route handler returns canned per-document-type extractions immediately. Cost logged as `0` cents. The mocked payloads live in `lib/extraction/mock.ts` alongside the real prompts so the two stay shape-compatible.
 
-This splits the heavy upload from the commit decision cleanly + lets us validate the file shape before the user commits to ingesting it.
+Note: the env var is named `NEXT_PUBLIC_MOCK_AI` per the brief, but the flag is only read on the server (route handler). Naming it `NEXT_PUBLIC_*` is unusual for a server-only signal — recommendation is to keep the brief's name (it's easier to remember which env you're in when the flag shows up in the client bundle even if unused). DEVLOG entry for sub-step 3 will note this.
 
-### Q3. CSV injection sanitization
+### Q3. PDF-to-image conversion library
 
-Standard OWASP shape: strip leading `=`, `+`, `-`, `@`, `\t`, `\r` from every cell before writing to DB. Implement in a small `sanitizeCell()` helper called inside the row-mapping logic. Also: log a counter of how many cells were sanitized; surface in the import summary so the user knows their file had suspicious cells.
+Three candidates:
+- **`pdfjs-dist`** — Mozilla's canonical PDF parser. Heavy (~1.5 MB), but works in Node; render-to-canvas requires `node-canvas` which is native-code + can't ship to Vercel serverless functions without extra work.
+- **`pdf-lib`** — pure JS, small, but only creates/manipulates PDFs; doesn't render to raster images.
+- **Send PDFs directly** — GPT-4o accepts PDFs via the `input_file` content-part type in the newer Chat Completions API. No conversion needed.
 
-### Q4. Date format leniency
+**Recommendation: send PDFs directly.** Skip conversion entirely for v1. GPT-4o handles PDF input natively via the file-input content part. If the model can't read a scanned PDF it returns low confidence and we surface a `failed` state — the OCR-fallback that the brief already declared out-of-scope. The 5-page cap becomes "first 5 pages of any input" enforced by uploading the file trimmed if we need to (but we don't need to for the v1 sizes we'll see: shop CSVs are typically 1-3 page PDFs).
 
-CSV exports from QuickBooks, Excel, and shop owners' hand-rolled spreadsheets vary wildly. Accept:
-- `YYYY-MM-DD` (ISO)
-- `MM/DD/YYYY` (US)
-- `M/D/YY` (US short)
-- `MM/DD/YY` (US zero-padded short)
-- `MMM D, YYYY` (e.g. "Jun 15, 2026")
+If Model API rejects the direct-PDF pattern for some file, fallback: mark `status='failed'` with `error_message` noting the format. Real-world PDFs from shop owners will overwhelmingly be one of: (a) scanned image inside a PDF wrapper (GPT-4o handles), (b) directly-generated invoice/contract PDFs (GPT-4o handles better than scans). Both work.
 
-Try each via `date-fns/parse` in order; the first successful parse wins. If none parse, mark the row as having a date error and let the user fix or skip.
+### Q4. Where org-scoped extraction settings live
 
-### Q5. Quick Add — does it support inline customer create?
+Two options for the toggles (`auto-extract on/off`, `email-on-review on/off`):
+- **(A) new columns on `organizations`** — clean, RLS is free, but scatters small settings across the table.
+- **(B) new `org_settings` key-value table** — one row per (org, key). Extensible for the next batch of toggles (Task 6+ SMS opt-in, etc.).
 
-Brief says "customer combobox" — implies picking existing. Real-world friction case: a shop owner is in the back office typing in jobs from a notebook; some customers won't exist yet.
+**Recommendation: (A) two columns on `organizations`** (`ai_auto_extract boolean`, `ai_email_on_review boolean`). The whole surface has 2 toggles; a KV table is over-engineering. If we hit 10 toggles later, migrate to `org_settings` then. Simplest thing that works.
 
-**Recommendation:** Yes — the combobox has the same "+ Add new customer" affordance as the existing New Order dialog (nested mini-form: name + phone). The whole point of Quick Add is "10 orders in 5 minutes"; forcing a /customers detour kills that.
+### Q5. Reminders as a separate table vs. reuse activity_log
 
-### Q6. Landing page — dark mode
+The brief specs a `reminders` table. But `activity_log` already has the `entity_type`/`entity_id`/`metadata` polymorphic shape.
 
-Notion / Vercel landings typically respect `prefers-color-scheme` but don't add a theme toggle to the marketing surface (toggle implies app, not marketing). Brief doesn't specify.
+**Recommendation: separate table.** Reminders have a fundamentally different lifecycle (future-dated, dismissed_at, completed_at, user-targeted) that `activity_log` doesn't model. Also: RLS on `activity_log` is org-wide READ; reminders need user-scoped read (only show *me* the reminders assigned to me). Trying to overload activity_log would either weaken its policies or duplicate the metadata.
 
-**Recommendation:** Render light by default. Respect `prefers-color-scheme` via `next-themes`'s system mode. **No** theme toggle in the landing nav (keeps it minimal). Same applies to login/signup.
+Reminders live in a new `reminders` table with the exact shape the brief specifies, plus one addition: a `link_url text` column so `create_reminder` can encode the "click me to jump to the source file" link at write time (rather than reconstructing it at render time from `source_type` + `source_id`).
 
-### Q7. Public landing breaks the existing smoke pattern
+### Q6. Bell-icon polling interval + backoff
 
-`scripts/smoke_pages.ts` auths every request via the demo-owner session. The landing at `/` should render correctly **without** auth (it's the public marketing page).
+`/reminders` count needs to feel fresh but not hammer the server. Options:
+- **(A) SWR-style 30s poll** — always live, small load.
+- **(B) On-focus + on-visibility change only** — no timer at all, refreshes when the tab regains focus.
+- **(C) Both: focus + 60s timer as backstop.**
 
-**Recommendation:** Add an optional `public: true` flag to the smoke route schema. When set, the fetch skips the cookie header. Two routes need this initially: `/` and `/j/:slug-*` (which already works because middleware short-circuits public paths). The matrix update is small.
+**Recommendation: (C).** The visible timer is 60s (not 30s) because reminders are minute-scale, not second-scale — an owner won't miss anything from a 60s delay, and the bandwidth savings compound across users. Focus-listener catches the "come back from another tab" case immediately. Cancelled when tab is hidden (`document.hidden`). Same interval as the file-card polling (sub-step 5).
 
-### Q8. Pagination redesign affects multiple pages
+### Q7. Extraction status chip while polling — is the row visible immediately?
 
-Brief: "Pagination: minimal — Prev / Next + page number, no chunky segmented control." Currently the segmented control lives in `orders-table.tsx`, `contractors-table.tsx`, and similar. Refactor target.
+The upload flow today: file lands in Supabase Storage → `registerAttachment()` inserts the `order_attachments` row → server action returns → UI does `router.refresh()` and the file card appears with its metadata.
 
-**Recommendation:** Extract a `<TablePagination>` component into `components/app/`. Each table imports it. One file changes, every table updates. Lands in sub-step 7 (table polish).
+For extraction: we want the chip to render *at the same time* the file card renders (no second beat where the chip appears half a second later). Which means the `file_extractions` row needs to be `INSERT`-ed synchronously in `registerAttachment()` (with `status='processing'`), and only then fire-and-forget the extraction.
 
-### Q9. Geist font availability
+**Locked:** `registerAttachment()` inserts the file row + a matching `file_extractions` row with `status='processing'` in a single transaction. Then it calls `kickOffExtraction()` which is fire-and-forget. UI polls until `status !== 'processing'`.
 
-Geist (Vercel's font, donated to Google Fonts) is available via `next/font/google`. I'll verify on first use; if not available there I fall back to the `geist` npm package which Vercel maintains. Either way, integration is via `next/font` (no FOUT, automatic font-display).
+### Q8. Confidence tier — does the model self-assess reliably?
 
-### Q10. Pull-quote on login is aspirational
+The brief specs a `confidence` field (`high` | `medium` | `low`) as model-self-assessed. LLM self-confidence is notoriously wobbly: models will happily say "high confidence" on hallucinated fields.
 
-Brief: "I haven't lost track of an install in three weeks." — Owner, Top Marble & Granite. Brief explicitly flags this as placeholder until the customer signs off.
+**Recommendation: keep the field but treat it as advisory.** Prompt the model for a confidence tier in the extraction JSON schema, store what comes back. Do NOT use it to gate downstream actions. UI shows it as a small muted badge next to the document-type badge. If we find `confidence: high` extractions being wrong at rates that make the badge misleading, we swap it for a per-field "model was certain / model was guessing" heuristic derived from `response_format` output shape. Defer for v1.
 
-**Recommendation:** Ship the quote as written. Add a `<!-- TODO: confirm with customer -->` HTML comment next to it and a DEVLOG note. Trivial to swap when authorized.
+### Q9. Two-model call (mini + full) vs. one call
 
-### Q11. Sub-step boundaries and natural pause points
+Brief spec: `gpt-4o-mini` classifies, then `gpt-4o` extracts if the class is supported. Cost math for a typical measurement sheet at (1000 input tokens + 200 output tokens):
+- Mini classification: `1000 * $0.00015 / 1000 + 200 * $0.0006 / 1000 = $0.00015 + $0.00012 = $0.00027` → ~0 cents.
+- 4o extraction: `1000 * $0.005 / 1000 + 200 * $0.015 / 1000 = $0.005 + $0.003 = $0.008` → 1 cent.
+- Total: ~1 cent per document. Adds up to $0.10 for 10 documents/day, $3/month for a small shop.
 
-Brief suggested 14 sub-steps. I'll keep that ordering. Three pause points where I'll proactively stop for review:
+Alternative: single `gpt-4o` call that returns `{classification, fields}`. Cost same for supported types; slightly more expensive for `other` (still paying full-4o for a "this is not a supported type" answer).
 
-- **After sub-step 2** (brand rename + design tokens). Visible regression risk — every page now uses new colors / fonts before any redesign work has happened. You'll see the brand color show up in unexpected places. Worth a sanity check before more UI lands.
-- **After sub-step 8** (all UI polish wrapped). Half the task done; the app is fully redesigned but no CSV import yet. Worth showing the customer at this point for visual feedback before I spend a session on import infra.
-- **After sub-step 12** (orders CSV import). All three import flows working. Worth a smoke test with real-world data before the Quick Add + docs wrap.
+**Recommendation: keep the two-call flow.** The 15× cost savings on unsupported types matters when a shop owner uploads 50 random photos of a slab. The extra ~200ms round-trip on supported types is fine (the UX is async anyway). Log both cost lines separately in `cost_cents` (sum, but note the breakdown in `raw_response` so we can attribute).
 
-You can override these pause points at any time with "go straight through" or "stop now" — they're checkpoints, not commits to wait.
+### Q10. What "confirm and apply" does when the order already has values
 
-### Q12. Quality bar — manual responsive + dark mode review
+For `template` / `contract` extractions, we might extract `stone_type = "Calacatta Gold"` when the order already has `stone_type = "Quartz Gray"`. Three options:
+- **(A) Always overwrite** — simpler code, but risky. User might have manually corrected the field and re-extracting the file overwrites their edit.
+- **(B) Never overwrite** — safer, but frustrating when the extraction is right.
+- **(C) Per-field toggle in the review sheet** — the user chooses which fields to apply per confirm. Fields that are non-null on the order default to *unchecked*; empty fields default to *checked*.
 
-Brief mandates: "Open every redesigned page in BOTH light and dark mode before committing the sub-step. Test responsive at 375px, 768px, 1280px."
+**Recommendation: (C).** Matches "the AI never writes without user confirmation" — the user sees "will overwrite: stone_type = Calacatta Gold (was: Quartz Gray)" and can uncheck it. The proposed-actions checkboxes the brief already spec'd cover this exact case.
 
-**Recommendation:** Automate this via Playwright (chromium already installed). Each polish sub-step gets a small `pnpm tsx scripts/screenshot_review.ts <route>` invocation that captures 6 screenshots (3 viewports × 2 themes) to `screenshots/<sub-step>/<route>__<viewport>__<theme>.png`. Screenshots are gitignored (binary churn) but listed in DEVLOG with file counts. Lets me confirm responsively without burning your time.
+### Q11. Field role permissions for extractions
 
-For sub-step 14, the DEVLOG wrap includes 4–6 **before/after** screenshots committed under `docs/screenshots/` to make the redesign visible in git history.
+Brief locks it in: `field` role can SELECT extractions but NOT `confirm/decline/re-extract` (manager+). RLS mirrors this — a `field_no_write` policy or an `org_role() >= manager` gate on the server action.
+
+**Locked:** all mutation server actions (`confirmExtraction`, `declineExtraction`, `reExtractFile`) explicit-check `hasAtLeast(role, 'manager')` and return `{ ok: false, error }` if not. RLS also blocks the UPDATE at the policy level as belt-and-suspenders. The chip renders for field users but the "Review extraction" pill is muted+disabled with a small "manager+ can review" tooltip.
+
+### Q12. Sub-step boundaries and natural pause points
+
+12 sub-steps, three natural pause points:
+
+- **After sub-step 4** (backend + server actions complete, no UI yet). The extraction pipeline is round-trippable via the smoke script but the app's Files tab still looks like today. Worth a pause to confirm the backend behaves before the UI depends on it.
+- **After sub-step 7** (backend + Files-tab UI + downstream actions all wired). This is the first moment where a user can upload a file, watch it flip to `review`, click through, and see downstream state change. Full feature-loop, minus dashboard + settings + reminders polish. Worth a customer demo.
+- **After sub-step 11** (smoke additions land). Full feature-complete + tested. Sub-step 12 is docs only.
+
+You can override with "go straight through" or "stop now" at any point.
 
 ---
 
-## Sub-step breakdown
+## Sub-step ordering
 
-Each sub-step: implement → `pnpm typecheck` → `pnpm lint` → `pnpm build` → `pnpm smoke` (SSR + DOM) → update DEVLOG → commit. All existing integration scripts (`test_event_reschedule`, `test_share_link_status`, `test_standalone_event`) must continue to pass.
+1. **Migration `0018_extractions.sql`** — `file_extractions` + `reminders` tables + CHECK constraints + RLS policies + indexes + `set_updated_at` triggers + audit triggers writing to `activity_log`. `organizations` gets two boolean columns (`ai_auto_extract`, `ai_email_on_review`) with `DEFAULT true` / `DEFAULT false`. `prisma db pull` + `pnpm db:generate` to update the generated types.
 
-### Sub-step 1 — Brand rename + grep audit + favicon + meta
-**Commit:** `chore(brand): rename to StoneDash + favicon + meta`
+2. **Reminders foundation UI** — server queries in `lib/queries/reminders.ts`, server actions `dismissReminder` / `completeReminder`, `<ReminderBell>` client component wired into the topbar (60s + focus poll, badge count), `/reminders` full-page view with tabs (Active / All / Dismissed). No reminder-creation code yet — those come from extractions in sub-step 7.
 
-- Grep audit + replace:
-  - `Stone&DesignBoard` → `StoneDash`
-  - `Stone & Design Board` → `StoneDash`
-  - `stone-design-board` → `stonedash` (package.json name; routes / paths stay as the file names — only references in copy / metadata change)
-  - `#4A5D7E` → `#C2410C` (literal hex string in CSS / config files; deferred to sub-step 2 where the token system gets the proper treatment)
-- `app/layout.tsx` metadata: title default → `"StoneDash"`, description, OG tags.
-- Favicon: hand-craft `public/favicon.svg` (32×32, terracotta `S`). Plus `public/apple-touch-icon.png` (180×180), `public/manifest.json` referencing the SVG. Wire via `app/layout.tsx` `icons` metadata.
-- Update `README.md` heading + intro paragraph.
-- Update `DEVLOG.md` heading.
-- Update `supabase/seed.ts` — the platform brand mentioned in the console.warn message. The tenant `Top Marble & Granite` org name stays.
-- Surface in DEVLOG: list of every file touched + count of replacements per file. Visible audit trail.
+3. **Extraction pipeline backend** — `app/api/extract/[fileId]/route.ts`, `lib/extraction/openai.ts` (thin OpenAI wrapper), `lib/extraction/prompts.ts` (per-doc-type system prompts + JSON schemas), `lib/extraction/mock.ts` (canned responses), `lib/extraction/cost.ts` (token → cents math). HMAC-signed internal call: `lib/extraction/internal-token.ts`. Warns on `console` at server startup if `OPENAI_API_KEY` is missing (like the Maps key note in the existing README). `NEXT_PUBLIC_MOCK_AI=1` short-circuits.
 
-**Verification.** Grep for `Stone&DesignBoard\|Stone & Design Board\|stone-design-board` → expected zero hits (except in DEVLOG historical entries, which I'll leave untouched — they're the audit trail).
+4. **Server actions** — `lib/actions/extractions.ts`: `kickOffExtraction(fileId)` (fire-and-forget POST to the internal route with signed token), `confirmExtraction(extractionId, editedFields, actionOpts)`, `declineExtraction(extractionId, reason)`, `reExtractFile(fileId)`. RBAC gates on all three mutations. `registerAttachment()` extended to insert a matching `file_extractions` row + call `kickOffExtraction()` in the same request. All mutations write `activity_log` via the audit trigger from sub-step 1.
 
-### Sub-step 2 — Design tokens migration
-**Commit:** `feat(design): terracotta palette + Geist + warmer tokens`
+5. **File-card status chip + polling** — new `<ExtractionChip>` component. Sits below the filename on each file card in the order-detail Files tab. Renders one of five states per the brief. `useExtractionsPolling(fileIds)` client hook that polls only files whose current status is `'processing'` and stops when they move. 2s interval per the brief. Chip on `'review'` is clickable and opens the review sheet (built in sub-step 6).
 
-- `tailwind.config.ts` color tokens:
-  - `brand` → `#C2410C`, `brand-hover` → `#9A3412`, `brand-muted` → `#FED7AA`
-  - Background: `#FAFAF7` light / `#18181B` dark
-  - Foreground / muted / border per brief
-  - shadcn vars (`primary`, `secondary`, etc.) re-rooted on the same palette
-- `app/globals.css`: CSS variable definitions for both `:root` and `.dark`.
-- `app/layout.tsx`: install Geist via `next/font/google` (verify availability on first run; fall back to `geist` npm package if needed). Wire as `--font-geist`. Bump default body size to 15px via Tailwind base layer override.
-- `tailwind.config.ts` font-family: `geist`, `inter`, `mono` as named families.
-- shadcn `Button` component: primary uses brand color, rounded-md → rounded-lg (8px).
-- shadcn `Card`: rounded-xl (12px) + `shadow-sm`.
-- `Dialog` / `Sheet`: rounded-2xl (16px) on the content container.
-- DEVLOG: capture before/after screenshot of `/dashboard` to show the visual shift.
+6. **`<ExtractionReviewSheet>`** — right-side Sheet, 60/40 split. Left: source preview (`<img>` for images, `<embed>` for PDF, zoom buttons). Right: header + `document_type` + `confidence` badge, form fields specific to the type (rendered by a small dispatcher on `document_type`), proposed-actions section with checkboxes (initially derived from a "what would this do" preview endpoint that runs the same code path as the confirm action but doesn't commit — pure calculation), footer buttons `[Decline] [Re-extract] [Confirm and apply]`. Uses a controlled form (no react-hook-form for this one — the field set is dynamic and rhf resolver would add complexity).
 
-**Pause point.** Brand + tokens visible everywhere; surface-level polish hasn't happened yet so some pages will look transitional. Worth a sanity check before more UI work.
+7. **Downstream action application** — implements the "confirm and apply" logic. `lib/extraction/apply.ts` with `applyExtraction({extraction, edits, selectedActions, auth, supabase}): Promise<AppliedAction[]>`. Types: `update_order_field`, `create_reminder`. Per Q10, per-field toggle: fields already populated on the order default to unchecked. Reminder creation for `license` / `insurance` (30d + 7d) and `invoice` (due_date). Writes `applied_actions` JSONB list on the extraction row for audit. Each action also fires a targeted `activity_log` entry.
 
-### Sub-step 3 — Landing page at `/`
-**Commit:** `feat(landing): public marketing page at /`
+8. **Settings → AI & extraction tab** — new `TabsTrigger`/`TabsContent` on `/settings`. Two toggles bound to the `organizations` columns (server action `updateAiSettings`), read-only monthly spend (SUM(cost_cents) WHERE `date_trunc('month', created_at) = current_month`), read-only per-user pending reviews count. Email toggle carries a small "email delivery lands in a follow-up task" note per the brief.
 
-- New `app/page.tsx` (replaces the current behavior where `/` hits the `(app)` layout's auth gate).
-  - Server component. Reads auth via `getCurrentUser()` (lightweight, no redirect). If logged in → `redirect("/dashboard")`. Else → render landing.
-- Subroutes inside `app/(marketing)/`:
-  - `components/nav.tsx` — sticky nav, scroll-aware blur (small client component just for the IntersectionObserver / scroll listener).
-  - `components/hero.tsx` — server component, the centered headline + CTAs.
-  - `components/feature-grid.tsx` — 6-up server component.
-  - `components/built-inside.tsx` — Two-column shop-story + author bio. Bio uses a circular `bg-muted` placeholder until you give me a photo URL.
-  - `components/cta-band.tsx` — full-width terracotta-tinted CTA.
-  - `components/footer.tsx`.
-- Hero "product screenshot" mounts a placeholder div for now; sub-step 5 replaces with the real PNG once dashboard is redesigned.
-- Smooth-scroll via `scroll-behavior: smooth` on `html` (CSS only, no JS).
-- OG meta tags + twitter cards.
-- Lighthouse target: ≥90 perf + a11y. Verify with `lighthouse` CLI; document scores in DEVLOG.
-- Update `scripts/smoke_pages.ts`: add `/` with `public: true` flag (skip auth on this route). Add to the schema with type-checking so future public routes are explicit.
+9. **Dashboard KPI + activity feed** — new KPI card `AI extractions this month` (X confirmed · Y pending review, cost readout below). Activity feed learns new phrases: `file_extraction:created` → "AI extracted a {type} from {file_name} · needs review", `file_extraction:confirmed` → "{who} confirmed a {type} extraction — applied {N} actions", `file_extraction:declined` → "{who} declined a {type} extraction". Clicking a `needs review` row routes to `/orders?order={oid}&tab=files&extraction={id}`.
 
-### Sub-step 4 — Login + signup polish + onboarding
-**Commit:** `feat(auth): two-column login + signup with quote + polish`
+10. **Seed data** — `supabase/seed.ts` extended to write 3-4 canned `file_extractions` rows onto existing seeded orders + attachments. One `review` template, one `confirmed` license (with associated `reminder` rows for 30d + 7d), one `failed`. `raw_response` on seeded rows is a minimal `{ seeded: true }` marker so it's obvious those didn't come from the real pipeline. Seed does NOT call OpenAI — DEVLOG notes.
 
-- `(auth)/login/page.tsx` + `(auth)/signup/page.tsx`:
-  - Two-column at `lg` breakpoint, single-column below.
-  - Left column: form. StoneDash wordmark, heading, Google OAuth button at top with proper Google icon (use `lucide-react`'s `Chrome` or a custom inline SVG — Google's brand guidelines require their exact mark for OAuth buttons; will use the official SVG).
-  - Right column: terracotta gradient + pull-quote (placeholder per Q10).
-  - Switcher link to the other page at the bottom.
-  - Forgot password link below the form on login.
-- `onboarding/page.tsx`: matching visual treatment (Geist heading, warmer spacing). Same logic.
-- Run screenshot review at 3 viewports × 2 themes per Q12.
+11. **Smoke additions** — `pnpm smoke:extraction`:
+    - SSR: add `/reminders` and `/settings?tab=ai` to the pages matrix.
+    - DOM: `scripts/smoke_extraction_flow.ts` — sign in, kick a mocked extraction on a seeded attachment (via test helper endpoint `/api/extract/[fileId]?mode=mock` that skips the OpenAI call), poll the file card, assert the chip flips from `processing` → `review` in DOM.
+    - Wired into `pnpm smoke` via `pnpm smoke:extraction`.
 
-### Sub-step 5 — Dashboard redesign + hero screenshot capture
-**Commit:** `feat(dashboard): greeting, ops summary, upgraded KPIs, pipeline polish`
-
-- Greeting: time-of-day aware ("Good morning / afternoon / evening"). First name from `profile.full_name` (split on space, take first).
-- Ops summary line: dynamic — "You have N installs today and $X in unpaid contractor balances." Query both numbers in the existing dashboard parallel-fetch.
-- KPI cards: Geist semibold 32px tabular-nums, trend indicator (▲ X% from last week) computed from a 7-day-back delta. Urgent card (overdue today) gets a subtle terracotta accent.
-- Pipeline strip: wider columns, better per-stage colors using the new palette.
-- Activity feed: smaller avatars, group same-actor consecutive rows ("Sriya made 3 changes").
-- **Capture hero screenshot** via Playwright at 1280×800, light mode, with the seeded Top Marble data. Save to `public/landing/dashboard-hero.png`. Update `(marketing)/components/hero.tsx` to reference it.
-
-### Sub-step 6 — Sidebar + top bar polish
-**Commit:** `feat(shell): sidebar wordmark + new active state + user popover`
-
-- `sidebar-nav.tsx`: StoneDash wordmark at top. Active state: 3px terracotta left-edge strip + `bg-accent/40` tint (currently a brand-dot affordance — replace with the strip).
-- Org switcher: shadcn `<Popover>` with a chevron, looks like a real dropdown (currently a bordered Button — visually fine but feels click-uncertain).
-- User menu at bottom: avatar + name + chevron. Click opens a `<Popover>` with settings / theme toggle / sign-out. Currently those are inline buttons; the popover groups them under the user identity and reads as a single user surface.
-
-### Sub-step 7 — Table-wide polish + pagination
-**Commit:** `feat(tables): warmer hover + status pills + minimal pagination`
-
-- Extract `components/app/table-pagination.tsx` per Q8. Used by orders, customers, contractors, team, schedule list.
-- All tables:
-  - Column headers: Inter 12px uppercase tracking-wide muted.
-  - Row hover: subtle warm-tinted background (`bg-accent/20`), no border change.
-  - Status badges: pill shape, subtle background tint (`bg-{status}/15`), no border.
-  - Action buttons in rows: icon-only, ghost variant.
-  - Row height bumped to 44px (currently varies — normalize via Tailwind class on `<TableRow>`).
-- The schedule list view (sub-step 6 of Task 3) gets the same treatment.
-
-### Sub-step 8 — Empty + loading + toast polish
-**Commit:** `feat(polish): empty states, skeleton loaders, warmer toasts`
-
-- New `components/app/empty-state.tsx` component:
-  - `bg-orange-50` background, dashed warm border
-  - Lucide icon at 32px in terracotta
-  - Headline + subhead + primary action button
-  - Used by orders, customers, contractors, team, schedule when the list is empty.
-- Skeleton loaders matching content shape:
-  - `<TableSkeleton rows={N}/>` for tables (mimics the table chrome).
-  - `<CardSkeleton/>` for KPI cards.
-  - `<EventBlockSkeleton/>` for the calendar.
-  - Inline via React `<Suspense>` boundaries on Server Components where it's natural.
-- Toast (sonner) config: top-right, 4-second auto-dismiss, warmer color palette (success: green-600 bg, destructive: red-600 bg, default: bg-card).
-
-**Pause point.** All UI work done. Customer can be shown the redesigned app at this point. Worth a checkpoint before CSV infra.
-
-### Sub-step 9 — CSV import infrastructure
-**Commit:** `feat(import): parse route, commit action, papaparse + sanitization`
-
-- `pnpm add papaparse` + `@types/papaparse`.
-- `app/api/import/parse/route.ts` — route handler, accepts multipart/form-data with a file field. Validates content-type, size ≤ 5MB, returns `{ headers, sampleRows: rows.slice(0, 10), totalRows, fileHash }`. The fileHash lets the commit step verify we're committing the same file.
-- `lib/actions/import.ts` — `commitImport({type, mapping, rows, fileHash, options})` server action. Per-type validators (sub-steps 10/11/12 each register one). Chunked inserts (100 rows / txn).
-- `lib/import/sanitize.ts` — `sanitizeCell(value)` strips leading `=`, `+`, `-`, `@`, `\t`, `\r`. Counter of sanitized cells surfaced in the summary.
-- `lib/import/dates.ts` — `parseFlexibleDate(value)` tries 5 formats per Q4.
-- `app/(app)/import/page.tsx` — server component with three sub-tabs (Customers / Contractors / Orders). Each tab is a separate client component (sub-steps 10/11/12 build them).
-- `public/templates/` — three placeholder .csv files (customers-template.csv, contractors-template.csv, orders-template.csv) with headers + 2 example rows.
-- Sidebar nav: add Import as an active entry.
-- Smoke: add `/import?tab=customers/contractors/orders` to the SSR route list.
-
-### Sub-step 10 — Customers CSV import
-**Commit:** `feat(import): customers flow — preview, map, dedupe, commit`
-
-- `components/app/import-customers.tsx` — drag-drop dropzone → POST to `/api/import/parse` → preview UI with column-mapping dropdowns → duplicate detection (match on `(lower(name), phone)`) → confirm summary → call `commitImport`.
-- Validation: name required, email valid format if present.
-- Duplicate UI: per-row, three radio options (skip / update / import anyway).
-- Progress for >50 rows via Server-Sent-Events? **Recommendation:** Skip SSE for v1. Show optimistic indeterminate progress on the client, surface real counts in the final toast. SSE adds complexity I'd rather defer.
-- Run a one-off `scripts/test_import_customers.ts` that exercises the full path with a small sample CSV.
-
-### Sub-step 11 — Contractors CSV import
-**Commit:** `feat(import): contractors flow — same pattern as customers`
-
-- `components/app/import-contractors.tsx` — same shape as customers, columns from the brief.
-- Duplicate detection on `lower(name)` only (contractors don't always have a single phone).
-- Integration test: `scripts/test_import_contractors.ts`.
-
-### Sub-step 12 — Orders CSV import (hardest)
-**Commit:** `feat(import): orders flow — customer + contractor linking, lenient dates`
-
-- `components/app/import-orders.tsx`:
-  - Customer linking dropdown per row: match-to-existing / create-new / skip.
-  - Contractor linking dropdown per row: same.
-  - Date parsing via `parseFlexibleDate`.
-  - Order number: empty → generate via `generate_order_number` RPC. Present → check `UNIQUE(org_id, order_number)`; on collision offer rename.
-  - Per-row transaction so failures don't leave partial state.
-- Integration test: `scripts/test_import_orders.ts` exercising 4 cases (clean row, missing customer auto-create, contractor collision, bad date).
-
-**Pause point.** All imports working with real data shapes. Worth a checkpoint before Quick Add + docs wrap.
-
-### Sub-step 13 — Quick Add on /orders
-**Commit:** `feat(orders): quick add sheet — minimal one-screen new order`
-
-- Button next to "+ New order" labeled "Quick add" with a `Bolt` (lightning) icon.
-- Sheet opens. Form: customer combobox (with inline "+ Add new" per Q5), project name, stone type, quote amount, install date. Save.
-- Submit calls the existing `createOrder` action with sensible defaults (priority="normal", stage="quote", sink_cutouts=0, etc.).
-- The install date populates an `order_event` via the action layer's existing path (Task 3 sub-step 1 wired this).
-- One-shot test: `scripts/test_quick_add.ts` exercises create + verify event was scheduled.
-
-### Sub-step 14 — README + DEVLOG wrap + before/after screenshots
-**Commit:** `docs: task 4 wrap + before/after screenshots`
-
-- README:
-  - Rename "Stone & Design Board" → "StoneDash" throughout.
-  - New "Brand + design tokens" subsection under design language.
-  - New "CSV import" how-to subsection: file format, column mapping, duplicate handling, template links.
-  - "What's intentionally deferred" gets a Task 4 group (SMS, AI extraction, Vercel deploy, custom domain, payments, mobile, analytics — all per brief).
-- DEVLOG closing entry per sub-step (written inline as we go).
-- **Before/after screenshots** committed to `docs/screenshots/task-4-before/` and `docs/screenshots/task-4-after/`. Capture at 1280×800 for: landing (new only), login, dashboard, orders table, contractor detail, schedule week view. ~12 PNGs total, modest binary commit.
-- Final `pnpm smoke` across both stages. typecheck + lint + build green.
+12. **README + DEVLOG wrap** — new **AI document extraction** section in README (data model summary, the fire-and-forget architecture note, the `NEXT_PUBLIC_MOCK_AI` toggle, the "no org/user ids in prompts" data-minimization rule). DEVLOG close-out summarizing the 12 sub-steps + a **What's intentionally deferred → From Task 5** section: bulk re-extract of Task-4-imported files, email delivery, WhatsApp/SMS reminder dispatch, model-agnostic abstraction, custom document types, streaming progress, per-user cost caps. **Prominent one-liner: "Built before real-data validation of Task 4 CSV import. Prioritize revalidating Task 4 flows once real data is imported."**
 
 ---
 
-## Out of scope (restated)
+## Risks I'm holding
 
-- WhatsApp / SMS automation (Task 5 candidate).
-- AI document extraction.
-- Production deployment to Vercel (the brand work is the prereq; the deploy itself is separate).
-- Custom domain setup.
-- Payment processing / Stripe billing.
-- Mobile native app.
-- Analytics / Posthog / Mixpanel integration.
+- **`registerAttachment` is a hot path.** Sub-step 4 changes it to also insert a `file_extractions` row + kickoff a fetch. Bug in the kickoff should NOT fail the upload — wrap in try/catch, log, continue. Storage upload + `order_attachments` insert stay authoritative.
+- **The Sheet component's portal + zoom preview together.** Radix Sheet portals to document.body; heavy image preview on the left column can cause layout thrash on first paint. Plan is to render preview inside a fixed-aspect container so the sheet's layout is stable while the image loads.
+- **PDF preview in the browser.** `<embed>` works for direct-PDF but is styled differently per browser; if it's ugly, fall back to converting the first page to a signed PNG URL via a server endpoint. Deferred to see if `<embed>` is good enough.
+- **Cost surprises.** GPT-4o pricing has changed twice in six months. `cost_cents` computation should be a lookup table keyed by model name + date — if we hard-code the current rates and OpenAI changes them, our telemetry drifts silently. Fine for v1 (~$3/mo for a small shop); revisit if the number matters.
+- **Activity feed noise.** Extraction verbs join contractor, order, event verbs in one feed. If a busy shop generates 50 extractions in a day and each is a separate row, the feed drowns. Consider the dedupe/collapse pattern we already use for contractor allocations (sub-step 8-14 of Task 2B). Defer unless the customer flags it.
+- **Fire-and-forget can drop.** Documented in Q1. Follow-up: a `stuck_processing` reaper cron.
+- **Task 4 real-data drift.** This task modifies `registerAttachment()`. If Task 4's CSV import somehow uses the same code path at import time (it doesn't today), a bug here could regress Task 4. It doesn't and won't, but call it out.
+
+## Written but out of scope for this task
+
+- Retroactive extraction on files uploaded before this task landed. Handled in a follow-up (`Re-extract all files` batch action, RBAC-gated).
+- Email + SMS reminder dispatch. Toggle exists but is UI-only.
+- Streaming extraction progress. Client polls; server writes when done.
+- Custom document types. The six types are hard-coded per the brief.
+- Model-agnostic abstraction (Claude / Gemini / hybrid). OpenAI direct for v1.
+- OCR fallback for handwritten measurement sheets. If GPT-4o can't read it, we say so honestly (`failed` status).
+- Per-user or per-org cost caps / rate limits. Nothing stops a shop from uploading 10,000 PDFs and running up a bill; only production concern if the beta grows.
 
 ---
 
-**Waiting for "go" — and your preferences on Q1–Q12 if any differ from the defaults above.**
+**Waiting for `go` before starting sub-step 1.**
