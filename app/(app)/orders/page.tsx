@@ -15,7 +15,7 @@ import {
   listOrdersForEventPicker,
 } from "@/lib/queries/events";
 import { getSendModalContext } from "@/lib/queries/share-links";
-import { createSignedUrls } from "@/lib/actions/attachments";
+import { createSignedUrl, createSignedUrls } from "@/lib/actions/attachments";
 import { ORDER_STAGES } from "@/lib/validators/orders";
 import { canCreateOrder } from "@/lib/rbac";
 import type {
@@ -36,6 +36,9 @@ import {
 import { EventDialog } from "@/components/app/event-dialog";
 import { SendToCrewModal } from "@/components/app/send-to-crew-modal";
 import type { ActivityRow } from "@/components/app/activity-feed";
+import { ExtractionReviewSheet } from "@/components/app/extraction-review-sheet";
+import { getExtractionForFile } from "@/lib/queries/extractions";
+import { computeProposedActions } from "@/lib/extraction/proposed-actions";
 
 type SearchParams = {
   stage?: string;
@@ -53,6 +56,7 @@ type SearchParams = {
   date?: string;
   time?: string;
   send?: string;
+  extraction?: string;
 };
 
 type DetailTab = "overview" | "events" | "files" | "activity";
@@ -131,6 +135,10 @@ export default async function OrdersPage({
   const showQuickAdd = searchParams.quick === "1";
   const detailOrderId = searchParams.order ?? null;
   const detailTab = parseTab(searchParams.tab);
+  const extractionFileId =
+    searchParams.extraction && UUID_RE.test(searchParams.extraction)
+      ? searchParams.extraction
+      : null;
 
   // Event dialog opened from the detail sheet's Events tab.
   const eventParam = searchParams.event ?? null;
@@ -218,6 +226,9 @@ export default async function OrdersPage({
       .map((a) => a.storage_path);
     photoUrls = await createSignedUrls(photoPaths, 60 * 60);
 
+    // (extraction detail load lives further down — the shared
+    // fetch below only pulls status for the chip.)
+
     // Task 5: fetch extraction status for every attachment in one
     // batch so the file-card chip renders on first paint.
     const fileIds = attachments.map((a) => a.id);
@@ -294,6 +305,14 @@ export default async function OrdersPage({
           defaultTab={detailTab}
           orgTimezone={org.timezone}
           extractions={extractions}
+        />
+      ) : null}
+
+      {extractionFileId ? (
+        <ExtractionReviewSheetMount
+          fileId={extractionFileId}
+          fileLinkUrl={`/orders?order=${detailOrderId ?? ""}&tab=files`}
+          reviewerUserId={""}
         />
       ) : null}
 
@@ -386,6 +405,33 @@ async function EventDialogMount({
       initialDate={initialDate}
       initialTime={initialTime}
       initialOrderId={editEventId ? null : detailOrderId}
+    />
+  );
+}
+
+async function ExtractionReviewSheetMount({
+  fileId,
+  fileLinkUrl,
+}: {
+  fileId: string;
+  fileLinkUrl: string;
+  reviewerUserId: string;
+}) {
+  const extraction = await getExtractionForFile(fileId);
+  if (!extraction) return null;
+  const { userId } = await getCurrentUserAndOrg();
+  const proposedActions = computeProposedActions({
+    extraction,
+    reviewerUserId: userId,
+    fileLinkUrl,
+  });
+  const signed = await createSignedUrl(extraction.file.storage_path);
+  const signedSourceUrl = signed.ok ? signed.url : null;
+  return (
+    <ExtractionReviewSheet
+      extraction={extraction}
+      proposedActions={proposedActions}
+      signedSourceUrl={signedSourceUrl}
     />
   );
 }

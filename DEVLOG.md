@@ -115,6 +115,34 @@ All three steps are wrapped in `try/catch`. **Extraction failures never fail the
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
 
+### Sub-step 6 — ExtractionReviewSheet (complete)
+
+**`<ExtractionReviewSheet>`** at `components/app/extraction-review-sheet.tsx`. Right-side Sheet at `sm:max-w-4xl`, two-column split at `md+`:
+- **Left (6/11 of the grid)** — source preview inside a rounded-xl card. Images inline via `<img>`, PDFs via `<embed>`. Header row above shows the document-type badge (`bg-brand-muted/30` chip) + advisory confidence label.
+- **Right (5/11)** — extracted fields form + proposed actions list + footer buttons `[Decline] [Re-extract] [Confirm and apply]`.
+
+**`FIELD_DEFS`** in `lib/extraction/field-defs.ts` — per-doc-type UI field definitions binding each JSON key to `{label, kind}` where `kind ∈ {text, textarea, number, integer, money, date}`. The review sheet renders each field via a small `<FieldEditor>` dispatcher: `textarea` for `notes`/`project_description`, `date` for date fields, `number` with a `$` prefix + `step="0.01"` for money, `text` for the rest. `toInputValue`/`fromInputValue` marshal between the stored JSON shape and the form string.
+
+**`unsupported` handling.** When the classification is `other` (or anything not in the six-type map), the fields form is replaced with an inline explainer that the user can decline or re-extract. No fields to edit — the model already told us it didn't find a supported type.
+
+**`computeProposedActions()`** in `lib/extraction/proposed-actions.ts` (kept pure — no `use server`, no DB access — so both the sheet's preview and sub-step 7's `apply.ts` share the same source of truth for what an extraction *means*):
+- **`template`** — offers to fill `stone_type`, `edge_profile`, `sink_cutouts`, `cooktop_cutouts`, `notes`. `project_address` is NOT mapped today (orders don't have a distinct project address column — customer address is separate).
+- **`contract`** — offers to fill `quote_amount`, `deposit_received` (from `deposit_amount`), `project_name` (from `project_description`), `scheduled_install_date` (from `install_date`).
+- **`license`** — creates two reminders (30d + 7d before expiry) at 9am UTC. Only when the expiry is in the future.
+- **`insurance`** — creates one reminder 30d before expiry.
+- **`invoice`** — creates one reminder 3d before due date.
+- **`other`** — no proposed actions.
+
+**Q10 lock: fields already populated on the order default `unchecked`.** The `defaultChecked` flag on each `update_order_field` action is `true` only when the current value is empty (`null`, `undefined`, empty string, or `0` for cutouts). If the order already has a stone type of "Quartz Gray" and the extraction proposes "Calacatta Gold", the checkbox is off by default — the user opts in to overwrite. `create_reminder` actions default to `checked` (unlike order-field overwrites, adding a reminder is non-destructive).
+
+**Mount at `?extraction={fileId}`.** The orders page picks up the search param, validates the UUID shape, and mounts `<ExtractionReviewSheetMount>` — an async server component that loads the full extraction detail + signs the source URL for 10 minutes + calls `computeProposedActions()` before hydrating the client component. Same mount pattern as `EventDialogMount` / `SendModalMount` already in that file.
+
+**Sub-step 7 note.** The Confirm button today only writes `status='confirmed'` + `extracted_fields`. The `selected` checkbox state is captured in local component state; sub-step 7 wires it into `confirmExtraction` as an argument and applies the selected actions server-side. Explicit inline note in the sheet copy: "Selected actions run after you confirm. Sub-step 7 wires the actual apply."
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. One lint fix mid-stream: the initial `defs` array wasn't memoized, which flagged `react-hooks/exhaustive-deps` on the downstream `useMemo(initialValues)` — wrapped in its own `useMemo` so the dependency array is stable across renders.
+- `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
