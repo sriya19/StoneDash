@@ -210,6 +210,46 @@ Each executed action returns an `AppliedAction` record that's stored on the extr
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
 
+### Sub-step 10 — Seed data: canned extractions + reminder (complete)
+
+**Three attachment rows + three matching `file_extractions` rows** appended to the demo seed on the first three seeded orders. All shape-compatible with real extractions — same columns, same JSON keys — so every UI surface from sub-steps 5–9 has realistic data to show in demo.
+
+- **`review` template** — canned measurement sheet for a Falls Church kitchen. 38.5 sqft, 1 sink cutout, 1 cooktop cutout, Eased edge, Calacatta Gold quartz. Feeds the "Review template" chip on the Files tab + counts toward the dashboard KPI's pending-review number.
+- **`confirmed` license** — VA-2705-091284 issued by Virginia DPOR. Expiry 35 days out. `applied_actions` contains one `create_reminder` entry pointing at the reminder row created alongside it (5 days from now, so it lands in the bell's "active" bucket).
+- **`failed` extraction** — a blurry scan. `error_message: "Image was too blurry to read reliably."` — the muted "AI couldn't read this" chip variant.
+
+**`raw_response` on all three is `{ seeded: true }`.** Makes it obvious in the DB that these rows didn't come from OpenAI. If someone later runs a "delete stale seeded data" job, the marker is a stable key to filter on.
+
+**Seed script does NOT call OpenAI.** Everything is inserted directly via the service-role admin client, same pattern as the rest of the seed. Adding a real pipeline call to the seed would burn credits on every `pnpm db:seed`, defeat idempotency, and require an OPENAI_API_KEY to run — the sub-step 3 mock module exists precisely so we don't need that.
+
+**Small helper added:** `nowUtc(offsetDays)` returns "now" plus the offset — used for expiry / reminder / review dates so they land at a realistic hour rather than midnight UTC. The existing `d()` helper stays put (midnight UTC is right for `@db.Date` columns like `orders.scheduled_install_date`).
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm db:seed` applied cleanly against the hosted DB.
+- `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
+### Sub-step 11 — Dedicated smoke stage (complete)
+
+**`pnpm smoke:extraction`** at `scripts/smoke_extraction.ts`. Nine checks against the running dev server + hosted DB. Never calls OpenAI — the smoke uses `?mode=mock` to short-circuit the pipeline.
+
+Checks:
+1. Seeded `review` extraction exists (sanity — validates sub-step 10 ran).
+2. `/orders?order=<oid>&tab=files` returns 200.
+3. Files tab HTML includes the seeded file name `measurement-sheet.pdf`.
+4. `POST /api/extract/<attachmentId>?mode=mock` returns 200 with a valid HMAC-signed `Authorization: Internal <token>` header.
+5. Post-mock: `file_extractions.status = 'review'`.
+6. Post-mock: `file_extractions.document_type = 'template'`.
+7. Post-mock: `file_extractions.cost_cents = 0` (mock is free).
+8. `POST /api/extractions/status` returns 200.
+9. Status endpoint's returned rows include the target file with the correct status.
+
+**Inlined HMAC minter.** The smoke can't `import { mintInternalToken } from "@/lib/extraction/internal-token"` because that module uses `"server-only"`, which only resolves inside Next.js. Duplicated the ~5 lines of HMAC signing into the smoke script directly, with a comment linking back. Keeps the smoke self-contained.
+
+**Chip DOM assertion deferred to a follow-up.** The status chip renders client-side after `useExtractionsPolling` hydrates and isn't in the SSR body. Verifying the chip visually would need a Playwright-style DOM assertion like the existing `smoke_send_to_crew_dom.ts`. First smoke run flagged this (the "Review template" text wasn't in the SSR HTML); shifted the SSR check to a proxy — the seeded file name — which proves the extractions prop reached the sheet.
+
+**Final full-chain smoke:** 32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 9 extraction = **73 checks, 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
