@@ -432,6 +432,7 @@ async function ExtractionReviewSheetMount({
       extraction={extraction}
       proposedActions={proposedActions}
       signedSourceUrl={signedSourceUrl}
+      fileLinkUrl={fileLinkUrl}
     />
   );
 }

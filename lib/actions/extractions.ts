@@ -8,6 +8,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mintInternalToken } from "@/lib/extraction/internal-token";
 import { hasAtLeast } from "@/lib/rbac";
 import type { FileExtractionRow } from "@/lib/supabase/types";
+import { getExtractionForFile } from "@/lib/queries/extractions";
+import { applyExtractionActions } from "@/lib/extraction/apply";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
@@ -93,28 +95,70 @@ export async function insertExtractionRow(
 const ConfirmInput = z.object({
   id: z.string().uuid(),
   editedFields: z.record(z.string(), z.unknown()).optional(),
+  // Keys from proposed-actions.ts. UI checks them; server re-runs
+  // computeProposedActions with the editedFields and applies only
+  // the intersection so a rogue client can't smuggle a novel key.
+  selectedActionKeys: z.array(z.string().max(120)).max(50).optional(),
+  fileLinkUrl: z.string().max(500).optional(),
 });
 
 export async function confirmExtraction(
   input: unknown,
-): Promise<ActionResult<{ id: string }>> {
+): Promise<ActionResult<{ id: string; applied: unknown[] }>> {
   const parsed = ConfirmInput.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const { role } = await getCurrentUserAndOrg();
-  if (!hasAtLeast(role, "manager")) {
+  const auth = await getCurrentUserAndOrg();
+  if (!hasAtLeast(auth.role, "manager")) {
     return { ok: false, error: "Only managers and above can confirm extractions" };
   }
 
   const supabase = createSupabaseServerClient();
   const nowIso = new Date().toISOString();
 
+  // Load the extraction detail so applyExtractionActions has the
+  // parent order + file context, and so we know the file_id for the
+  // subsequent updates.
+  const { data: row } = await supabase
+    .from("file_extractions")
+    .select("id, file_id")
+    .eq("id", parsed.data.id)
+    .maybeSingle<{ id: string; file_id: string }>();
+  if (!row) {
+    return { ok: false, error: "Extraction not found" };
+  }
+
+  const detail = await getExtractionForFile(row.file_id);
+  if (!detail) {
+    return { ok: false, error: "Extraction not found" };
+  }
+
+  // Apply downstream actions FIRST. If order update fails we surface
+  // the error and don't flip to 'confirmed' — better to leave the
+  // row in 'review' than to lie about applied state.
+  let applied: unknown[] = [];
+  try {
+    applied = await applyExtractionActions({
+      auth,
+      supabase,
+      extraction: detail,
+      overrideFields: parsed.data.editedFields ?? null,
+      selectedKeys: parsed.data.selectedActionKeys ?? [],
+      fileLinkUrl: parsed.data.fileLinkUrl ?? "/orders",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+
   const update: Record<string, unknown> = {
     status: "confirmed",
+    reviewed_by: auth.userId,
     reviewed_at: nowIso,
     updated_at: nowIso,
+    applied_actions: applied,
   };
   if (parsed.data.editedFields) {
     update.extracted_fields = parsed.data.editedFields;
@@ -131,19 +175,10 @@ export async function confirmExtraction(
     return { ok: false, error: error?.message ?? "Could not confirm extraction" };
   }
 
-  // Best-effort: set reviewed_by via a follow-up UPDATE so RLS can't
-  // complain about missing session context. RLS-scoped updates run
-  // as the authenticated user, so auth.uid() is available on the
-  // trigger — but reviewed_by is a data column we still fill.
-  const { userId } = await getCurrentUserAndOrg();
-  await supabase
-    .from("file_extractions")
-    .update({ reviewed_by: userId })
-    .eq("id", parsed.data.id);
-
   revalidatePath("/orders");
   revalidatePath("/dashboard");
-  return { ok: true, data: { id: data.id } };
+  revalidatePath("/reminders");
+  return { ok: true, data: { id: data.id, applied } };
 }
 
 // ---------------------------------------------------------------------------

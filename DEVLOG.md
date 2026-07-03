@@ -143,6 +143,28 @@ All three steps are wrapped in `try/catch`. **Extraction failures never fail the
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. One lint fix mid-stream: the initial `defs` array wasn't memoized, which flagged `react-hooks/exhaustive-deps` on the downstream `useMemo(initialValues)` — wrapped in its own `useMemo` so the dependency array is stable across renders.
 - `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
 
+### Sub-step 7 — Downstream action application (complete)
+
+**`lib/extraction/apply.ts`** with `applyExtractionActions()`. Consumes the same `computeProposedActions()` helper the review sheet uses, filters to the keys the user checked, then executes:
+- **`update_order_field`** — grouped into ONE `orders.update()` per confirm (all selected field updates batched into a single UPDATE) so a template extraction that fills 5 fields doesn't do 5 round-trips. If the UPDATE fails, the whole confirm throws — better to leave the extraction in `review` than to lie about applied state.
+- **`create_reminder`** — one INSERT per selected reminder. Failures are logged but non-fatal (the confirm still succeeds with whatever else applied) because a reminder-insert hitting an unexpected RLS edge case shouldn't block the order-field updates that DID land.
+
+Each executed action returns an `AppliedAction` record that's stored on the extraction row's `applied_actions` JSONB column for audit + future dashboard rollups. Reminders record their new `reminder_id` so a later "undo this confirmation" path (deferred) can find them.
+
+**`confirmExtraction` signature extended.** Now accepts `selectedActionKeys: string[]` and `fileLinkUrl: string` in addition to the existing `editedFields`. The server re-runs `computeProposedActions()` with the user-edited fields and intersects the resulting keys with `selectedActionKeys` — a rogue client can't smuggle a novel key past this because the applied set is always a subset of what the server computes.
+
+**Server-side recomputation matters** because the user may have edited a field between "review sheet opened" and "confirm pressed" — the proposed action needs to reflect the current values. Example: extraction proposes `quote_amount = 4500`, user changes it to `4750`, checks the "Set quote amount" box; the server sees the edit + the check and applies `4750`, not `4500`.
+
+**Order of operations.** Apply FIRST, then flip status to `confirmed`. If apply throws, the row stays in `review` and the client sees the error message. If apply succeeds but the final UPDATE fails, we've applied the downstream state but not marked the extraction confirmed — a small window we accept as a rare-case regressive state (a re-decline or re-extract would clean it up if it ever happens).
+
+**Confirm toast** now reads `Confirmed — applied N actions` when N > 0, or `Extraction confirmed` when no actions were selected (e.g. the model classified as `other` and the user just wanted to close the review).
+
+**Revalidation** pings `/orders`, `/dashboard`, and `/reminders` — the last one so any reminders that just landed appear in the bell popover on the next page render.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** End-to-end confirm-with-apply is exercised by hand today; sub-step 11's extraction smoke covers the mocked-kickoff → review-chip flow.
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)

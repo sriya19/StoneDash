@@ -36,6 +36,7 @@ type Props = {
   extraction: FileExtractionDetail;
   proposedActions: ProposedAction[];
   signedSourceUrl: string | null;
+  fileLinkUrl: string;
 };
 
 const CONFIDENCE_LABEL = {
@@ -50,6 +51,7 @@ export function ExtractionReviewSheet({
   extraction,
   proposedActions,
   signedSourceUrl,
+  fileLinkUrl,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -106,16 +108,28 @@ export function ExtractionReviewSheet({
   }
 
   function onConfirm() {
+    const selectedKeys = Object.entries(selected)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
     startTransition(async () => {
       const res = await confirmExtraction({
         id: extraction.id,
         editedFields: editedFields(),
+        selectedActionKeys: selectedKeys,
+        fileLinkUrl,
       });
       if (!res.ok) {
         toast.error("Couldn't confirm extraction", { description: res.error });
         return;
       }
-      toast.success("Extraction confirmed");
+      const applied = Array.isArray(res.data?.applied)
+        ? res.data.applied.length
+        : 0;
+      toast.success(
+        applied > 0
+          ? `Confirmed — applied ${applied} action${applied === 1 ? "" : "s"}`
+          : "Extraction confirmed",
+      );
       close();
       router.refresh();
     });
@@ -252,8 +266,7 @@ export function ExtractionReviewSheet({
                   })}
                 </ul>
                 <p className="text-[11px] text-muted-foreground">
-                  Selected actions run after you confirm. Sub-step 7 wires the
-                  actual apply; the checkboxes are captured now.
+                  Selected actions run after you confirm.
                 </p>
               </div>
             ) : null}
