@@ -694,6 +694,153 @@ async function main() {
     },
   });
 
+  // ---------------------------------------------------------------------
+  // Task 5 — canned file_extractions (skips the real OpenAI pipeline)
+  // ---------------------------------------------------------------------
+  //
+  // Three attachment rows + three matching file_extractions rows so the
+  // dashboard KPI, activity feed, Files tab chip, and review sheet all
+  // have something realistic to show in demo. NONE of these call OpenAI
+  // — extracted_fields is canned, raw_response carries {seeded: true}.
+
+  const firstOrders = await prisma.order.findMany({
+    where: { orgId: org.id },
+    take: 3,
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+
+  if (firstOrders.length >= 3) {
+    const [orderA, orderB, orderC] = firstOrders as [
+      { id: string },
+      { id: string },
+      { id: string },
+    ];
+
+    const { data: attachRows } = await admin
+      .from("order_attachments")
+      .insert([
+        {
+          org_id: org.id,
+          order_id: orderA.id,
+          storage_path: `demo/${org.id}/template-${orderA.id}.pdf`,
+          original_name: "measurement-sheet.pdf",
+          mime: "application/pdf",
+          size_bytes: 421_000,
+          kind: "template",
+          uploaded_by: userId,
+        },
+        {
+          org_id: org.id,
+          order_id: orderB.id,
+          storage_path: `demo/${org.id}/license-${orderB.id}.pdf`,
+          original_name: "va-contractor-license.pdf",
+          mime: "application/pdf",
+          size_bytes: 187_000,
+          kind: "other",
+          uploaded_by: userId,
+        },
+        {
+          org_id: org.id,
+          order_id: orderC.id,
+          storage_path: `demo/${org.id}/scan-${orderC.id}.jpg`,
+          original_name: "blurry-scan.jpg",
+          mime: "image/jpeg",
+          size_bytes: 1_204_000,
+          kind: "other",
+          uploaded_by: userId,
+        },
+      ])
+      .select("id, order_id");
+
+    if (attachRows && attachRows.length === 3) {
+      type Att = { id: string; order_id: string };
+      const attTemplate = attachRows[0] as Att;
+      const attLicense = attachRows[1] as Att;
+      const attFailed = attachRows[2] as Att;
+
+      // 1. Template extraction in 'review' — feeds the "pending review"
+      //    chip on the Files tab + the dashboard KPI's pending count.
+      await admin.from("file_extractions").insert({
+        org_id: org.id,
+        file_id: attTemplate.id,
+        document_type: "template",
+        status: "review",
+        confidence: "medium",
+        cost_cents: 1,
+        raw_response: { seeded: true },
+        extracted_fields: {
+          customer_name: null,
+          project_address: "1421 Falls Church Rd, Vienna, VA",
+          measurement_date: nowUtc(-4).toISOString().slice(0, 10),
+          total_sqft: 38.5,
+          sink_cutouts: 1,
+          cooktop_cutouts: 1,
+          edge_profile: "Eased",
+          stone_type: "Calacatta Gold quartz",
+          notes: "Two seams planned along island back edge.",
+        },
+      });
+
+      // 2. License extraction in 'confirmed' with a matching reminder.
+      const licenseExtraction = await admin
+        .from("file_extractions")
+        .insert({
+          org_id: org.id,
+          file_id: attLicense.id,
+          document_type: "license",
+          status: "confirmed",
+          confidence: "high",
+          cost_cents: 2,
+          raw_response: { seeded: true },
+          extracted_fields: {
+            holder_name: org.name,
+            license_number: "VA-2705-091284",
+            issuing_authority: "Virginia DPOR",
+            issue_date: nowUtc(-160).toISOString().slice(0, 10),
+            expiry_date: nowUtc(35).toISOString().slice(0, 10),
+          },
+          reviewed_by: userId,
+          reviewed_at: new Date().toISOString(),
+          applied_actions: [
+            {
+              type: "create_reminder",
+              kind: "license_expiry",
+              remind_at: nowUtc(5).toISOString(),
+            },
+          ],
+        })
+        .select("id")
+        .single<{ id: string }>();
+
+      if (licenseExtraction.data) {
+        await admin.from("reminders").insert({
+          org_id: org.id,
+          user_id: userId,
+          title: `${org.name} license expires in 30 days`,
+          body: "Confirmed via seeded license extraction.",
+          remind_at: nowUtc(5).toISOString(),
+          kind: "license_expiry",
+          source_type: "file_extraction",
+          source_id: licenseExtraction.data.id,
+          link_url: `/orders?order=${attLicense.order_id}&tab=files`,
+        });
+      }
+
+      // 3. Failed extraction — demos the muted "AI couldn't read this" chip.
+      await admin.from("file_extractions").insert({
+        org_id: org.id,
+        file_id: attFailed.id,
+        document_type: "other",
+        status: "failed",
+        confidence: "low",
+        cost_cents: 0,
+        raw_response: { seeded: true },
+        error_message: "Image was too blurry to read reliably.",
+      });
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.warn(
     `Seed complete. Demo logins:\n` +
@@ -703,8 +850,18 @@ async function main() {
       `${customers.length} customers, ${contractors.length} contractors, ` +
       `${orderSeeds.length} orders, 2 contractor payments, ` +
       `${crewMembers.length} crew, ${upcomingInstalls.length} upcoming installs, ` +
-      `${linksCreated} share links, 2 standalone events (1 task, 1 all-day).`,
+      `${linksCreated} share links, 2 standalone events (1 task, 1 all-day), ` +
+      `3 canned file_extractions (review + confirmed + failed) with 1 reminder.`,
   );
+}
+
+// nowUtc — helper for the extraction seeds. Same signature as `d()`
+// above but returns a Date at "now" plus the offset rather than
+// midnight, so the extraction expiry dates land at a realistic hour.
+function nowUtc(offsetDays: number): Date {
+  const now = new Date();
+  now.setUTCDate(now.getUTCDate() + offsetDays);
+  return now;
 }
 
 main()
