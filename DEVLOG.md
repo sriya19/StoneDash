@@ -185,6 +185,31 @@ Each executed action returns an `AppliedAction` record that's stored on the extr
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
 
+### Sub-step 9 — Dashboard KPI + activity feed integration (complete)
+
+**Fifth KPI card on `/dashboard`** — `AI extractions this month`. Shows confirmed count as the main value; sublabel reads `N pending review · $Z.ZZ` (or "No documents processed yet" when the month has no rows). Uses the `Sparkles` icon and the `urgent` variant when pending > 0, so the terracotta wash draws attention to work-to-do.
+
+**Grid grows from `lg:grid-cols-4` to `lg:grid-cols-5`.** Small sacrifice: on 1280px the cards go from ~300px to ~240px each, but the tabular-num values still fit. On the widescreens the customer's shop probably uses, five cards read cleanly across.
+
+**Query joins the existing dashboard batch.** Added a fifth entry to the `Promise.all` so the extraction fetch parallels the orders / installs / activity / contractor-balances queries — one round trip, no extra latency. Filter is `created_at >= startOfCurrentUtcMonth` (computed in JS via `Date.UTC(year, month, 1)`) so no DB view is needed.
+
+**Activity feed learns three new verbs.**
+- `file_extraction:created` — usually fires when an upload kicks off an extraction. Copy: `"Sriya's upload started an AI extraction on <filename>"`.
+- `file_extraction:status_changed` — differentiated per `to` state:
+  - `review` → `"AI extracted a template · needs review"` (no actor; the model did the work).
+  - `confirmed` → `"Sriya confirmed a template extraction"`.
+  - `declined` → `"Sriya declined a template extraction"`.
+  - `failed` → `"AI couldn't read a template"`.
+- `reminder:created` — `"Sriya scheduled reminder \"License expires in 30 days\""`.
+
+**Iconography.** `file_extraction` → `Sparkles`, `reminder` → `Bell`. Matches the chip glyph and bell glyph the user has already learned.
+
+**No new smoke** — the dashboard is already in the 32 SSR matrix. The activity feed's new phrases will be observed once real extraction traffic lands (seed data in sub-step 10 will backfill enough for a visual test).
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
