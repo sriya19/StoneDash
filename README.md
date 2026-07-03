@@ -460,6 +460,79 @@ end-to-end via-shared-link path: pick a live share link from the seed,
 call the RPC with `p_via_shared_link=true`, verify the resulting
 audit row has `actor_id=NULL` and `metadata.via='shared_link'`.
 
+### AI document extraction
+
+Every file uploaded to an order runs through a two-step vision
+pipeline: **gpt-4o-mini** classifies the document into one of six
+types (`template`, `contract`, `invoice`, `license`, `insurance`,
+`other`), then **gpt-4o** extracts structured fields on supported
+types. The user reviews + confirms + optionally edits before any
+downstream state changes — the AI never writes to an order or
+creates a reminder without a human in the loop.
+
+**Environment.** `OPENAI_API_KEY` is required for real extractions.
+Without it, uploads still land in Storage and the extraction row
+transitions to `status='failed'` with `error_message='OpenAI key
+missing'`. A one-time `process.stderr.write` at first-use makes
+the missing key discoverable in dev. Set `NEXT_PUBLIC_MOCK_AI=1`
+to short-circuit the pipeline with canned extractions — used by
+the smoke script and by any local dev session that doesn't want
+to burn credits. (The `NEXT_PUBLIC_` prefix is a naming
+inheritance from the spec; the flag is read on the server, not
+in the browser.)
+
+**Data flow.**
+1. `registerAttachment()` inserts the `order_attachments` row.
+2. Same server action inserts a matching `file_extractions` row
+   with `status='processing'` (**Q7 lock**: synchronous so the
+   chip renders at the same beat as the file card, no half-second
+   gap).
+3. `kickOffExtraction(fileId)` fires an HMAC-signed POST to
+   `/api/extract/[fileId]` and does NOT await. Server action
+   returns; the user sees the file card + spinning chip.
+4. Internal route verifies the HMAC (5-minute TTL,
+   `timingSafeEqual`), downloads the file bytes via service-role
+   Storage read, runs the pipeline, writes the result.
+5. Client-side `useExtractionsPolling(fileIds)` hits `/api/
+   extractions/status` every 2s ONLY while at least one file is
+   `processing`; stops when they all settle. The chip flips to
+   the review pill when the row transitions to `review`.
+6. Click the pill → `<ExtractionReviewSheet>` opens with the
+   source preview on the left and the editable fields +
+   proposed-actions checkboxes on the right.
+7. Confirm applies the selected downstream actions
+   (`update_order_field` and/or `create_reminder`) inside the
+   same server action as the status transition; failures leave
+   the row in `review` for retry.
+
+**HMAC internal token.** `mintInternalToken(fileId)` produces
+`<base64url(fileId)>.<unix_ms>.<hmac_sig>`. Signing key from
+`EXTRACTION_INTERNAL_SECRET` (production) with a
+`SUPABASE_SERVICE_ROLE_KEY`-derived fallback for dev. The
+`/api/extract/[fileId]` route accepts `Authorization: Internal
+<token>` and verifies via `timingSafeEqual`. This is how the
+fire-and-forget kickoff pattern authenticates without needing a
+user session on the internal call.
+
+**Cost.** `costCents(model, inputTokens, outputTokens)` — hard-
+coded rates ($0.15/M input + $0.60/M output for
+`gpt-4o-mini`; $5/M + $15/M for `gpt-4o`). Rounded up to the
+nearest cent so sub-cent classifier calls still register. Typical
+document is ~1¢ (mini classification + 4o extraction on a
+supported type). Monthly cost for a small shop pushing 100
+documents: ~$3.
+
+**Data minimization.** The LLM sees the file contents and
+generic instructions, nothing else. Org IDs, user IDs, order
+metadata, filenames — none of it goes over the wire to OpenAI.
+
+**Reminders.** License / insurance / invoice extractions can
+create reminders on confirm (30d + 7d before license expiry, 30d
+before insurance expiry, 3d before invoice due date). Reminders
+live in a new `reminders` table with a `link_url` column so the
+bell popover's click-through jumps back to the source file. Bell
+icon in the topbar + `/reminders` full-page view.
+
 ### Google Maps API key setup (location autocomplete)
 
 The Event dialog's Location field uses the new
@@ -499,7 +572,7 @@ not optional — set them before deploying.
 
 ### Render-time smoke gate
 
-`pnpm smoke` runs three stages in sequence against a running `pnpm dev`
+`pnpm smoke` runs four stages in sequence against a running `pnpm dev`
 server. Catches the class of bugs `pnpm typecheck` + `next build` miss
 — server components that import non-component values from `"use client"`
 modules render-fail only at call time, and dynamic routes aren't
@@ -530,12 +603,22 @@ mix of valid and validation-failing rows, assert the
 DB to verify the rows actually exist. Each cleans up after itself
 (pre-cleanup + post-cleanup) so the smoke is repeatable.
 
+**Stage 4 — Extraction smoke** (`pnpm smoke:extraction`, ~2s).
+`scripts/smoke_extraction.ts` exercises the AI extraction pipeline
+in mock mode (never calls OpenAI). Nine checks: seeded review row
+exists; `/orders?order=X&tab=files` renders; `POST /api/extract/
+<id>?mode=mock` returns 200 with a valid HMAC token; the DB row
+flips to `status='review'` / `document_type='template'` /
+`cost_cents=0`; and `POST /api/extractions/status` returns the row
+with the correct state.
+
 ```sh
 pnpm dev        # in another terminal
-pnpm smoke              # all three stages
+pnpm smoke              # all four stages
 pnpm smoke:ssr          # SSR only
 pnpm smoke:dom          # DOM only
 pnpm smoke:import       # CSV import end-to-end
+pnpm smoke:extraction   # AI extraction (mocked)
 pnpm smoke:ssr /j       # subset by path prefix
 ```
 
@@ -643,6 +726,38 @@ Migrations don't run on deploy — apply them from your machine
 
 Out of scope for the work currently shipped — see
 [`DEVLOG.md`](./DEVLOG.md) for the per-task running deferred list.
+
+**From Task 5 (AI document extraction):**
+
+- Bulk re-extract of existing files (Task-4 imports and pre-Task-5
+  attachments). One-click "re-extract everything in this org" action
+  behind manager+ RBAC + a confirmation dialog.
+- Email delivery of "extraction needs review" notifications. Toggle
+  exists in Settings > AI & extraction but is UI-only.
+- WhatsApp / SMS delivery of reminders. The bell icon + `/reminders`
+  page are the v1 surface; external delivery is a follow-up.
+- OCR fallback for handwritten measurement sheets. If GPT-4o can't
+  read a scan, `status='failed'` with the error surfaced honestly.
+- Streaming extraction progress. Client polls every 2s while
+  `status='processing'`; server writes when done.
+- A stuck-processing reaper. The fire-and-forget kickoff can drop
+  under serverless cold-start tear-down; a cron that re-kicks rows
+  older than 5 minutes is the safety net.
+- Model-agnostic abstraction (Claude / Gemini / hybrid). OpenAI
+  direct for v1.
+- Custom document types configurable by the user. The six types are
+  hard-coded per the brief.
+- Per-user or per-org cost caps / rate limits. Nothing stops a shop
+  from uploading 10,000 PDFs; only production concern if the beta
+  grows.
+- Chip DOM smoke — assert the `Review` pill actually renders in the
+  hydrated DOM (Playwright-style, mirroring `smoke_send_to_crew_dom.
+  ts`). Today's extraction smoke uses a file-name proxy in SSR
+  because the chip renders client-side.
+
+**Prioritize revalidating Task 4 (CSV import) flows once real
+customer data is imported.** Task 5 was built ahead of that
+validation.
 
 **From Task 4 (UI overhaul + real-data import):**
 

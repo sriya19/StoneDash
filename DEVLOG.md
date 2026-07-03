@@ -250,6 +250,38 @@ Checks:
 
 **Final full-chain smoke:** 32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 9 extraction = **73 checks, 0 FAIL.**
 
+### Sub-step 12 — README + DEVLOG wrap (complete)
+
+**README.md:**
+- New **AI document extraction** section under How-to (~70 lines) covering the environment variables, the data flow from `registerAttachment` through review → confirm → apply, the HMAC token design, the cost math, the data-minimization rule, and the reminders integration.
+- **Smoke gate** section extended to four stages. Stage 4 is `pnpm smoke:extraction` with the nine checks called out.
+- New **From Task 5** section in the deferred list: bulk re-extract, email delivery of extraction-needs-review, WhatsApp/SMS reminder delivery, OCR fallback, streaming progress, stuck-processing reaper, model-agnostic abstraction, custom document types, per-user cost caps, chip DOM smoke.
+- **Prominent one-liner in the deferred section:** *"Prioritize revalidating Task 4 (CSV import) flows once real customer data is imported. Task 5 was built ahead of that validation."*
+
+**DEVLOG close-out.** Across 12 sub-steps Task 5 shipped:
+- Schema: `file_extractions` + `reminders` tables + two org toggles, RLS + audit triggers, field-role SELECT-only enforcement.
+- Backend: two-step OpenAI pipeline (`gpt-4o-mini` classifier + `gpt-4o` extractor), dependency-free wrapper, JSON schemas per doc type, HMAC internal token, mock mode.
+- Server actions: `kickOffExtraction` (fire-and-forget), `confirmExtraction` with downstream action apply, `declineExtraction`, `reExtractFile`. `registerAttachment` extended with the Q7 synchronous companion insert.
+- UI: `<ExtractionChip>` on file cards with 2s polling, `<ExtractionReviewSheet>` with source preview + per-doc-type editable form + proposed-actions checkboxes, `<ReminderBell>` in the topbar + `/reminders` full-page view + `<SettingsAiForm>` in Settings.
+- Dashboard: fifth KPI card ("AI extractions this month"), three new activity feed verbs.
+- Seed: three canned `file_extractions` rows (review + confirmed + failed) + one reminder, `raw_response: {seeded: true}` marker.
+- Smoke: dedicated `pnpm smoke:extraction` stage with nine checks. Full chain grew from 63 → 73 checks.
+
+**Running cost during development: $0.** All dev + smoke work used mock mode (`NEXT_PUBLIC_MOCK_AI=1`) or the seed's canned extractions. Zero real OpenAI calls fired during Task 5's build.
+
+**Three planned pause points** (after sub-step 4, 7, 11) were used as intended.
+
+**Operational hiccups worth recording:**
+1. Sub-step 1 tried to push the migration during a disk-99%-full + intermittent-DNS-to-supabase.co window. Committed the SQL file, deferred the push. When the network + disk recovered, `pnpm db:migrate` applied cleanly.
+2. Sub-step 5: two inline `import()` type annotations in `app/(app)/orders/page.tsx` tripped the `@typescript-eslint/consistent-type-imports` rule. Extracted to a proper top-of-file `import type` block; would have been caught earlier with a stricter local eslint config.
+3. Sub-step 6: the initial `defs` array wasn't memoized, which surfaced as a `react-hooks/exhaustive-deps` warning on a downstream `useMemo`. Wrapped in its own `useMemo` — the fix landed inline.
+4. Sub-step 11: `scripts/smoke_extraction.ts` initially imported `mintInternalToken` from `lib/extraction/internal-token`. That module uses `"server-only"`, which only resolves inside Next.js. Inlined the HMAC minter into the smoke script directly.
+5. Sub-step 11: the "chip renders in SSR HTML" assertion failed because the chip is client-hydrated via `useExtractionsPolling`. Shifted to a proxy (file name in SSR body). Full chip DOM assertion is a deferred lift.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` green.
+- `pnpm smoke` → **73 checks / 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)
