@@ -165,6 +165,26 @@ Each executed action returns an `AppliedAction` record that's stored on the extr
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **31 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.** End-to-end confirm-with-apply is exercised by hand today; sub-step 11's extraction smoke covers the mocked-kickoff → review-chip flow.
 
+### Sub-step 8 — Settings → AI & extraction tab (complete)
+
+**New "AI & extraction" tab** on `/settings` at `?tab=ai`. Gated by `canEditOrganization` — owners + admins only. Two panels:
+1. **Settings card** — two toggles bound to the org columns from sub-step 1:
+   - `ai_auto_extract` (default true) — turning off means `registerAttachment` no longer inserts a `file_extractions` row or fires the kickoff.
+   - `ai_email_on_review` (default false) — UI-only per the brief; the toggle records the preference so a Task 6+ email-delivery task doesn't need a schema change.
+2. **This month card** — read-only "Spend on AI extractions" (`sum(cost_cents)` formatted USD) and "Pending reviews" count. Rendered in Geist 24px semibold to match the dashboard KPI typography without pulling in the actual KPI card component.
+
+**No Switch primitive in the codebase.** Reused shadcn `Checkbox` — the row layout still reads as a toggle without adding a new primitive just for this surface.
+
+**Server action** at `lib/actions/ai-settings.ts` gated on `canEditOrganization`. Optimistic UI: the checkbox flips immediately, rolls back if the server rejects.
+
+**AI tab data is loaded lazily** — only queried when `tab === "ai"`, so users who never open the tab pay no cost. The monthly aggregate query uses the start of the current UTC month as the lower bound; no DB view needed.
+
+**Smoke matrix** gains `/settings?tab=ai`. Route count 31 → 32.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders / 0 FAIL.**
+
 ---
 
 ## Task 4 — UI overhaul + real-data import (2026-06-15)

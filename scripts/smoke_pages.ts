@@ -252,6 +252,8 @@ const ROUTES: Route[] = [
   { path: "/reminders?filter=upcoming" },
   { path: "/reminders?filter=dismissed" },
   { path: "/reminders?filter=all" },
+  // Task 5 sub-step 8. Settings AI tab.
+  { path: "/settings?tab=ai" },
 ];
 
 type Result =

@@ -11,6 +11,7 @@ import {
   SettingsMembers,
   type MemberListRow,
 } from "@/components/app/settings-members";
+import { SettingsAiForm } from "@/components/app/settings-ai-form";
 
 type SearchParams = { tab?: string };
 type MemberRow = {
@@ -87,12 +88,56 @@ export default async function SettingsPage({
     }));
   }
 
-  const tab = searchParams.tab === "shop" || searchParams.tab === "members"
-    ? searchParams.tab
-    : "profile";
+  const tab =
+    searchParams.tab === "shop" ||
+    searchParams.tab === "members" ||
+    searchParams.tab === "ai"
+      ? searchParams.tab
+      : "profile";
 
   if (tab === "shop" && !canShop) redirect("/settings?tab=profile");
   if (tab === "members" && !canMembers) redirect("/settings?tab=profile");
+  if (tab === "ai" && !canShop) redirect("/settings?tab=profile");
+
+  // Task 5 — AI tab data. Load lazily so the profile tab isn't
+  // slowed down for users who never open AI settings.
+  type OrgAi = { ai_auto_extract: boolean; ai_email_on_review: boolean };
+  type ExtractionAgg = { cost_cents: number | null; status: string };
+  let aiInitial = { autoExtract: true, emailOnReview: false };
+  let aiStats = { monthlySpendCents: 0, pendingReview: 0 };
+  if (tab === "ai" && canShop) {
+    const supabase = createSupabaseServerClient();
+    const [orgRes, extRes] = await Promise.all([
+      supabase
+        .from("organizations")
+        .select("ai_auto_extract, ai_email_on_review")
+        .eq("id", org.id)
+        .maybeSingle<OrgAi>(),
+      // First of current month, UTC.
+      supabase
+        .from("file_extractions")
+        .select("cost_cents, status")
+        .eq("org_id", org.id)
+        .gte(
+          "created_at",
+          new Date(
+            Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+          ).toISOString(),
+        )
+        .returns<ExtractionAgg[]>(),
+    ]);
+    if (orgRes.data) {
+      aiInitial = {
+        autoExtract: orgRes.data.ai_auto_extract,
+        emailOnReview: orgRes.data.ai_email_on_review,
+      };
+    }
+    const rows = extRes.data ?? [];
+    aiStats = {
+      monthlySpendCents: rows.reduce((s, r) => s + (r.cost_cents ?? 0), 0),
+      pendingReview: rows.filter((r) => r.status === "review").length,
+    };
+  }
 
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ?? "http://localhost:3000";
@@ -108,6 +153,7 @@ export default async function SettingsPage({
           <TabsTrigger value="profile">Profile</TabsTrigger>
           {canShop ? <TabsTrigger value="shop">Shop</TabsTrigger> : null}
           {canMembers ? <TabsTrigger value="members">Members</TabsTrigger> : null}
+          {canShop ? <TabsTrigger value="ai">AI &amp; extraction</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="profile">
@@ -145,6 +191,12 @@ export default async function SettingsPage({
               currentUserId={userId}
               siteUrl={siteUrl}
             />
+          </TabsContent>
+        ) : null}
+
+        {canShop ? (
+          <TabsContent value="ai">
+            <SettingsAiForm initial={aiInitial} stats={aiStats} />
           </TabsContent>
         ) : null}
       </Tabs>
