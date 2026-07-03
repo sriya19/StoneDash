@@ -1,6 +1,7 @@
 import {
   ClipboardCheck,
   Factory,
+  Sparkles,
   Truck,
   Wallet,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
   type StageSummary,
 } from "@/components/app/pipeline-strip";
 import { ActivityFeed, type ActivityRow } from "@/components/app/activity-feed";
+import type { ExtractionStatus } from "@/lib/supabase/types";
 
 type OrderForKpis = {
   id: string;
@@ -47,6 +49,12 @@ type ActivityDbRow = {
 type ProfileLookup = { id: string; full_name: string | null };
 
 type ContractorBalanceRow = { balance_owed: string | null };
+
+type ExtractionKpiRow = {
+  id: string;
+  status: ExtractionStatus;
+  cost_cents: number | null;
+};
 
 function toNumber(value: string | null | undefined): number {
   if (value == null) return 0;
@@ -129,7 +137,12 @@ export default async function DashboardPage() {
   const sevenDaysBackUtc = subDays(new Date(), 7).toISOString();
   const fourteenDaysBackUtc = subDays(new Date(), 14).toISOString();
 
-  const [ordersRes, installsRes, activityRes, contractorBalRes] = await Promise.all([
+  // Current-month lower bound for the AI extractions KPI.
+  const monthStartUtc = new Date(
+    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+  ).toISOString();
+
+  const [ordersRes, installsRes, activityRes, contractorBalRes, extractionsRes] = await Promise.all([
     supabase
       .from("orders")
       .select("id, stage, quote_amount, balance_due, created_at")
@@ -153,6 +166,12 @@ export default async function DashboardPage() {
       .from("v_contractor_balances")
       .select("balance_owed")
       .returns<ContractorBalanceRow[]>(),
+    // Task 5 — extraction KPI: current month, org-scoped by RLS.
+    supabase
+      .from("file_extractions")
+      .select("id, status, cost_cents")
+      .gte("created_at", monthStartUtc)
+      .returns<ExtractionKpiRow[]>(),
   ]);
 
   const orders = ordersRes.data ?? [];
@@ -161,6 +180,13 @@ export default async function DashboardPage() {
   );
   const activity = activityRes.data ?? [];
   const contractorBalances = contractorBalRes.data ?? [];
+  const extractionsThisMonth = extractionsRes.data ?? [];
+  const extractionConfirmed = extractionsThisMonth.filter((e) => e.status === "confirmed").length;
+  const extractionPending = extractionsThisMonth.filter((e) => e.status === "review").length;
+  const extractionSpendCents = extractionsThisMonth.reduce(
+    (s, e) => s + (e.cost_cents ?? 0),
+    0,
+  );
 
   // KPI aggregates
   const inFabrication = orders.filter((o) => o.stage === "fabrication");
@@ -250,7 +276,7 @@ export default async function DashboardPage() {
         <p className="text-[15px] text-muted-foreground">{opsSummary}</p>
       </header>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard
           label="In fabrication"
           value={inFabrication.length.toString()}
@@ -296,6 +322,20 @@ export default async function DashboardPage() {
           sublabel={outstanding > 0 ? "Across unpaid orders" : "All collected"}
           icon={Wallet}
           href="/orders?stage=invoiced"
+        />
+        <KpiCard
+          label="AI extractions this month"
+          value={extractionConfirmed.toString()}
+          sublabel={
+            extractionsThisMonth.length === 0
+              ? "No documents processed yet"
+              : `${extractionPending} pending review · ${formatMoney(
+                  extractionSpendCents / 100,
+                  org.currency,
+                )}`
+          }
+          icon={Sparkles}
+          urgent={extractionPending > 0}
         />
       </div>
 

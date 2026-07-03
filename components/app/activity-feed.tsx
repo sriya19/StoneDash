@@ -1,5 +1,15 @@
 import { formatDistanceToNow } from "date-fns";
-import { DollarSign, FileText, HardHat, Layers, Package, User, Wrench } from "lucide-react";
+import {
+  Bell,
+  DollarSign,
+  FileText,
+  HardHat,
+  Layers,
+  Package,
+  Sparkles,
+  User,
+  Wrench,
+} from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
@@ -29,6 +39,10 @@ function iconFor(entityType: string) {
     case "contractor_payment":
     case "contractor_allocation":
       return DollarSign;
+    case "file_extraction":
+      return Sparkles;
+    case "reminder":
+      return Bell;
     default:
       return Package;
   }
@@ -146,6 +160,34 @@ function phraseFor(row: ActivityRow): string {
       return `${who} revoked a share link`;
     case "event_share_link:deleted":
       return `${who} removed a share link`;
+    case "file_extraction:created": {
+      // Trigger fires with actor_id = auth.uid() on insert. When an
+      // upload kicks off the extraction, the actor is the uploader —
+      // read "Sriya's upload started an AI extraction on <file>".
+      const fname = typeof m.file_name === "string" ? m.file_name : "a document";
+      return `${who}'s upload started an AI extraction on ${fname}`;
+    }
+    case "file_extraction:status_changed": {
+      const to = typeof m.to === "string" ? m.to : "";
+      const doc = typeof m.document_type === "string" ? m.document_type : "document";
+      if (to === "review") {
+        return `AI extracted a ${doc} · needs review`;
+      }
+      if (to === "confirmed") {
+        return `${who} confirmed a ${doc} extraction`;
+      }
+      if (to === "declined") {
+        return `${who} declined a ${doc} extraction`;
+      }
+      if (to === "failed") {
+        return `AI couldn't read a ${doc}`;
+      }
+      return `${who} moved a ${doc} extraction to ${to}`;
+    }
+    case "reminder:created": {
+      const title = typeof m.title === "string" ? m.title : "a reminder";
+      return `${who} scheduled reminder "${title}"`;
+    }
     default:
       return `${who} ${row.action.replace(/_/g, " ")} ${row.entityType}`;
   }
