@@ -1,129 +1,147 @@
-# PLAN — Task 5: AI document extraction
+# PLAN — Task 6: Three fixes from real shop use
 
 Status: **DRAFT — awaiting "go"**
 
-Turn StoneDash from a data tracker into a smart assistant. Every file uploaded to an order runs through a classification + extraction pipeline; the user sees a proposal, confirms or edits, and the confirmed extraction becomes real state (order fields filled in, expiry reminders scheduled). The AI never writes without a human in the loop.
-
-This task builds ahead of real-data validation of Task 4's CSV import. The Task 5 DEVLOG opening entry will carry: **"Built before real-data validation of Task 4 CSV import. Prioritize revalidating Task 4 flows once real data is imported."**
+Three fixes surfaced now that Top Marble's real data is flowing through StoneDash. Two are small friction removers (6A + 6B); one is a flagship "AI screenshot intake" agent (6C). Shipping order: 6A → 6B → 6C. The small fixes unblock daily use immediately while the big one builds.
 
 ## Scope acknowledgment
 
-I understand:
-- Every uploaded file gets a `file_extractions` row. Status flows `processing → review → confirmed | declined | failed`.
-- Six document types: `template`, `contract`, `invoice`, `license`, `insurance`, `other`. Each type has a defined field set + downstream effects.
-- The `Files` tab in the order-detail Sheet gets a status chip per card plus a "Review extraction" pill that opens a two-column review sheet.
-- A brand-new `reminders` surface: bell icon + badge in the top bar (with client polling), a `/reminders` full-page view, dismiss / complete actions. This is the first "notifications-adjacent" surface in the app.
-- Settings gets a new `AI & extraction` tab (org-scoped toggles + spend readout).
-- Dashboard gets a fifth KPI card (`AI extractions this month`) and the activity feed learns new `file_extraction:*` verbs.
-- OpenAI is used directly (no abstraction layer yet). `gpt-4o-mini` for classification (~15× cheaper), `gpt-4o` for extraction of supported types. Never send org / user identifiers to the model — only file contents and generic instructions.
-- `NEXT_PUBLIC_MOCK_AI=1` short-circuits the OpenAI call with canned responses. Smoke uses this; real dev use flips it off to test the real path.
-- New `pnpm smoke:extraction` stage: `/reminders` + `/settings?tab=ai` renders + DOM assertion that a review chip appears when the mocked kickoff completes.
+- **6A** — the New Order flow already has an inline-customer path in the validator (`InlineCustomer` in `lib/validators/orders.ts`), and the current dialog toggles a mini-form via `inlineCustomer` state. What's missing: (a) the combobox itself doesn't offer "+ Create '<typed>' as new" as a persistent option, (b) collision detection against `(lower(name), phone)`, (c) the same treatment on `<QuickAddOrderSheet>`, (d) atomicity — `createOrder` today does two separate INSERTs (customer, then order), so a mid-flight order failure leaves an orphan customer.
+- **6B** — event colors are today mapped from `event.kind` via three separate hardcoded lookup tables (`KIND_BG` in `event-block.tsx`, `KIND_CHIP` in `order-events-tab.tsx`, `EVENT_KIND_COLOR` in `crew-detail-sheet.tsx`, `kindBadge` in `app/j/[slug]/page.tsx`). All four need to consolidate into one `getEventColor(event)` helper. New column: `order_events.color text NULL`. New palette: 10 curated keys.
+- **6C** — the flagship. Screenshot-in → structured proposal → single-transaction apply. Reuses Task 5's shape (HMAC-signed internal route, mock-mode via `NEXT_PUBLIC_MOCK_AI`, fire-and-forget kickoff, `applied_actions` JSONB shape, three-step pipeline) with three material differences: (1) matching is a real local-DB step, not just LLM output; (2) the proposal is a deterministic dispatcher, not free-form; (3) confirm can write to *four* different tables in dependency order.
 
 ---
 
 ## Decisions & questions I'd like you to weigh in on (before I start)
 
-### Q1. Fire-and-forget vs. queue for kickOffExtraction
+### Q1. `createOrder` transactionality with inline customer
 
-The brief calls out two options for background execution:
-- **(A) fire-and-forget internal fetch** — `kickOffExtraction()` calls `POST /api/extract/[fileId]` via `fetch` with `keepalive`, doesn't await. Works in dev + Vercel Node runtime without extra infra.
-- **(B) Vercel Cron / Supabase Edge Function** — cleaner semantics, but adds infra + differs between dev and prod.
+Today: `createOrder` INSERTs the customer, then INSERTs the order, then optionally creates events via RPCs. Each INSERT is its own txn. If the order INSERT fails after the customer INSERT succeeds, we have an orphan customer.
 
-**Recommendation: (A) for v1.** Same tradeoff already accepted for other async patterns in the codebase (the send-to-crew "SMS" is a copy-paste modal, not a real dispatch job). The DEVLOG entry for sub-step 3 will note the fire-and-forget caveat: if the Node runtime is torn down between the response returning and the fetch completing, the extraction can silently drop. In practice on Vercel that window is `~50ms` and `keepalive` covers it; on long-running Node dev servers it's a non-issue. Follow-up task if it ever matters: a `stuck_processing` reaper that finds `status='processing'` rows older than 5 minutes and re-kicks.
+Two paths to fix:
 
-The `/api/extract/[fileId]` route uses a **signed internal token** in the `Authorization` header (HMAC of `fileId + timestamp` with a server-only secret) so the route accepts the fire-and-forget call without a user session. That token is verified alongside the "user is a member of the org that owns the file" check on the *originating* server action — so authorization ends up as: (server action verifies user + org) → (server action mints HMAC + fires fetch) → (route verifies HMAC + reloads org context from `file_id`). Prevents cross-org kicking via URL guessing.
+- **(A)** Wrap the whole thing in a `SECURITY DEFINER` RPC (`create_order_with_customer`) that runs both INSERTs in one Postgres txn. Clean atomicity, but adds another RPC to maintain and duplicates validation logic already in Zod.
+- **(B)** Compensating delete: catch the error path and DELETE the just-created customer. Simpler code, but if the DELETE fails (RLS regression, connection blip) we're back to an orphan — worse: a silent one, because we've already returned the error to the caller.
+- **(C)** Best-effort: keep the two-INSERT shape, use a savepoint-style pattern via a bulk RPC that both writes accept.
 
-### Q2. Where extraction runs during dev without OPENAI_API_KEY
+**Recommendation: (A).** The RPC pattern is what we already do for `record_contractor_payment` (`0012_contractor_payment_rpc.sql`) — atomicity + RBAC in one place. Cost: one new RPC (~30 lines of PL/pgSQL). Benefit: no orphan customers ever, ever. The RPC also becomes the single place where `(lower(name), phone)` collision detection runs — catches the race where two managers create the same customer inline within a second of each other. **Locked pending your go.**
 
-`OPENAI_API_KEY` is required for real extractions. Dev workflow without it:
-- **Missing key** — dev-server prints one-time `console.warn` on the first `kickOffExtraction()` call. The extraction row is written with `status='failed'`, `error_message='OpenAI key missing'`. UI still renders the failed-chip state so you can develop UI without the key.
-- **Mock mode (`NEXT_PUBLIC_MOCK_AI=1`)** — the route handler returns canned per-document-type extractions immediately. Cost logged as `0` cents. The mocked payloads live in `lib/extraction/mock.ts` alongside the real prompts so the two stay shape-compatible.
+The `createOrder` server action becomes: single `supabase.rpc('create_order_with_customer', { p_customer, p_order })` call. The event-scheduling follow-ups (`create_order_event` for measurement / install dates) stay outside the RPC — they're already atomic per-event and a failure there should NOT roll back the order (Task 4 pattern: warn but keep the order). Sub-step 1 DEVLOG entry notes this asymmetry.
 
-Note: the env var is named `NEXT_PUBLIC_MOCK_AI` per the brief, but the flag is only read on the server (route handler). Naming it `NEXT_PUBLIC_*` is unusual for a server-only signal — recommendation is to keep the brief's name (it's easier to remember which env you're in when the flag shows up in the client bundle even if unused). DEVLOG entry for sub-step 3 will note this.
+### Q2. Collision detection: what counts as "same customer"?
 
-### Q3. PDF-to-image conversion library
+The brief specifies `(lower(name), phone)`. That's the right primary key for a de-dupe. Edge cases:
 
-Three candidates:
-- **`pdfjs-dist`** — Mozilla's canonical PDF parser. Heavy (~1.5 MB), but works in Node; render-to-canvas requires `node-canvas` which is native-code + can't ship to Vercel serverless functions without extra work.
-- **`pdf-lib`** — pure JS, small, but only creates/manipulates PDFs; doesn't render to raster images.
-- **Send PDFs directly** — GPT-4o accepts PDFs via the `input_file` content-part type in the newer Chat Completions API. No conversion needed.
+- **Different phone formats** — `(555) 123-4567` vs. `5551234567`. Normalize both sides to digits-only before comparing.
+- **Same phone, slight name typo** — `Sarah Johnson` vs. `Sara Jonson`. We do NOT catch this as a collision (name isn't exact). Acceptable — the trigram-based fuzzy match in 6C's Step B will still surface these as suggestions when the user re-visits.
+- **Same name, different phone (father/son)** — NOT a collision. Different real people.
+- **NULL phone on either side** — the brief says phone is required on the inline form (already the case in the `InlineCustomer` validator: `phone: z.string().trim().min(4)`). So both sides always have a phone in the collision check.
 
-**Recommendation: send PDFs directly.** Skip conversion entirely for v1. GPT-4o handles PDF input natively via the file-input content part. If the model can't read a scanned PDF it returns low confidence and we surface a `failed` state — the OCR-fallback that the brief already declared out-of-scope. The 5-page cap becomes "first 5 pages of any input" enforced by uploading the file trimmed if we need to (but we don't need to for the v1 sizes we'll see: shop CSVs are typically 1-3 page PDFs).
+**Locked:** normalize phones to `[^0-9]` stripped, lowercase name via SQL `lower(name)`, exact match on both. The RPC returns `409 Conflict` (via a Postgres exception with a sentinel error code) that the client renders as `"This looks like [existing customer] — use them instead?"` with a one-click switch to the matched `existingCustomerId`.
 
-If Model API rejects the direct-PDF pattern for some file, fallback: mark `status='failed'` with `error_message` noting the format. Real-world PDFs from shop owners will overwhelmingly be one of: (a) scanned image inside a PDF wrapper (GPT-4o handles), (b) directly-generated invoice/contract PDFs (GPT-4o handles better than scans). Both work.
+### Q3. 6B: palette storage — text keys vs. hex
 
-### Q4. Where org-scoped extraction settings live
+Two options:
 
-Two options for the toggles (`auto-extract on/off`, `email-on-review on/off`):
-- **(A) new columns on `organizations`** — clean, RLS is free, but scatters small settings across the table.
-- **(B) new `org_settings` key-value table** — one row per (org, key). Extensible for the next batch of toggles (Task 6+ SMS opt-in, etc.).
+- **(A) Store palette keys** (`terracotta`, `green`, `blue`, ...) as text in `order_events.color`, look up hex via a client-side map. Migration-safe: if we later swap a palette color from `#16A34A` to `#22C55E`, all existing rows shift with it.
+- **(B) Store hex directly** (`#C2410C`). Portable, no lookup needed, but a palette change means either a migration or accepting drift.
 
-**Recommendation: (A) two columns on `organizations`** (`ai_auto_extract boolean`, `ai_email_on_review boolean`). The whole surface has 2 toggles; a KV table is over-engineering. If we hit 10 toggles later, migrate to `org_settings` then. Simplest thing that works.
+**Recommendation: (A).** Palette drift is a design decision, not a data one. Also constrains the CHECK constraint to a fixed set of ~10 values — the DB rejects anything else, so a rogue client can't inject arbitrary hex. Locked.
 
-### Q5. Reminders as a separate table vs. reuse activity_log
+CHECK constraint: `color IS NULL OR color IN ('terracotta','green','blue','purple','amber','rose','teal','indigo','slate','brown')`.
 
-The brief specs a `reminders` table. But `activity_log` already has the `entity_type`/`entity_id`/`metadata` polymorphic shape.
+### Q4. 6B: what happens to existing events on migration
 
-**Recommendation: separate table.** Reminders have a fundamentally different lifecycle (future-dated, dismissed_at, completed_at, user-targeted) that `activity_log` doesn't model. Also: RLS on `activity_log` is org-wide READ; reminders need user-scoped read (only show *me* the reminders assigned to me). Trying to overload activity_log would either weaken its policies or duplicate the metadata.
+Every existing `order_events` row today has an implicit color derived from its kind via `KIND_BG`. After the migration, `color IS NULL` and the same lookup happens client-side via `getEventColor`. No data change needed — the new default logic reproduces the old rendered output for every existing event. Migration is additive-only, zero risk. **Locked.**
 
-Reminders live in a new `reminders` table with the exact shape the brief specifies, plus one addition: a `link_url text` column so `create_reminder` can encode the "click me to jump to the source file" link at write time (rather than reconstructing it at render time from `source_type` + `source_id`).
+### Q5. 6B: replace vs. augment `KIND_BG`
 
-### Q6. Bell-icon polling interval + backoff
+Four files currently hold hardcoded kind→color maps. Post-6B, all four should call `getEventColor(event)`. But `getEventColor` needs to know the visual context — full background for `EventBlock`, small chip for `KIND_CHIP`, marker dot for `crew-detail-sheet`, badge on `/j/[slug]`.
 
-`/reminders` count needs to feel fresh but not hammer the server. Options:
-- **(A) SWR-style 30s poll** — always live, small load.
-- **(B) On-focus + on-visibility change only** — no timer at all, refreshes when the tab regains focus.
-- **(C) Both: focus + 60s timer as backstop.**
+**Recommendation:** `getEventColor(event)` returns a palette KEY (`"green"`, `"purple"`, etc.). A companion `EVENT_COLOR_CLASSES[key]` has per-variant class maps: `{ bg, chip, dot, badge }`. Each caller pulls the variant it needs. Central palette + per-variant Tailwind = one place to change colors, one place to add variants.
 
-**Recommendation: (C).** The visible timer is 60s (not 30s) because reminders are minute-scale, not second-scale — an owner won't miss anything from a 60s delay, and the bandwidth savings compound across users. Focus-listener catches the "come back from another tab" case immediately. Cancelled when tab is hidden (`document.hidden`). Same interval as the file-card polling (sub-step 5).
+### Q6. 6B: color picker UX inside the event dialog
 
-### Q7. Extraction status chip while polling — is the row visible immediately?
+- **10 circles in a row.** Compact — fits below the Kind selector without pushing the fold.
+- **Ring around the current selection.** When `color IS NULL`, ring on the kind's default with a subtle `(default)` label.
+- **Dirty flag.** Once the user clicks any circle, the ring is "explicit" and does NOT follow when they later change the Kind. If they want to go back to kind-default they click a small "reset" affordance next to the picker. Tracked via a `colorDirty` boolean in local form state.
 
-The upload flow today: file lands in Supabase Storage → `registerAttachment()` inserts the `order_attachments` row → server action returns → UI does `router.refresh()` and the file card appears with its metadata.
+Locked.
 
-For extraction: we want the chip to render *at the same time* the file card renders (no second beat where the chip appears half a second later). Which means the `file_extractions` row needs to be `INSERT`-ed synchronously in `registerAttachment()` (with `status='processing'`), and only then fire-and-forget the extraction.
+### Q7. 6C: HMAC + fire-and-forget vs. synchronous
 
-**Locked:** `registerAttachment()` inserts the file row + a matching `file_extractions` row with `status='processing'` in a single transaction. Then it calls `kickOffExtraction()` which is fire-and-forget. UI polls until `status !== 'processing'`.
+Task 5 pattern is HMAC-signed internal token + fire-and-forget POST + client polling for status. Should intake use the same shape or run synchronously?
 
-### Q8. Confidence tier — does the model self-assess reliably?
+**Recommendation: same shape.** The intake pipeline is *slower* than Task 5's extraction (Step A alone is a 2-4s vision call; Step B is 100ms; Step C is 1ms). Making the user wait synchronously on the upload response would tie up the browser for 3+ seconds per screenshot. Fire-and-forget + polling matches the ergonomic pattern already in place, and reuses `mintInternalToken` / the internal-token verifier. The intake row lands with `status='processing'` synchronously (same Q7 lock as Task 5); the `/api/intake/[intakeId]` route runs the pipeline; the `/intake` page polls via `/api/intake/status` for state transitions.
 
-The brief specs a `confidence` field (`high` | `medium` | `low`) as model-self-assessed. LLM self-confidence is notoriously wobbly: models will happily say "high confidence" on hallucinated fields.
+### Q8. 6C: what runs during the internal route
 
-**Recommendation: keep the field but treat it as advisory.** Prompt the model for a confidence tier in the extraction JSON schema, store what comes back. Do NOT use it to gate downstream actions. UI shows it as a small muted badge next to the document-type badge. If we find `confidence: high` extractions being wrong at rates that make the badge misleading, we swap it for a per-field "model was certain / model was guessing" heuristic derived from `response_format` output shape. Defer for v1.
+The brief lays out three steps. Only Step A is expensive (vision LLM). Steps B and C are local logic — pg_trgm queries and pure JS.
 
-### Q9. Two-model call (mini + full) vs. one call
+**Locked ordering inside the route:**
+1. Load intake row + download screenshot from Storage.
+2. **Step A** — vision LLM (or mock).
+3. **Step B** — pg_trgm queries against the org's customers/orders/contractors.
+4. **Step C** — deterministic proposal dispatcher (pure function).
+5. Write all three JSON payloads (`extraction`, `matches`, `proposal`) to the row, flip to `status='review'`.
 
-Brief spec: `gpt-4o-mini` classifies, then `gpt-4o` extracts if the class is supported. Cost math for a typical measurement sheet at (1000 input tokens + 200 output tokens):
-- Mini classification: `1000 * $0.00015 / 1000 + 200 * $0.0006 / 1000 = $0.00015 + $0.00012 = $0.00027` → ~0 cents.
-- 4o extraction: `1000 * $0.005 / 1000 + 200 * $0.015 / 1000 = $0.005 + $0.003 = $0.008` → 1 cent.
-- Total: ~1 cent per document. Adds up to $0.10 for 10 documents/day, $3/month for a small shop.
+Step B and C are always run — even in mock mode — because they're the interesting local logic that we want to test *without* burning credits. Step A short-circuits when `NEXT_PUBLIC_MOCK_AI=1` OR `?mode=mock` OR one of three fixture keys (`?fixture=whatsapp_new_job` / `?fixture=scheduling_matches` / `?fixture=unclear`) is set. Sub-step 5 wires this.
 
-Alternative: single `gpt-4o` call that returns `{classification, fields}`. Cost same for supported types; slightly more expensive for `other` (still paying full-4o for a "this is not a supported type" answer).
+### Q9. 6C: date resolution against org timezone
 
-**Recommendation: keep the two-call flow.** The 15× cost savings on unsupported types matters when a shop owner uploads 50 random photos of a slab. The extra ~200ms round-trip on supported types is fine (the UX is async anyway). Log both cost lines separately in `cost_cents` (sum, but note the breakdown in `raw_response` so we can attribute).
+The brief calls out relative-date resolution: "Monday" resolves against today's date in the org timezone. Two choices for where this happens:
 
-### Q10. What "confirm and apply" does when the order already has values
+- **(A) Inside Step A's prompt.** Give the LLM today's ISO date in the system prompt and let it resolve the date. Nice — LLM already handles the natural-language.
+- **(B) After Step A.** LLM returns both a raw string ("Monday") AND the resolved date. Server-side post-processing sanity-checks the resolution and re-parses if it looks wrong.
 
-For `template` / `contract` extractions, we might extract `stone_type = "Calacatta Gold"` when the order already has `stone_type = "Quartz Gray"`. Three options:
-- **(A) Always overwrite** — simpler code, but risky. User might have manually corrected the field and re-extracting the file overwrites their edit.
-- **(B) Never overwrite** — safer, but frustrating when the extraction is right.
-- **(C) Per-field toggle in the review sheet** — the user chooses which fields to apply per confirm. Fields that are non-null on the order default to *unchecked*; empty fields default to *checked*.
+**Recommendation: hybrid.** Prompt tells the LLM "today is 2026-07-07, org timezone is America/New_York; resolve any relative dates against this and return both raw + resolved". Return schema requires both keys. The server accepts the LLM's resolution when it parses as `yyyy-MM-dd` AND is within 60 days of today AND is not in the past by more than 3 days (allowing for "yesterday" etc). If validation fails, drop the resolved value and keep only the raw string — the review sheet then lets the user pick a date manually.
 
-**Recommendation: (C).** Matches "the AI never writes without user confirmation" — the user sees "will overwrite: stone_type = Calacatta Gold (was: Quartz Gray)" and can uncheck it. The proposed-actions checkboxes the brief already spec'd cover this exact case.
+### Q10. 6C: pg_trgm indexes
 
-### Q11. Field role permissions for extractions
+We're going to fuzzy-match customer names, order project names, and contractor names. Without indexes, `similarity(name, 'sarah johnson') > 0.4` scans the whole customer table per intake.
 
-Brief locks it in: `field` role can SELECT extractions but NOT `confirm/decline/re-extract` (manager+). RLS mirrors this — a `field_no_write` policy or an `org_role() >= manager` gate on the server action.
+**Locked:** add GIN trigram indexes in sub-step 2's migration (alongside enabling the extension):
+- `CREATE INDEX customers_name_trgm_idx ON customers USING gin (lower(name) gin_trgm_ops);`
+- `CREATE INDEX orders_project_trgm_idx ON orders USING gin (lower(project_name) gin_trgm_ops) WHERE project_name IS NOT NULL;`
+- `CREATE INDEX contractors_name_trgm_idx ON contractors USING gin (lower(name) gin_trgm_ops);`
 
-**Locked:** all mutation server actions (`confirmExtraction`, `declineExtraction`, `reExtractFile`) explicit-check `hasAtLeast(role, 'manager')` and return `{ ok: false, error }` if not. RLS also blocks the UPDATE at the policy level as belt-and-suspenders. The chip renders for field users but the "Review extraction" pill is muted+disabled with a small "manager+ can review" tooltip.
+Bundling the extension enable in 6B's migration per the brief. Also bundle the new `repair` kind + amber default color for it.
 
-### Q12. Sub-step boundaries and natural pause points
+### Q11. 6C: dependency order on confirm
 
-12 sub-steps, three natural pause points:
+The proposal can trigger up to four writes: (create customer) → (create order) → (create event) → (append note to order). Confirm runs them in a single server action. If any fails, the whole transaction rolls back — no partial state.
 
-- **After sub-step 4** (backend + server actions complete, no UI yet). The extraction pipeline is round-trippable via the smoke script but the app's Files tab still looks like today. Worth a pause to confirm the backend behaves before the UI depends on it.
-- **After sub-step 7** (backend + Files-tab UI + downstream actions all wired). This is the first moment where a user can upload a file, watch it flip to `review`, click through, and see downstream state change. Full feature-loop, minus dashboard + settings + reminders polish. Worth a customer demo.
-- **After sub-step 11** (smoke additions land). Full feature-complete + tested. Sub-step 12 is docs only.
+**Locked:** implement as ONE SECURITY DEFINER RPC `apply_intake` that:
+1. Validates each proposed action against a whitelist (belt-and-suspenders — the client can't smuggle a novel action key).
+2. Runs in dependency order inside one Postgres txn.
+3. Copies the screenshot from `intake/` folder to the target order's attachment folder (as a bucket-level copy, not download+re-upload).
+4. Writes ONE `activity_log` row with `metadata.via = 'ai_intake'` AND `metadata.summary` — a rendered human-readable sentence naming every entity created. The `activity_feed` `phraseFor` branch for `activity_log.action='ai_intake:applied'` reads that string directly rather than reconstructing it from the metadata bag. Format lock (from user refinement): `"AI intake created customer Sarah Johnson + order TM-1055 (Kitchen remodel) + event Meas Mon Jun 8 — from WhatsApp screenshot."`
+5. Updates the intake row: `status='confirmed'`, `applied_actions=<list>`, `reviewed_by`, `reviewed_at`.
+
+Same RBAC gate as everywhere else — manager+ only.
+
+### Q12. 6C: screenshot storage separation
+
+Brief says: on confirm, COPY (not move) to the order's folder; the intake keeps its own copy for audit. Two files: one in `{org}/intake/{intake_id}-{filename}`, one at the standard attachment path `{org}/{order_id}/{uuid}-{filename}`. Both are 1× storage cost; deletion of the intake row leaves the attachment; deletion of the attachment leaves the intake. Explicit — no cross-referencing FK.
+
+### Q13. 6C: real-API smoke — three synthetic fixtures (user refinement)
+
+Brief: "REAL API test: after mock-mode tests pass, run [three] real GPT-4o call[s] against [three] real screenshot fixture[s]" — expanded per user refinement to cover the three primary request_type paths:
+- **(a) `whatsapp-new-job.png`** — a customer requesting a new kitchen job. Assert: `extraction.request_type='new_job'`, `matches.matched_customer=null`, proposal has `create_customer` + `create_order` actions.
+- **(b) `email-scheduling-matches-seed.png`** — a scheduling request that matches a seeded order by customer name + project. Assert: `request_type='scheduling'`, `matched_order.id` = the seeded id, proposal has a `create_event` action with the resolved date.
+- **(c) `sms-ambiguous.png`** — a vague message that shouldn't drive any writes ("Hey, quick question about my counters"). Assert: `request_type='question'` or `'unclear'`, proposal is empty or `no_op`.
+
+All three fixtures generated once via `scripts/build_intake_fixture.ts` (Playwright rendering canned HTML → PNG), committed to `test/fixtures/`. The real-API smoke stage runs all three real GPT-4o calls, asserts the per-fixture shapes, and logs cumulative `cost_cents` in DEVLOG. Budget: ~15¢ total. If `OPENAI_API_KEY` is missing, the stage skips gracefully.
+
+**Explicit caveat retained:** synthetic HTML-rendered PNGs are NOT phone screenshots of real WhatsApp threads. This smoke verifies the pipeline's happy paths, not real-world accuracy. Real accuracy = shop usage.
+
+### Q14. Pause points
+
+12 sub-steps, three planned pauses:
+
+- **After sub-step 3** (6A + 6B complete). All the small-fix daily-use blockers cleared. Real shop can use it. Worth a beat before starting 6C.
+- **After sub-step 7** (6C matching + proposal logic land). The interesting local intelligence is proven end-to-end via unit-style test cases; only UI and apply remain. Worth a check-in on the matching test cases before wrapping the sheet UX around them.
+- **After sub-step 10** (feature-complete except docs). Ready for real screenshots.
 
 You can override with "go straight through" or "stop now" at any point.
 
@@ -131,54 +149,69 @@ You can override with "go straight through" or "stop now" at any point.
 
 ## Sub-step ordering
 
-1. **Migration `0018_extractions.sql`** — `file_extractions` + `reminders` tables + CHECK constraints + RLS policies + indexes + `set_updated_at` triggers + audit triggers writing to `activity_log`. `organizations` gets two boolean columns (`ai_auto_extract`, `ai_email_on_review`) with `DEFAULT true` / `DEFAULT false`. `prisma db pull` + `pnpm db:generate` to update the generated types.
+1. **6A — Inline customer creation.** Migration: new SECURITY DEFINER RPC `create_customer_and_order(p_customer jsonb, p_order jsonb)` with `(lower(name), digits_only(phone))` collision detection returning a distinctive error code (`CUSTOMER_COLLIDES`) with the matched id in the message. Server: `createOrder` refactored to call the RPC when `newCustomer` is present; existing-customer path unchanged. UI: `<NewOrderDialog>` combobox gets a persistent "+ Create '<typed>' as new customer" item when the search text has no exact match; clicking it toggles the inline mini-form with `name` pre-filled. Same treatment applied to `<QuickAddOrderSheet>`. Collision UX: on `CUSTOMER_COLLIDES`, render an inline banner "This looks like [matched customer] — use them instead?" with a "Use existing" button that flips `existingCustomerId` and drops `newCustomer`. Activity log picks up `metadata.new_customer` on order creation.
 
-2. **Reminders foundation UI** — server queries in `lib/queries/reminders.ts`, server actions `dismissReminder` / `completeReminder`, `<ReminderBell>` client component wired into the topbar (60s + focus poll, badge count), `/reminders` full-page view with tabs (Active / All / Dismissed). No reminder-creation code yet — those come from extractions in sub-step 7.
+2. **6B migration** at `0019_events_color_and_intake_extension.sql` — one bundled migration:
+   - Enable `pg_trgm` extension (needed for 6C).
+   - `ALTER TABLE order_events ADD COLUMN color text NULL`.
+   - CHECK constraint on the palette keys.
+   - Extend the `kind` CHECK to include `'repair'`.
+   - Update `create_order_event` + `update_order_event` RPCs to accept `p_color text DEFAULT NULL` and validate the palette; also update the kind check inside the RPCs.
+   - Three GIN trigram indexes (customers name, orders project_name, contractors name).
+   - Prisma pull + generate.
 
-3. **Extraction pipeline backend** — `app/api/extract/[fileId]/route.ts`, `lib/extraction/openai.ts` (thin OpenAI wrapper), `lib/extraction/prompts.ts` (per-doc-type system prompts + JSON schemas), `lib/extraction/mock.ts` (canned responses), `lib/extraction/cost.ts` (token → cents math). HMAC-signed internal call: `lib/extraction/internal-token.ts`. Warns on `console` at server startup if `OPENAI_API_KEY` is missing (like the Maps key note in the existing README). `NEXT_PUBLIC_MOCK_AI=1` short-circuits.
+3. **6B UI.** New shared module `lib/events/color.ts` exports `getEventColor(event) → PaletteKey`, `EVENT_COLOR_CLASSES: Record<PaletteKey, { bg, chip, dot, badge, ring }>`, `KIND_DEFAULT_COLOR: Record<EventKind, PaletteKey>`. Rewrite `event-block.tsx`, `order-events-tab.tsx`, `crew-detail-sheet.tsx`, `app/j/[slug]/page.tsx` to consume `getEventColor` + the class map — no more scattered lookups. `<EventDialog>` gets a `<ColorPickerRow>` component below the Kind selector: 10 circles, ringed on active, "(default)" label when `color IS NULL`. `colorDirty` state prevents the picker from following kind changes once the user has explicitly picked. `add 'repair' to the KIND_LABEL / KIND_STRIP_LABELS maps and its default (amber) in `KIND_DEFAULT_COLOR`. Client-side event validator (`lib/validators/events.ts`) accepts the new `color` field. Server actions pass it through to the RPCs.
 
-4. **Server actions** — `lib/actions/extractions.ts`: `kickOffExtraction(fileId)` (fire-and-forget POST to the internal route with signed token), `confirmExtraction(extractionId, editedFields, actionOpts)`, `declineExtraction(extractionId, reason)`, `reExtractFile(fileId)`. RBAC gates on all three mutations. `registerAttachment()` extended to insert a matching `file_extractions` row + call `kickOffExtraction()` in the same request. All mutations write `activity_log` via the audit trigger from sub-step 1.
+4. **6C migration** at `0020_ai_intake.sql` — `ai_intake_events` table per the brief (org_id, uploaded_by, storage_path, status CHECK, extraction jsonb, matches jsonb, proposal jsonb, applied_actions jsonb, error_message, cost_cents, reviewed_by, reviewed_at, timestamps). Two indexes: `(org_id, status)` and `(org_id, created_at desc)`. RLS: `SELECT` is `is_org_member`; `UPDATE` (confirm / discard) is `manager+`; `INSERT` is `manager+` (only manager+ can trigger intakes). Audit triggers write `activity_log` on CREATE + status_changed. Bucket convention documented (`{org}/intake/`). Also: SECURITY DEFINER `apply_intake` RPC scaffolded (empty body — real implementation lands in sub-step 10).
 
-5. **File-card status chip + polling** — new `<ExtractionChip>` component. Sits below the filename on each file card in the order-detail Files tab. Renders one of five states per the brief. `useExtractionsPolling(fileIds)` client hook that polls only files whose current status is `'processing'` and stops when they move. 2s interval per the brief. Chip on `'review'` is clickable and opens the review sheet (built in sub-step 6).
+5. **6C pipeline (Step A).** `lib/intake/prompts.ts` — the vision system prompt with the six fields the brief lists, the request_type enum, urgency enum, and the today-date-injection pattern from Q9. `lib/intake/types.ts` — the `IntakeExtraction` shape + zod validator. `lib/intake/pipeline.ts` — orchestrator that calls Task 5's `callChatCompletions` with the intake schema. `lib/intake/mock.ts` — three fixtures: `whatsapp_new_job`, `scheduling_matches`, `unclear`. `app/api/intake/[intakeId]/route.ts` — HMAC-verified, service-role storage download, mock-mode short-circuit, cost logging via Task 5's `costCents`. Fire-and-forget kick-off via `kickOffIntake(intakeId)` (mirrors Task 5's `kickOffExtraction`). `insertIntakeRow` in an intake actions module.
 
-6. **`<ExtractionReviewSheet>`** — right-side Sheet, 60/40 split. Left: source preview (`<img>` for images, `<embed>` for PDF, zoom buttons). Right: header + `document_type` + `confidence` badge, form fields specific to the type (rendered by a small dispatcher on `document_type`), proposed-actions section with checkboxes (initially derived from a "what would this do" preview endpoint that runs the same code path as the confirm action but doesn't commit — pure calculation), footer buttons `[Decline] [Re-extract] [Confirm and apply]`. Uses a controlled form (no react-hook-form for this one — the field set is dynamic and rhf resolver would add complexity).
+6. **6C matching (Step B).** `lib/intake/match.ts` — pure functions consuming an `IntakeExtraction` + a Supabase client, returning `{ matched_customer, matched_order, matched_contractor }` each with `{ id, confidence, method }`. Uses:
+   - `similarity(lower(name), lower(:name))` from `pg_trgm` for name matching.
+   - Digits-only phone exact match on customers.
+   - Email exact match on customers.
+   - `similarity(lower(project_name), lower(:project))` for order matching.
+   - Confidence tiers: >0.85 high, 0.5–0.85 medium, <0.5 none.
+   - Best-of-methods score aggregation.
+   `scripts/test_ai_intake_match.ts` — 6+ unit-style cases per the brief: exact phone, fuzzy name (Sara Jonson → Sarah Johnson), no match, ambiguous multi-match (two Sarahs), contractor match, address-only match. Wired into `smoke:extraction`? No — it's a match-only test, cheap, always green. New `smoke:intake` chain lands in sub-step 12.
 
-7. **Downstream action application** — implements the "confirm and apply" logic. `lib/extraction/apply.ts` with `applyExtraction({extraction, edits, selectedActions, auth, supabase}): Promise<AppliedAction[]>`. Types: `update_order_field`, `create_reminder`. Per Q10, per-field toggle: fields already populated on the order default to unchecked. Reminder creation for `license` / `insurance` (30d + 7d) and `invoice` (due_date). Writes `applied_actions` JSONB list on the extraction row for audit. Each action also fires a targeted `activity_log` entry.
+7. **6C proposal (Step C).** `lib/intake/propose.ts` — pure dispatcher: `propose(extraction, matches, orgTz): ProposedIntake`. Implements the seven request_type × match cases from the brief. Output shape is a list of `ProposedAction`s: `create_customer`, `create_order`, `create_event`, `append_note`, `no_op`. Each carries its own payload + a stable `key` (like Task 5). Also emits `alternates: ProposedAction[][]` — the brief hints at alternates but doesn't require them; v1 renders only the primary. Unit tests via `scripts/test_ai_intake_propose.ts` cover the seven mappings + edge cases (repair with no phone, scheduling with a resolved date in the past, etc.).
 
-8. **Settings → AI & extraction tab** — new `TabsTrigger`/`TabsContent` on `/settings`. Two toggles bound to the `organizations` columns (server action `updateAiSettings`), read-only monthly spend (SUM(cost_cents) WHERE `date_trunc('month', created_at) = current_month`), read-only per-user pending reviews count. Email toggle carries a small "email delivery lands in a follow-up task" note per the brief.
+8. **6C UI: `/intake` page.** `app/(app)/intake/page.tsx` — Dropzone at top (drag-drop or click, PNG/JPG/HEIC, 10MB cap per file, up to 10 files at once). Below: list of intake events, newest first. Each row shows status chip (mirrors Task 5's chip semantics — processing pulse dots, review pill, confirmed check, discarded muted, failed AlertCircle), timestamp, thumbnail (signed URL from bucket), and a truncated summary from `extraction.requested_action` when present. Click a `review` row → routes to `?intake={id}` which opens the sheet from sub-step 9. `<AiIntakeButton>` in the topbar (new component, positioned next to the existing `ReminderBell` — Sparkles icon + label). Both routes gated on manager+ via server-side redirect.
 
-9. **Dashboard KPI + activity feed** — new KPI card `AI extractions this month` (X confirmed · Y pending review, cost readout below). Activity feed learns new phrases: `file_extraction:created` → "AI extracted a {type} from {file_name} · needs review", `file_extraction:confirmed` → "{who} confirmed a {type} extraction — applied {N} actions", `file_extraction:declined` → "{who} declined a {type} extraction". Clicking a `needs review` row routes to `/orders?order={oid}&tab=files&extraction={id}`.
+9. **6C UI: `<IntakeReviewSheet>`.** Two-column pattern mirroring `<ExtractionReviewSheet>` but wider (`sm:max-w-5xl`). LEFT: screenshot preview, click to zoom (opens in a full-screen overlay). RIGHT, stacked:
+   - **"What I understood"** — a plain-English summary generated from the `extraction` JSON via a small `describeIntake(extraction)` function in `lib/intake/describe.ts`.
+   - **"Matched to"** — the matched entity card when present (customer name + phone, or order number + project). Confidence label. Small "Not them? Search…" combobox that lets the user override (writes to a local `manualOverrides` map that the confirm passes through).
+   - **"Proposed actions"** — one editable card per action. `create_event` cards have inline pickers for date, time (defaults 9:00 org-local per brief), location, and order-link combobox. `append_note` shows the target order + a text preview. `create_customer` shows the extracted fields as editable inputs. Each card has a `defaultChecked` boolean + a header checkbox to skip.
+   - Footer: `[Discard] [Confirm and apply]`.
 
-10. **Seed data** — `supabase/seed.ts` extended to write 3-4 canned `file_extractions` rows onto existing seeded orders + attachments. One `review` template, one `confirmed` license (with associated `reminder` rows for 30d + 7d), one `failed`. `raw_response` on seeded rows is a minimal `{ seeded: true }` marker so it's obvious those didn't come from the real pipeline. Seed does NOT call OpenAI — DEVLOG notes.
+10. **6C apply.** `confirmIntake(intakeId, edits, selectedActionKeys)` server action calls the SECURITY DEFINER `apply_intake` RPC scaffolded in sub-step 4. RPC body implements the dependency-ordered writes (customer → order → event → notes → activity_log), the bucket-level screenshot COPY (via `admin.storage.from('order-files').copy(fromPath, toPath)` — Supabase supports server-side copy), and the intake status transition. `discardIntake(intakeId)` sets `status='discarded'` + records reason. `applied_actions` on the intake row records every write with entity IDs so the /intake list can render "Created customer + order for Sarah Johnson · TM-1042" back-links.
 
-11. **Smoke additions** — `pnpm smoke:extraction`:
-    - SSR: add `/reminders` and `/settings?tab=ai` to the pages matrix.
-    - DOM: `scripts/smoke_extraction_flow.ts` — sign in, kick a mocked extraction on a seeded attachment (via test helper endpoint `/api/extract/[fileId]?mode=mock` that skips the OpenAI call), poll the file card, assert the chip flips from `processing` → `review` in DOM.
-    - Wired into `pnpm smoke` via `pnpm smoke:extraction`.
+11. **6C dashboard KPI + seed + real-API smoke.** Dashboard's "AI extractions this month" KPI card renamed to "AI activity this month" and sums both `file_extractions.cost_cents` + `ai_intake_events.cost_cents`. Sublabel breaks out both counts: `N extractions + M intakes · $X`. Activity feed learns `ai_intake:created` / `ai_intake:confirmed` / `ai_intake:discarded` verbs (Sparkles icon). Seed: 2 canned `ai_intake_events` rows — one `review` (references a seeded new-job screenshot fixture in storage), one `confirmed` (with `applied_actions` referencing seeded order + created customer). `scripts/build_intake_fixture.ts` — one-shot Playwright-driven synthetic WhatsApp screenshot generator (canned HTML → PNG at 400×800 → committed to `test/fixtures/whatsapp-new-job.png`). `scripts/smoke_intake_real.ts` — one real GPT-4o call against the fixture, asserts the extraction shape parses, logs the actual `cost_cents`. Skips gracefully when `OPENAI_API_KEY` is missing.
 
-12. **README + DEVLOG wrap** — new **AI document extraction** section in README (data model summary, the fire-and-forget architecture note, the `NEXT_PUBLIC_MOCK_AI` toggle, the "no org/user ids in prompts" data-minimization rule). DEVLOG close-out summarizing the 12 sub-steps + a **What's intentionally deferred → From Task 5** section: bulk re-extract of Task-4-imported files, email delivery, WhatsApp/SMS reminder dispatch, model-agnostic abstraction, custom document types, streaming progress, per-user cost caps. **Prominent one-liner: "Built before real-data validation of Task 4 CSV import. Prioritize revalidating Task 4 flows once real data is imported."**
+12. **6C smoke additions + README + DEVLOG wrap.** New `pnpm smoke:intake` chain: `scripts/test_ai_intake_match.ts` + `scripts/test_ai_intake_propose.ts` + `scripts/smoke_intake_pipeline.ts` (mock-mode end-to-end: upload → kickoff mock → poll status → apply → verify writes + screenshot attached). Chained into `pnpm smoke` alongside the existing four stages. README picks up an "AI Intake" section covering the pipeline, the fixture-based real-API test story, and the mock-mode toggle. DEVLOG close-out summarizes 6A + 6B + 6C, records the actual dev-time OpenAI spend, and reiterates the Task 4 real-data validation follow-up flag.
 
 ---
 
 ## Risks I'm holding
 
-- **`registerAttachment` is a hot path.** Sub-step 4 changes it to also insert a `file_extractions` row + kickoff a fetch. Bug in the kickoff should NOT fail the upload — wrap in try/catch, log, continue. Storage upload + `order_attachments` insert stay authoritative.
-- **The Sheet component's portal + zoom preview together.** Radix Sheet portals to document.body; heavy image preview on the left column can cause layout thrash on first paint. Plan is to render preview inside a fixed-aspect container so the sheet's layout is stable while the image loads.
-- **PDF preview in the browser.** `<embed>` works for direct-PDF but is styled differently per browser; if it's ugly, fall back to converting the first page to a signed PNG URL via a server endpoint. Deferred to see if `<embed>` is good enough.
-- **Cost surprises.** GPT-4o pricing has changed twice in six months. `cost_cents` computation should be a lookup table keyed by model name + date — if we hard-code the current rates and OpenAI changes them, our telemetry drifts silently. Fine for v1 (~$3/mo for a small shop); revisit if the number matters.
-- **Activity feed noise.** Extraction verbs join contractor, order, event verbs in one feed. If a busy shop generates 50 extractions in a day and each is a separate row, the feed drowns. Consider the dedupe/collapse pattern we already use for contractor allocations (sub-step 8-14 of Task 2B). Defer unless the customer flags it.
-- **Fire-and-forget can drop.** Documented in Q1. Follow-up: a `stuck_processing` reaper cron.
-- **Task 4 real-data drift.** This task modifies `registerAttachment()`. If Task 4's CSV import somehow uses the same code path at import time (it doesn't today), a bug here could regress Task 4. It doesn't and won't, but call it out.
+- **6A collision detection races.** Two managers create the "Sarah Johnson · 555-0101" customer within the same second. The RPC's `(lower(name), digits_only(phone))` collision check is inside the txn but Postgres isolation is READ COMMITTED — so both txns can pass the check and both INSERTs succeed. Fix: add a unique partial index on `(org_id, lower(name), regexp_replace(phone, '[^0-9]', '', 'g'))` where phone is not null. The second txn's INSERT then fails on the unique constraint and we surface the same `CUSTOMER_COLLIDES` error to the client with the collided row's id. Sub-step 1 DEVLOG entry will call this out.
+- **6B color migration on existing events.** All zero-color rows render identically before + after because `getEventColor` falls through to kind defaults. Verified in the plan but worth an eye-check on `/schedule` before merging.
+- **6C storage cost doubles per confirmed intake.** Each confirmed intake stores the screenshot twice (intake copy + attachment copy). For a shop doing 10 intakes/day: 300 extra screenshots/month × 500KB = ~150MB/mo per shop. Acceptable for v1. If it grows: swap to a symlink pattern (attachment row references the intake path).
+- **6C: intake pipeline drops under fire-and-forget.** Same risk as Task 5's kickoff. Same accepted tradeoff — the reaper cron is a follow-up.
+- **6C: matching false positives on high-confidence.** Trigram similarity of 0.85+ on "Sarah Johnson" vs. "Sarah Johnson (2)" for two different real people. The confidence label + the "Not them? Search…" override are the human-in-the-loop safety net. Discard rate becomes a proxy metric.
+- **6C: fixture-based real-API test doesn't cover the model's real behavior on real screenshots.** A synthetic WhatsApp-style PNG rendered from HTML is *very* different from a phone screenshot of an actual WhatsApp thread — different fonts, different anti-aliasing, different UI clutter. The real-API test verifies the shape parses, not the model's accuracy. The shop's usage IS the real accuracy test. DEVLOG will call this out explicitly.
+- **6C: manager+ RBAC on `/intake`.** Field users can SELECT (see the intake list) but can't INSERT (upload) or UPDATE (confirm/discard). This is a change from Task 5's `file_extractions` where field could SELECT the chip on files they had access to. Verified against the brief spec.
+- **Real-data drift on Task 4.** Task 6 modifies `createOrder` (sub-step 1). If Task 4's CSV order-import path uses `createOrder` (it doesn't — it uses `runImportCommit` + direct INSERTs), a bug here could regress the import. Not a concern in practice; noted for the "when in doubt, re-smoke import" reflex.
 
 ## Written but out of scope for this task
 
-- Retroactive extraction on files uploaded before this task landed. Handled in a follow-up (`Re-extract all files` batch action, RBAC-gated).
-- Email + SMS reminder dispatch. Toggle exists but is UI-only.
-- Streaming extraction progress. Client polls; server writes when done.
-- Custom document types. The six types are hard-coded per the brief.
-- Model-agnostic abstraction (Claude / Gemini / hybrid). OpenAI direct for v1.
-- OCR fallback for handwritten measurement sheets. If GPT-4o can't read it, we say so honestly (`failed` status).
-- Per-user or per-org cost caps / rate limits. Nothing stops a shop from uploading 10,000 PDFs and running up a bill; only production concern if the beta grows.
+- Email forwarding intake (forward to `intake@yourshop.com`). Needs SMTP + a webhook — a real infra lift.
+- Auto-confirm for high-confidence intakes. Everything requires human review in v1. Non-negotiable per brief.
+- Multi-screenshot stitching. Each PNG processed independently; a 3-image WhatsApp thread becomes 3 intakes today.
+- WhatsApp Business API (receiving messages directly).
+- Retroactive re-matching (adding a customer later doesn't back-fill matches on old `review` intakes).
+- PDF and voice-note intake.
 
 ---
 

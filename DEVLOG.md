@@ -4,6 +4,49 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 6 — Real-shop-use fixes + AI intake agent (2026-07-07)
+
+Three fixes surfaced now that real shop data is flowing through StoneDash:
+- **6A** — inline customer creation directly inside the new-order flow, with `(lower(name), digits_only(phone))` collision detection so managers can't accidentally re-create existing customers on the fly.
+- **6B** — per-event Google-Calendar-style color selection with sensible per-kind defaults, backed by a curated 10-color palette.
+- **6C — flagship** — AI screenshot intake agent. WhatsApp / email / SMS screenshots dropped into `/intake`; the pipeline extracts, matches, and proposes writes; the human confirms.
+
+See `PLAN.md` for 14 Q-locks and three planned pause points. Two user refinements approved during the go: **(Q11)** `activity_log` for confirmed intakes must include a `metadata.summary` sentence rendering every entity created; **(Q13)** the real-API smoke uses three synthetic fixtures covering three request_type paths, ~15¢ budget, cumulative cost logged.
+
+### Sub-step 1 — 6A inline customer creation + collision RPC (complete)
+
+**Migration `0019_inline_customer_collision.sql`** — three pieces:
+1. `digits_only(input text)` — IMMUTABLE, PARALLEL SAFE, strips `[^0-9]` from a phone. Index-safe so it can back the unique partial index. `"+1 (555) 123-4567"` and `"5551234567"` normalize to `"15551234567"` and `"5551234567"` respectively — still distinct real numbers, which is right; we don't want to lie about US-only country-code assumptions in the collision detector.
+2. **Unique partial index** `customers_org_name_phone_unique ON (org_id, lower(name), digits_only(phone)) WHERE phone IS NOT NULL AND phone <> ''`. Partial: manual customer records without phones (which exist today) don't participate in the constraint. Only inline-created customers have both a required name and required phone (`InlineCustomer` validator enforces `phone.min(4)`), so the index precisely protects the population it targets.
+3. `create_customer_and_order(p_customer jsonb, p_order jsonb)` SECURITY DEFINER RPC. Single Postgres txn wraps the customer INSERT + `generate_order_number` + order INSERT. Collision check runs first inside the txn via `find_customer_collision(org_id, name, phone)`; on match, RAISEs with `SQLSTATE = 'CST01'` and `DETAIL = 'colliding_customer_id=<uuid>'`. The unique index catches races that beat the check-then-insert window (READ COMMITTED can let both concurrent flows pass the check).
+
+**`createOrder` server action** refactored:
+- Inline-customer path now calls `create_customer_and_order` — no more two-step INSERT-then-INSERT that could orphan a customer on order-insert failure.
+- Existing-customer path unchanged (`generate_order_number` + INSERT — no risk of orphaning anything).
+- Post-order event scheduling (`create_order_event` for `measuredAt` / `scheduledInstallDate`) stays OUTSIDE the atomic customer+order txn deliberately. An event failure should NOT roll back the customer or the order — matches the existing behavior; also matches the Task 4 pattern (imports partially succeed rather than abort). Explicit asymmetry.
+- New sentinel error shape `CustomerCollisionError = { ok: false, code: "CUSTOMER_COLLIDES", collidingCustomerId, error }`. The action parses `SQLSTATE 'CST01'` OR the message text "customer collision" (some PostgREST paths strip DETAIL, some don't — check both) and extracts the colliding UUID from `DETAIL` or `message`.
+
+**UI in `<NewOrderDialog>`**:
+- Bound the combobox's `CommandInput` to a local `customerSearch` state.
+- Replaced the always-visible "Add a new customer" `CommandItem` with a smarter dynamic one: when the search text is empty it reads generic; when the user has typed something, it reads *`+ Create "typed text" as new customer`* (brand-colored quoted string). Clicking pre-fills the inline form's `name` from the search text — one less field to type.
+- New collision banner directly above the inline mini-form: amber, "This looks like **Sarah Johnson** — use them instead of creating a duplicate?" with a single-button "Use existing" that flips `existingCustomerId` and clears the `newCustomer` slot.
+
+**UI in `<QuickAddOrderSheet>`** got the same treatment for parity: bound search state, persistent `+ Create "typed"` item inside the popover, collision banner inside the inline mini-form. Quick Add's `resetForNext` continues to clear `collisionCandidate` so the banner doesn't persist across rapid-fire submissions.
+
+**Smoke** at `scripts/smoke_customer_collision.ts` (6 checks, wired into `pnpm smoke:import`):
+1. Novel customer + order → RPC returns 200 with `{ order_id, order_number, customer_id }`.
+2. Same customer with different case (`SARAH JOHNSON`) + different phone formatting (`555 201 3344`) → RPC returns non-200.
+3. Error response contains a `colliding_customer_id=<uuid>` DETAIL naming the customer from step 1.
+4. Different customer (`Someone Else`, different phone) → RPC returns 200 (constraint is org-scoped, not global).
+5. DB has exactly 2 seeded customers (proves step 2 didn't create anything).
+6. Cleanup runs after — smoke is repeatable.
+
+Full smoke chain now: **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction = 79 checks, 0 FAIL.**
+
+**Migration pushed cleanly** to the hosted DB (`pnpm db:migrate` — no drift, no rollback).
+
+---
+
 ## Task 5 — AI document extraction (2026-06-30)
 
 **Prioritize revalidating Task 4 flows once real data is imported.** This task is being built ahead of a real-data validation of Task 4's CSV import — Top Marble's actual shop data hasn't yet been loaded through the import path. Once it is, expect a follow-up pass to fix whatever Task 4 rough edges the real data exposes. Task 5 changes `registerAttachment()` (sub-step 4) but doesn't touch the CSV import code paths, so the risk of Task 5 masking a Task 4 bug is low; the risk of building Task 5 UX that assumes shapes real data won't produce is higher.

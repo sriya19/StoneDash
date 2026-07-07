@@ -76,6 +76,17 @@ export function NewOrderDialog({ customers, contractors: initialContractors, cur
   const [step, setStep] = useState<StepIndex>(0);
   const [pending, startTransition] = useTransition();
   const [inlineCustomer, setInlineCustomer] = useState(false);
+  // Task 6A: track the combobox search box so we can pre-fill the
+  // inline-form name from whatever the user typed, and offer a
+  // persistent "+ Create '<typed>' as new customer" affordance.
+  const [customerSearch, setCustomerSearch] = useState("");
+  // Set when the server rejects an inline-create with the CST01
+  // sentinel — renders a banner offering to switch to the matched
+  // existing customer instead.
+  const [collisionCandidate, setCollisionCandidate] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
   const [contractorPopoverOpen, setContractorPopoverOpen] = useState(false);
   // initialContractors is the SSR snapshot. If the user creates one inline
@@ -195,20 +206,34 @@ export function NewOrderDialog({ customers, contractors: initialContractors, cur
     setCustomerPopoverOpen(false);
   }
 
-  function switchToInline() {
+  function switchToInline(prefillName?: string) {
     form.setValue("customer.existingCustomerId", undefined);
     form.setValue("customer.newCustomer", {
-      name: "",
+      name: prefillName?.trim() ?? "",
       phone: "",
     } as CreateOrderInputT["customer"]["newCustomer"]);
     setInlineCustomer(true);
     setCustomerPopoverOpen(false);
+    setCustomerSearch("");
+    setCollisionCandidate(null);
   }
 
   async function submit(values: CreateOrderInputT) {
     startTransition(async () => {
       const result = await createOrder(values);
       if (!result.ok) {
+        if (
+          "code" in result &&
+          result.code === "CUSTOMER_COLLIDES"
+        ) {
+          setCollisionCandidate({
+            id: result.collidingCustomerId,
+            name: values.customer.newCustomer?.name ?? "existing customer",
+          });
+          setStep(0);
+          toast.error("This looks like an existing customer.");
+          return;
+        }
         toast.error("Couldn't create order", { description: result.error });
         return;
       }
@@ -287,10 +312,18 @@ export function NewOrderDialog({ customers, contractors: initialContractors, cur
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[320px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search customers…" />
+                    <Command shouldFilter={true}>
+                      <CommandInput
+                        placeholder="Search customers…"
+                        value={customerSearch}
+                        onValueChange={setCustomerSearch}
+                      />
                       <CommandList>
-                        <CommandEmpty>No matches.</CommandEmpty>
+                        <CommandEmpty>
+                          {customerSearch.trim().length > 0
+                            ? "No matches."
+                            : "Type to search."}
+                        </CommandEmpty>
                         <CommandGroup heading="Existing">
                           {customers.map((c) => (
                             <CommandItem
@@ -308,8 +341,29 @@ export function NewOrderDialog({ customers, contractors: initialContractors, cur
                           ))}
                         </CommandGroup>
                         <CommandGroup>
-                          <CommandItem onSelect={switchToInline} className="gap-2">
-                            <UserPlus className="h-4 w-4" /> Add a new customer
+                          {/* Task 6A: persistent "+ Create" — always
+                              visible so the user sees the escape
+                              hatch from the moment they open the
+                              combobox. When search text is empty it
+                              reads generic; when text is present it
+                              pre-fills the inline form's name. */}
+                          <CommandItem
+                            value="__create_new_customer__"
+                            onSelect={() => switchToInline(customerSearch)}
+                            className="gap-2"
+                          >
+                            <UserPlus className="h-4 w-4" />
+                            {customerSearch.trim().length > 0 ? (
+                              <span>
+                                Create{" "}
+                                <span className="font-medium text-brand">
+                                  &ldquo;{customerSearch.trim()}&rdquo;
+                                </span>{" "}
+                                as new customer
+                              </span>
+                            ) : (
+                              "Add a new customer"
+                            )}
                           </CommandItem>
                         </CommandGroup>
                       </CommandList>
@@ -317,6 +371,29 @@ export function NewOrderDialog({ customers, contractors: initialContractors, cur
                   </PopoverContent>
                 </Popover>
               </div>
+
+              {collisionCandidate ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900">
+                  <span className="mt-0.5">⚠</span>
+                  <div className="flex-1 space-y-1">
+                    <p>
+                      This looks like{" "}
+                      <strong>{collisionCandidate.name}</strong>. Use them
+                      instead of creating a duplicate?
+                    </p>
+                    <button
+                      type="button"
+                      className="rounded border border-amber-700/40 bg-white/60 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-white/80"
+                      onClick={() => {
+                        onSelectExisting(collisionCandidate.id);
+                        setCollisionCandidate(null);
+                      }}
+                    >
+                      Use existing
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {inlineCustomer ? (
                 <div className="space-y-3 rounded-md border bg-muted/20 p-3">

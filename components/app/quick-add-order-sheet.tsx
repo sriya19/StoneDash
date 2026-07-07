@@ -53,6 +53,13 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
   const [mode, setMode] = useState<Mode>("pick");
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // Task 6A: same combobox-search pre-fill + collision-banner
+  // treatment as the New Order dialog.
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [collisionCandidate, setCollisionCandidate] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -151,12 +158,24 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
       });
 
       if (!result.ok) {
+        // Task 6A: collision sentinel from create_customer_and_order.
+        // Surface the "Use existing" banner and don't reset the form
+        // so the user can flip to the matched customer with one tap.
+        if ("code" in result && result.code === "CUSTOMER_COLLIDES") {
+          setCollisionCandidate({
+            id: result.collidingCustomerId,
+            name: newName.trim(),
+          });
+          toast.error("This looks like an existing customer.");
+          return;
+        }
         toast.error("Couldn't create order", { description: result.error });
         return;
       }
 
       toast.success(`${result.data.orderNumber} created`);
       setCreatedCount((n) => n + 1);
+      setCollisionCandidate(null);
       resetForNext();
       // Pull the fresh customer list (in case we just inlined a new one)
       // and rehydrate the underlying table.
@@ -226,10 +245,18 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[300px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Search customers…" />
+                    <Command shouldFilter={true}>
+                      <CommandInput
+                        placeholder="Search customers…"
+                        value={customerSearch}
+                        onValueChange={setCustomerSearch}
+                      />
                       <CommandList>
-                        <CommandEmpty>No matches.</CommandEmpty>
+                        <CommandEmpty>
+                          {customerSearch.trim().length > 0
+                            ? "No matches."
+                            : "Type to search."}
+                        </CommandEmpty>
                         <CommandGroup>
                           {customers.map((c) => (
                             <CommandItem
@@ -238,6 +265,7 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
                               onSelect={() => {
                                 setCustomerId(c.id);
                                 setPopoverOpen(false);
+                                setCollisionCandidate(null);
                               }}
                               className="gap-2"
                             >
@@ -258,6 +286,36 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
                             </CommandItem>
                           ))}
                         </CommandGroup>
+                        {/* Task 6A: persistent create-new affordance
+                            inside the popover mirrors the New Order
+                            dialog. Clicking pre-fills the inline
+                            mini-form's name from the search text. */}
+                        <CommandGroup>
+                          <CommandItem
+                            value="__create_new_customer_qa__"
+                            onSelect={() => {
+                              setNewName(customerSearch.trim());
+                              setMode("create");
+                              setCustomerId(null);
+                              setPopoverOpen(false);
+                              setCollisionCandidate(null);
+                            }}
+                            className="gap-2"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            {customerSearch.trim().length > 0 ? (
+                              <span>
+                                Create{" "}
+                                <span className="font-medium text-brand">
+                                  &ldquo;{customerSearch.trim()}&rdquo;
+                                </span>{" "}
+                                as new customer
+                              </span>
+                            ) : (
+                              "Add a new customer"
+                            )}
+                          </CommandItem>
+                        </CommandGroup>
                       </CommandList>
                     </Command>
                   </PopoverContent>
@@ -270,6 +328,7 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
                   onClick={() => {
                     setMode("create");
                     setCustomerId(null);
+                    setCollisionCandidate(null);
                   }}
                 >
                   <Plus className="h-3.5 w-3.5" /> New
@@ -277,6 +336,31 @@ export function QuickAddOrderSheet({ customers: initialCustomers }: Props) {
               </div>
             ) : (
               <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                {collisionCandidate ? (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-900">
+                    <span className="mt-0.5">⚠</span>
+                    <div className="flex-1 space-y-1">
+                      <p>
+                        This looks like{" "}
+                        <strong>{collisionCandidate.name}</strong> — use the
+                        existing customer?
+                      </p>
+                      <button
+                        type="button"
+                        className="rounded border border-amber-700/40 bg-white/60 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-white/80"
+                        onClick={() => {
+                          setCustomerId(collisionCandidate.id);
+                          setMode("pick");
+                          setNewName("");
+                          setNewPhone("");
+                          setCollisionCandidate(null);
+                        }}
+                      >
+                        Use existing
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-muted-foreground">
                     New customer
