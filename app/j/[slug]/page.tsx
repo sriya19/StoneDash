@@ -29,6 +29,7 @@ import { createSignedUrls } from "@/lib/actions/attachments";
 import { formatInTimeZone, tzAbbreviation } from "@/lib/tz";
 import { SharePageActions } from "@/components/app/share-page-actions";
 import { MapsLinks } from "@/components/app/maps-links";
+import { EVENT_COLOR_CLASSES, getEventColor } from "@/lib/events/color";
 
 type Params = { slug: string };
 
@@ -306,19 +307,12 @@ export default async function PublicSharePage({ params }: { params: Params }) {
   );
 }
 
+// Task 6B: routed through the shared getEventColor helper. Per
+// PLAN Q5: /j/[slug] intentionally uses the kind default (color:
+// null) — user color overrides are an internal organizing tool
+// not exposed on the public crew page.
 function kindBadge(kind: string): string {
-  switch (kind) {
-    case "measurement":
-      return "bg-purple-100 text-purple-900";
-    case "install":
-      return "bg-emerald-100 text-emerald-900";
-    case "delivery":
-      return "bg-blue-100 text-blue-900";
-    case "pickup":
-      return "bg-sky-100 text-sky-900";
-    default:
-      return "bg-zinc-100 text-zinc-900";
-  }
+  return EVENT_COLOR_CLASSES[getEventColor({ kind, color: null })].chip;
 }
 
 function statusBadge(status: string): string {

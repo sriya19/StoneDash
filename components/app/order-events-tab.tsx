@@ -35,6 +35,7 @@ import {
   updateOrderEventStatus,
 } from "@/lib/actions/events";
 import type { CalendarEvent } from "@/lib/queries/events";
+import { EVENT_COLOR_CLASSES, getEventColor } from "@/lib/events/color";
 import { MapsLinks } from "./maps-links";
 import { EmptyState } from "./empty-state";
 
@@ -52,15 +53,8 @@ const KIND_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-const KIND_CHIP: Record<string, string> = {
-  measurement:
-    "bg-purple-100 text-purple-900 dark:bg-purple-900/40 dark:text-purple-100",
-  install:
-    "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100",
-  delivery: "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100",
-  pickup: "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100",
-  other: "bg-zinc-100 text-zinc-900 dark:bg-zinc-900/40 dark:text-zinc-100",
-};
+// Task 6B: KIND_CHIP replaced by getEventColor + EVENT_COLOR_CLASSES
+// so the chip color follows the user's per-event override when set.
 
 const STATUS_PILL: Record<string, string> = {
   scheduled: "bg-muted text-muted-foreground",
@@ -243,8 +237,8 @@ function EventRow({
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                KIND_CHIP[event.kind] ?? KIND_CHIP.other,
+                "rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                EVENT_COLOR_CLASSES[getEventColor(event)].chip,
               )}
             >
               {KIND_LABEL[event.kind] ?? event.kind}

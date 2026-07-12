@@ -56,12 +56,14 @@ import {
   DEFAULT_DURATION_MIN,
   EVENT_KINDS,
   EVENT_KIND_LABELS,
+  type EventColorKey,
   type EventKind,
 } from "@/lib/validators/events";
 import type { CalendarEvent, OrderForEventPicker } from "@/lib/queries/events";
 import type { CrewLite } from "@/lib/queries/crew";
 import { LocationAutocomplete } from "./location-autocomplete";
 import { MapsLinks } from "./maps-links";
+import { EventColorPicker } from "./event-color-picker";
 
 type Props = {
   mode: "create" | "edit";
@@ -142,6 +144,19 @@ export function EventDialog({
   );
   const [orderOpen, setOrderOpen] = useState(false);
   const [crewOpen, setCrewOpen] = useState(false);
+
+  // Task 6B: color override. NULL means "follow the kind default"
+  // (getEventColor picks up KIND_DEFAULT_COLOR at render time).
+  // `colorDirty` tracks whether the user has explicitly picked a
+  // color — once set, the picker stops following kind changes so
+  // switching from install → measurement doesn't clobber the
+  // user's deliberate purple.
+  const [color, setColor] = useState<EventColorKey | null>(
+    (initial?.color as EventColorKey | null | undefined) ?? null,
+  );
+  const [colorDirty, setColorDirty] = useState<boolean>(
+    initial?.color != null,
+  );
 
   const selectedOrder = useMemo(
     () => orders.find((o) => o.id === orderId) ?? null,
@@ -272,6 +287,10 @@ export function EventDialog({
         crewMemberId: a.crewMemberId,
         role: a.role,
       })),
+      // Task 6B: only pass an explicit color when the user has
+      // picked one (colorDirty). Otherwise null tells the RPC "use
+      // the kind default" and the client resolves via getEventColor.
+      color: colorDirty ? color : null,
     };
     startTransition(async () => {
       const res = mode === "edit" && initial
@@ -423,7 +442,7 @@ export function EventDialog({
           {/* Kind */}
           <div className="space-y-1.5">
             <Label>Kind</Label>
-            <div className="grid grid-cols-3 gap-1 sm:grid-cols-6">
+            <div className="grid grid-cols-3 gap-1 sm:grid-cols-7">
               {EVENT_KINDS.map((k) => (
                 <button
                   key={k}
@@ -441,6 +460,21 @@ export function EventDialog({
               ))}
             </div>
           </div>
+
+          {/* Color — Task 6B. Sits directly under Kind so the
+              user's mental "what kind of event is this" flow
+              stays intact. NULL means "follow kind default";
+              picking any color makes it dirty (colorDirty=true)
+              so subsequent Kind switches don't clobber the pick. */}
+          <EventColorPicker
+            value={color}
+            kind={kind}
+            onChange={(next) => {
+              setColor(next);
+              // Explicit pick → dirty. `null` (reset) → not dirty.
+              setColorDirty(next !== null);
+            }}
+          />
 
           {/* Date + time + duration. All-day collapses to date only. */}
           <div className={cn("grid gap-3", isAllDay ? "grid-cols-1" : "grid-cols-3")}>

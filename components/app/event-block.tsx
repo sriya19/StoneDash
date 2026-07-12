@@ -6,21 +6,7 @@ import { Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
 import type { CalendarEvent } from "@/lib/queries/events";
-
-// Color tokens per event kind. Same palette used by crew-detail-sheet's
-// history list so the two surfaces stay in lockstep.
-//
-// 'task' uses slate to stay distinguishable from 'other' (zinc). Both
-// read as "neutral grayscale" but the cool-tinted slate vs the warmer
-// zinc reads differently side-by-side.
-export const KIND_BG: Record<string, string> = {
-  measurement: "bg-purple-100/80 border-purple-400/60 text-purple-950 dark:bg-purple-900/40 dark:border-purple-500/60 dark:text-purple-50",
-  install: "bg-emerald-100/80 border-emerald-400/60 text-emerald-950 dark:bg-emerald-900/40 dark:border-emerald-500/60 dark:text-emerald-50",
-  delivery: "bg-blue-100/80 border-blue-400/60 text-blue-950 dark:bg-blue-900/40 dark:border-blue-500/60 dark:text-blue-50",
-  pickup: "bg-sky-100/80 border-sky-400/60 text-sky-950 dark:bg-sky-900/40 dark:border-sky-500/60 dark:text-sky-50",
-  other: "bg-zinc-100/80 border-zinc-400/60 text-zinc-950 dark:bg-zinc-900/40 dark:border-zinc-500/60 dark:text-zinc-50",
-  task: "bg-slate-100/80 border-slate-400/60 text-slate-950 dark:bg-slate-900/40 dark:border-slate-500/60 dark:text-slate-50",
-};
+import { EVENT_COLOR_CLASSES, getEventColor } from "@/lib/events/color";
 
 // Cancelled / no_show / complete render with reduced visual weight so the
 // active week is what the eye lands on first.
@@ -51,7 +37,8 @@ export function EventBlock({
   variant = "block",
   sendHref,
 }: Props) {
-  const kindClass = KIND_BG[event.kind] ?? KIND_BG.other;
+  const colorKey = getEventColor(event);
+  const kindClass = EVENT_COLOR_CLASSES[colorKey].bg;
   const terminal = isTerminal(event.status);
 
   // Standalone events have no order_number / project_name — their title

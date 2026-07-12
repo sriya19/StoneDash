@@ -68,6 +68,41 @@ Full smoke chain now: **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors +
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction = 79 checks / 0 FAIL.** Migration applied cleanly; both new fields round-trip through the RPCs and the view.
 
+### Sub-step 3 — 6B UI: getEventColor + color picker (complete)
+
+**Single source of truth at `lib/events/color.ts`.** Before this, four files each had their own hardcoded kind→color maps that had drifted (`install` was emerald in `event-block` but green in `crew-detail-sheet`; `KIND_CHIP` in `order-events-tab` had different opacity than `EVENT_KIND_COLOR` in `crew-detail-sheet`). Now:
+- `EVENT_COLOR_CLASSES: Record<PaletteKey, { bg, chip, dot, ring, hex }>` — per-variant Tailwind class strings, one entry per palette key.
+- `KIND_DEFAULT_COLOR: Record<string, PaletteKey>` — per-kind defaults (measurement→purple, install→green, delivery→blue, pickup→teal, task/other→slate, **repair→amber** per Task 6B brief).
+- `getEventColor(event) → PaletteKey` — sole entry point: user-picked color if valid, else the kind default. Invalid or missing → `slate`.
+- `ALL_COLOR_KEYS` — convenience for the picker's swatch loop.
+
+**"brown" uses the amber-800/900 family** because Tailwind doesn't ship a `brown-*` palette. Chose amber-200 (light) / amber-800 (mid) / amber-950 (dark accent) so brown reads distinctly from `amber` (100/500/900) side-by-side.
+
+**Four scattered maps deleted, all callers consume the shared module:**
+- `event-block.tsx` — `KIND_BG` deleted; `EVENT_COLOR_CLASSES[getEventColor(event)].bg` used inline.
+- `order-events-tab.tsx` — `KIND_CHIP` deleted; the row chip now uses `.chip` variant.
+- `crew-detail-sheet.tsx` — `EVENT_KIND_COLOR` deleted. Crew history rows don't carry per-event color today, so they call `getEventColor({ kind, color: null })` — same visual as before, one source of truth.
+- `app/j/[slug]/page.tsx` — `kindBadge()` delegates to the shared helper with `color: null`. Per PLAN Q5: `/j/[slug]` intentionally uses kind defaults, not user overrides (color is an internal organizing tool per the brief).
+
+**Color picker at `components/app/event-color-picker.tsx`.** PLAN Q6 lock: 10 circles in a row, ring on the effective color, "(default for {kind})" label when `color IS NULL`, small "Use default" reset button when the user has picked an explicit color. Backgrounds are inline `style={{ backgroundColor: hex }}` — the color the user sees IS the color that stores.
+
+**Dirty-flag semantics** live in the caller (`event-dialog.tsx`), not the picker:
+- `color: EventColorKey | null` — the stored value (null = follow kind default).
+- `colorDirty: boolean` — true once the user has explicitly picked. Initialized from `initial?.color != null` so editing an event that already has an explicit color starts dirty.
+- The picker's `onChange` receives `null` on reset and an explicit key on pick; the parent sets `colorDirty` accordingly.
+- `changeKind()` doesn't touch color state. If `colorDirty=true` the picker keeps its ring; if `colorDirty=false` the picker's effective color follows the new kind's default (via `getEventColor` at render time).
+- Submit payload: `color: colorDirty ? color : null`. Not-dirty stores NULL so RPC + client resolve to the kind default.
+
+**Kind grid** grows from 6 columns to 7 to fit the new `'repair'` kind.
+
+**One operational hiccup logged.** First smoke run after this sub-step reported 2 DOM FAILs (Order detail Sheet + EventDialog testids missing). Root cause: static chunk 404s in the dev log — `pnpm build` mid-session invalidated `.next` but the running `pnpm dev` was still serving stale asset manifests. Same class of hiccup already noted in the Task 2B DEVLOG. Fix: `pkill next dev; rm -rf .next; pnpm dev; pnpm smoke`. Green on retry.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **79 checks / 0 FAIL.**
+
+**This closes the sub-step 3 pause point per PLAN Q14.** All the small-fix daily-use blockers (6A + 6B) are cleared. Real shop can use it. Sub-step 4 starts 6C (the AI intake pipeline).
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)

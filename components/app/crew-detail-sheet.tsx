@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { deleteCrewMember, updateCrewMember } from "@/lib/actions/crew";
 import { CREW_ROLE_SUGGESTIONS } from "@/lib/validators/crew";
 import type { CrewDetail } from "@/lib/queries/crew";
+import { EVENT_COLOR_CLASSES, getEventColor } from "@/lib/events/color";
 
 type Props = {
   crew: CrewDetail | null;
@@ -46,13 +47,9 @@ const EVENT_KIND_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-const EVENT_KIND_COLOR: Record<string, string> = {
-  measurement: "bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100",
-  install: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
-  delivery: "bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100",
-  pickup: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
-  other: "bg-zinc-100 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100",
-};
+// Task 6B: kind→color map removed in favor of the shared
+// getEventColor helper. Crew history doesn't carry per-event color
+// today; falls through to the kind default.
 
 const STATUS_LABEL: Record<string, string> = {
   scheduled: "Scheduled",
@@ -235,8 +232,10 @@ export function CrewDetailSheet({ crew }: Props) {
                         <div className="flex items-center justify-between gap-2">
                           <span
                             className={cn(
-                              "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                              EVENT_KIND_COLOR[h.kind] ?? EVENT_KIND_COLOR.other,
+                              "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                              EVENT_COLOR_CLASSES[
+                                getEventColor({ kind: h.kind, color: null })
+                              ].chip,
                             )}
                           >
                             {EVENT_KIND_LABEL[h.kind] ?? h.kind}
