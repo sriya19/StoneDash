@@ -15,8 +15,27 @@ export const EVENT_KINDS = [
   "pickup",
   "other",
   "task",
+  "repair",
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
+
+// Task 6B palette keys — mirrors the CHECK constraint on
+// order_events.color (see 0020_event_color_and_pg_trgm.sql). NULL
+// stored means "use the kind default" — the client resolves via
+// getEventColor(event) in lib/events/color.ts (sub-step 3).
+export const EVENT_COLOR_KEYS = [
+  "terracotta",
+  "green",
+  "blue",
+  "purple",
+  "amber",
+  "rose",
+  "teal",
+  "indigo",
+  "slate",
+  "brown",
+] as const;
+export type EventColorKey = (typeof EVENT_COLOR_KEYS)[number];
 
 export const EVENT_STATUSES = [
   "scheduled",
@@ -37,6 +56,7 @@ export const DEFAULT_DURATION_MIN: Record<EventKind, number> = {
   pickup: 30,
   other: 60,
   task: 60,
+  repair: 60,
 };
 
 export const EVENT_KIND_LABELS: Record<EventKind, string> = {
@@ -46,6 +66,7 @@ export const EVENT_KIND_LABELS: Record<EventKind, string> = {
   pickup: "Pickup",
   other: "Other",
   task: "Task",
+  repair: "Repair",
 };
 
 const Assignment = z.object({
@@ -78,6 +99,13 @@ const EventBase = z
     locationText: optionalString(z.string().trim().max(500)),
     notes: optionalString(z.string().max(4000)),
     assignments: z.array(Assignment).default([]),
+    // Task 6B: user-picked color override. NULL means "use the kind
+    // default"; validated on both sides — the enum here + the CHECK
+    // constraint on the column + the RPC's whitelist.
+    color: z
+      .union([z.enum(EVENT_COLOR_KEYS), z.null(), z.undefined()])
+      .transform((v) => (v === undefined || v === null ? null : v))
+      .optional(),
   })
   .refine((v) => v.orderId !== undefined || (v.title && v.title.length > 0), {
     message: "Standalone events require a title",

@@ -103,6 +103,7 @@ export async function createOrderEvent(
     })),
     p_title: v.title ?? null,
     p_is_all_day: v.isAllDay,
+    p_color: v.color ?? null,
   });
   if (error || typeof data !== "string") {
     return { ok: false, error: error?.message ?? "Could not create event" };
@@ -149,6 +150,7 @@ export async function updateOrderEvent(
     })),
     p_title: v.title ?? null,
     p_is_all_day: v.isAllDay,
+    p_color: v.color ?? null,
   });
   if (error) return { ok: false, error: error.message };
   invalidate();

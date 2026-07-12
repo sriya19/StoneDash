@@ -19,6 +19,8 @@ export type CalendarEvent = {
   title: string | null;
   locationText: string | null;
   notes: string | null;
+  /** Task 6B: user-picked palette key, or null → resolve via kind default */
+  color: string | null;
   orderNumber: string | null;
   projectName: string | null;
   stoneType: string | null;
@@ -43,6 +45,7 @@ type CalendarEventDb = {
   title: string | null;
   location_text: string | null;
   notes: string | null;
+  color: string | null;
   order_number: string | null;
   project_name: string | null;
   stone_type: string | null;
@@ -70,7 +73,7 @@ export async function listCalendarEvents(
   let query = supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, color, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .gte("starts_at", filters.fromUtc)
     .lt("starts_at", filters.toUtc);
@@ -105,6 +108,7 @@ export async function listCalendarEvents(
       title: r.title,
       locationText: r.location_text,
       notes: r.notes,
+      color: r.color,
       orderNumber: r.order_number,
       projectName: r.project_name,
       stoneType: r.stone_type,
@@ -195,7 +199,7 @@ export async function listEventsForOrder(orderId: string): Promise<CalendarEvent
   const { data, error } = await supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, color, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .eq("order_id", orderId)
     .order("starts_at", { ascending: true })
@@ -214,6 +218,7 @@ export async function listEventsForOrder(orderId: string): Promise<CalendarEvent
     title: r.title,
     locationText: r.location_text,
     notes: r.notes,
+    color: r.color,
     orderNumber: r.order_number,
     projectName: r.project_name,
     stoneType: r.stone_type,
@@ -232,7 +237,7 @@ export async function getEventForEdit(id: string): Promise<CalendarEvent | null>
   const { data, error } = await supabase
     .from("v_calendar_events")
     .select(
-      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
+      "id, order_id, kind, status, starts_at, ends_at, duration_min, is_all_day, is_standalone, title, location_text, notes, color, order_number, project_name, stone_type, stage, contractor_id, customer_name, customer_phone, contractor_name, crew",
     )
     .eq("id", id)
     .maybeSingle<CalendarEventDb>();
@@ -251,6 +256,7 @@ export async function getEventForEdit(id: string): Promise<CalendarEvent | null>
     title: data.title,
     locationText: data.location_text,
     notes: data.notes,
+    color: data.color,
     orderNumber: data.order_number,
     projectName: data.project_name,
     stoneType: data.stone_type,

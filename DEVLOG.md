@@ -45,6 +45,29 @@ Full smoke chain now: **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors +
 
 **Migration pushed cleanly** to the hosted DB (`pnpm db:migrate` — no drift, no rollback).
 
+### Sub-step 2 — 6B migration + 6C pg_trgm prerequisite (complete)
+
+**Migration `0020_event_color_and_pg_trgm.sql`** — bundled two features that both touch the schema, so we only pay one migration round-trip:
+
+1. **Enable `pg_trgm` extension.** Prerequisite for 6C's fuzzy-match module. `CREATE EXTENSION IF NOT EXISTS pg_trgm` — idempotent.
+2. **`order_events.color text NULL`** with a CHECK constraint on the 10 curated palette keys (`terracotta`, `green`, `blue`, `purple`, `amber`, `rose`, `teal`, `indigo`, `slate`, `brown`). NULL means "use the kind default"; the client resolves via `getEventColor(event)` (sub-step 3). Storing palette keys — not hex — means palette drift stays a design decision. Existing rows render identically before and after because their color is NULL and the kind default lookup reproduces the old hardcoded `KIND_BG` output.
+3. **Extend `order_events.kind` CHECK** to include `'repair'`. Repairs are jobs too — 6C's proposal dispatcher will create repair events on `request_type='repair'` + order-match. Default color for repairs is amber (per the brief), enforced client-side in `KIND_DEFAULT_COLOR` (sub-step 3).
+4. **DROP + CREATE both `create_order_event` and `update_order_event`** with a new `p_color text DEFAULT NULL` param. Postgres doesn't ALTER-add function parameters, so we drop the old signatures cleanly and re-add. Existing named-param callers (JS object form → PostgREST named params) keep working because the new param is optional. Both RPCs validate the color against the same palette whitelist as a friendlier error message than the table CHECK.
+5. **Three GIN trigram indexes**: `customers_name_trgm_idx ON (lower(name))`, `orders_project_trgm_idx ON (lower(project_name))` (partial, `WHERE project_name IS NOT NULL`), `contractors_name_trgm_idx ON (lower(name))`. These feed 6C's matching module — a similarity query without them scans the whole table per intake.
+
+**Migration `0021_v_calendar_events_color.sql`** — small follow-up. Discovered post-push that `v_calendar_events` didn't expose the new `color` column; Postgres views can't ALTER-add so DROP + recreate with identical shape + one new column. Landed as a separate migration on purpose — I'd rather have two clean migrations than one that reworks a view along with adding a column to the underlying table.
+
+**Server-side plumbing:**
+- `lib/validators/events.ts` — new `EVENT_COLOR_KEYS` const array + `EventColorKey` type + `color` field on `EventBase`. `'repair'` added to `EVENT_KINDS`, `EVENT_KIND_LABELS`, `DEFAULT_DURATION_MIN` (60min). The color field is a Zod `union([enum, null, undefined])` transformed to `null` on empty — same shape the RPC accepts.
+- `lib/actions/events.ts` — `createOrderEvent` + `updateOrderEvent` pass `p_color: v.color ?? null` to the RPCs.
+- `lib/queries/events.ts` — `CalendarEvent.color: string | null` on the type; `color` added to the SELECT in `listCalendarEvents`, `listEventsForOrder`, and `getEventForEdit`, plus the row-to-object mapping in all three functions.
+
+**What sub-step 2 does NOT include.** UI still uses the four hardcoded kind→color maps (`KIND_BG`, `KIND_CHIP`, `EVENT_KIND_COLOR`, `kindBadge`); the consolidation into `getEventColor` + `EVENT_COLOR_CLASSES` lands in sub-step 3 alongside the color picker.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction = 79 checks / 0 FAIL.** Migration applied cleanly; both new fields round-trip through the RPCs and the view.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
