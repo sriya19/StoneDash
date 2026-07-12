@@ -197,3 +197,33 @@ export type FileExtractionRow = {
   created_at: string;
   updated_at: string;
 };
+
+// Task 6C — AI screenshot intake. See migration 0022_ai_intake.sql.
+// The three JSONB payloads (extraction / matches / proposal) are
+// filled in sequence by the pipeline; the client should treat any
+// of them as null when status is 'processing'.
+
+export type AiIntakeStatus =
+  | "processing"
+  | "review"
+  | "confirmed"
+  | "discarded"
+  | "failed";
+
+export type AiIntakeEventRow = {
+  id: string;
+  org_id: string;
+  uploaded_by: string | null;
+  storage_path: string;
+  status: AiIntakeStatus;
+  extraction: Record<string, unknown> | null;
+  matches: Record<string, unknown> | null;
+  proposal: Record<string, unknown> | null;
+  applied_actions: unknown[] | null;
+  error_message: string | null;
+  cost_cents: number | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

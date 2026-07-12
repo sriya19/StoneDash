@@ -103,6 +103,32 @@ Full smoke chain now: **32 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors +
 
 **This closes the sub-step 3 pause point per PLAN Q14.** All the small-fix daily-use blockers (6A + 6B) are cleared. Real shop can use it. Sub-step 4 starts 6C (the AI intake pipeline).
 
+### Sub-step 4 — 6C migration: ai_intake_events (complete)
+
+**Migration `0022_ai_intake.sql`** — schema-only. Sub-steps 5-11 build the pipeline that fills this table.
+
+**`ai_intake_events` shape** matches the brief. Three JSONB payloads fill in sequence:
+- `extraction` — Step A (GPT-4o vision).
+- `matches` — Step B (pg_trgm fuzzy match; the indexes shipped in migration 0020).
+- `proposal` — Step C (deterministic dispatcher).
+- `applied_actions` — written by `apply_intake` on confirm.
+
+Two indexes: `(org_id, status)` for the `/intake` list's filter queries, `(org_id, created_at DESC)` for the dashboard aggregate. Standard `updated_at` trigger.
+
+**RLS** — org-wide SELECT (field-role users see the intake list so they know what's queued), manager+ INSERT (only manager+ can upload screenshots), manager+ UPDATE (only manager+ can confirm/discard). One level stricter than Task 5's `file_extractions` where field users can see the chip on files they have access to; the intake list is a shop-wide inbox and non-managers shouldn't be manipulating it.
+
+**Audit triggers** — `ai_intake:created` on INSERT, `ai_intake:status_changed` on any status transition. Same SECURITY DEFINER + search_path lock as every other audit trigger. BEFORE DELETE cleanup mirrors the `file_extractions` pattern.
+
+**`apply_intake(uuid, jsonb, text[])` scaffolded.** Empty body — RAISEs `feature_not_supported` for now. Landing the stub with the final signature so sub-step 5's server action can bind against a stable shape. Signature reflects the sub-step 9 review-sheet contract: `p_edits` is the user-edited action payloads, `p_selected_action_keys` is the intersection of client-picked keys the server will apply.
+
+**Storage convention** documented in the migration header. Per PLAN Q12: on confirm the screenshot is bucket-level COPY'd from `{org}/intake/` to `{org}/{order_id}/`; both copies persist so the intake stays as its own audit record even after the confirm attaches a normal file.
+
+**TypeScript row types** at `lib/supabase/types.ts`: `AiIntakeStatus` union + `AiIntakeEventRow` matching the DB shape. Hand-typed for consistency with the rest of the file.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **79 checks / 0 FAIL.** No new smoke stage yet — the table has no data and no client code touches it. Sub-steps 5-11 build up to sub-step 12's dedicated `pnpm smoke:intake`.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
