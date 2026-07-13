@@ -129,6 +129,45 @@ Two indexes: `(org_id, status)` for the `/intake` list's filter queries, `(org_i
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **79 checks / 0 FAIL.** No new smoke stage yet — the table has no data and no client code touches it. Sub-steps 5-11 build up to sub-step 12's dedicated `pnpm smoke:intake`.
 
+### Sub-step 5 — 6C Step A pipeline + mock fixtures (complete)
+
+**Reuses Task 5's infrastructure** — the OpenAI wrapper (`callChatCompletions`), the internal HMAC token (`mintInternalToken` + `verifyInternalToken`), the cost math (`costCents`). Different prompts, different response schema, same plumbing.
+
+**`lib/intake/types.ts`** defines the extraction shape the LLM writes to. Every field is nullable — an SMS that says "hey" produces mostly nulls, and the proposal step handles that gracefully. Two dates per requested date: `raw` (what the customer said) + `iso` (LLM-resolved yyyy-MM-dd). PLAN Q9 hybrid resolution: the prompt tells the LLM today's date + org timezone; the server validates the resolved iso against a ±60/-3 day window; anything outside the window becomes null and the raw text stays for the reviewer.
+
+**`lib/intake/prompts.ts`** — vision system prompt with the six-way `request_type` categorical + urgency tier + explicit "be conservative, use null when you don't know" guidance + per-type discriminator notes (new_job vs. repair vs. scheduling vs. payment vs. question vs. unclear). `response_format: json_schema` with `additionalProperties: false` so the model can't invent keys, and a `pattern: "^\d{4}-\d{2}-\d{2}$"` regex on iso date strings so the JSON schema itself enforces ISO format at the API boundary.
+
+**Data-minimization boundary is tight:** the prompt gets today's ISO date + the org's IANA timezone name. NO org id, user id, customer names, or shop internals. The model sees the screenshot + generic instructions + those two facts.
+
+**`lib/intake/mock.ts`** — three canned extractions covering the three primary dispatcher paths per the user refinement (Q13 lock):
+- `whatsapp_new_job` — new customer, kitchen remodel request. Feeds sub-step 7's `new_job` + no-customer-match path.
+- `scheduling_matches` — scheduling request naming a seeded customer ("Sarah Chen"). Feeds the `scheduling` + order-match path.
+- `unclear` — vague text "hey quick q about my counters". Feeds the `unclear` no-action path.
+
+Selected via `?fixture=<key>` on the internal route + returned to the pipeline as-if the LLM produced it. Steps B (matching) and C (proposal) always run — even in mock mode — so the pipeline's local intelligence is exercised without burning credits (PLAN Q8 lock).
+
+**`lib/intake/pipeline.ts`** — `runStepA(fileBytes, mime, ctx)` calls `callChatCompletions` with the intake schema, double-parses the response via Zod (defensive against model drift or spec drift), and applies the date-window clamp before returning `{ extraction, raw, costCents }`.
+
+**Route handler** at `app/api/intake/[intakeId]/route.ts`:
+1. Verify HMAC token from `Authorization: Internal <token>` header.
+2. Load the intake row via service-role (no user session on the internal call — the HMAC IS the auth).
+3. Load the org's timezone.
+4. Mock/fixture short-circuit (env var OR `?mode=mock` OR `?fixture=<key>`).
+5. Download screenshot bytes; validate mime against a supported set.
+6. Step A → Step B (via lazy-imported `runMatches`) → Step C (`propose`).
+7. Write `extraction + matches + proposal + cost_cents`, flip status to `review`.
+8. Any thrown error → `status='failed'` + `error_message`. No stuck rows.
+
+**Shims for sub-steps 6 + 7.** `lib/intake/match.ts` and `lib/intake/propose.ts` land now with minimal implementations (matcher returns `tier='none'` for everything; proposer returns one `no_op` action) so the route builds and the plumbing can be smoke-tested end-to-end. Sub-step 6 fleshes out the matcher; sub-step 7 fleshes out the dispatcher.
+
+**Server actions** at `lib/actions/intake.ts`:
+- `insertIntakeRow({ storagePath })` — manager+ gated. Same Q7 pattern as Task 5: inserts a `status='processing'` row synchronously so the `/intake` list's spinner chip renders on first refresh.
+- `kickOffIntake(intakeId)` — mints the HMAC token, fires the internal POST fire-and-forget, `keepalive: true`. Failures become stderr; the row stays in `processing` if the fetch never lands (future reaper cron).
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build shows `/api/intake/[intakeId]` as a registered route handler.
+- `pnpm smoke` → **79 checks / 0 FAIL.** No new smoke stage — the pipeline needs a screenshot in storage + a real HMAC-signed call to exercise. Sub-step 12's `smoke:intake` chain does that end-to-end in mock mode.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
