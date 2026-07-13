@@ -168,6 +168,38 @@ Selected via `?fixture=<key>` on the internal route + returned to the pipeline a
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build shows `/api/intake/[intakeId]` as a registered route handler.
 - `pnpm smoke` → **79 checks / 0 FAIL.** No new smoke stage — the pipeline needs a screenshot in storage + a real HMAC-signed call to exercise. Sub-step 12's `smoke:intake` chain does that end-to-end in mock mode.
 
+### Sub-step 6 — 6C Step B: pg_trgm matching + unit tests (complete)
+
+**`lib/intake/match.ts`** — real implementation replacing sub-step 5's shim. Three matching passes composed in `runMatches(supabase, orgId, extraction)`:
+
+- **`matchCustomer`** tries three methods in order of confidence:
+  1. `phone_exact` — normalize both sides via `digitsOnly()` (same normalization the Task 6A `digits_only()` SQL helper uses). Only fires when the extraction has ≥7 digits. Confidence 1.0.
+  2. `email_exact` — `ilike` case-insensitive match. Confidence 1.0.
+  3. `name_trigram` — `similarity(lower(name), :input)` via the `customers_name_trgm_idx` from migration 0020. Confidence = similarity score.
+- **`matchOrder`** — two axes: trigram similarity on `project_name` from `project_details` / `requested_action`, AND "linked to a customer we already matched." If the customer's most recent open order matches both, similarity is lifted to `max(trigram, 0.85)`. Customer-linked without trigram hit → 0.8. Trigram alone → similarity score.
+- **`matchContractor`** — trigram against `contractors.name` from `project_details` or `contact_name`.
+
+**Tiers per PLAN Q10:** `>0.85 high`, `0.5-0.85 medium`, `<0.5 none`. SQL-level filter at `TRIGRAM_MIN=0.5` — no bandwidth on rows we'd drop.
+
+**Migration `0023_intake_match_rpcs.sql`** — three SECURITY DEFINER SQL functions (`intake_match_customer_by_name`, `intake_match_order_by_project`, `intake_match_contractor_by_name`). Each returns the single best hit above the similarity floor. `STABLE` so Postgres can plan optimally.
+
+**No `"server-only"` guard on `match.ts`** — module takes a `SupabaseClient` from the caller, so it imports cleanly from both the route AND the tsx test script. Same choice made in Task 5's smoke that inlined the HMAC minter.
+
+**`scripts/test_ai_intake_match.ts`** — six checks covering the brief's six cases against the real DB:
+1. Exact phone → high tier.
+2. Fuzzy name `Sara Jonson` → `Sarah Johnson` (typo of both first and last name).
+3. Nonsense name → none.
+4. Ambiguous multi-match (two `John Smith`s) — lands ONE deterministically without throwing.
+5. Contractor name inside `project_details` → matches contractor.
+6. Address-only extraction (no name/phone/email) → doesn't false-positive.
+
+Fixtures seeded under `__MATCH__` prefix, cleaned up after — repeatable.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **79 checks / 0 FAIL.**
+- `pnpm tsx --env-file=.env.local scripts/test_ai_intake_match.ts` → **6 / 6 OK.** (Not yet wired into `pnpm smoke`; sub-step 12's `smoke:intake` chain adds it.)
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
