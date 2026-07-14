@@ -5,8 +5,9 @@
 // Callers pass the file's bytes + mime type. We do NOT pass any
 // StoneDash-internal identifiers to the model — the LLM sees the
 // document contents and the generic prompts, nothing else.
-
-import "server-only";
+//
+// No "server-only" guard: same reasoning as ./openai — pure
+// plumbing over caller-provided bytes. Safe from Node scripts.
 
 import { callChatCompletions } from "./openai";
 import {

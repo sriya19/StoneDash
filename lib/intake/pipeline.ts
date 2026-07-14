@@ -5,8 +5,11 @@
 // the screenshot; downstream steps (B: matching, C: proposal) are
 // pure local logic and live in their own modules — always run,
 // even in mock mode.
-
-import "server-only";
+//
+// No "server-only" guard: takes file bytes + a context from the
+// caller, doesn't manufacture secrets on its own. Both the route
+// handler AND the smoke script (scripts/smoke_intake_real.ts) are
+// server-side callers.
 
 import { callChatCompletions } from "@/lib/extraction/openai";
 import { toDataUrl } from "@/lib/extraction/pipeline";

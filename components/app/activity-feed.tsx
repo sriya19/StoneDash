@@ -188,6 +188,24 @@ function phraseFor(row: ActivityRow): string {
       const title = typeof m.title === "string" ? m.title : "a reminder";
       return `${who} scheduled reminder "${title}"`;
     }
+    // Task 6C: AI intake pipeline. Sub-step 10's apply_intake RPC
+    // writes exactly one activity_log row per confirm with
+    // metadata.via='ai_intake' + metadata.summary = a human-
+    // readable sentence per user Q11 refinement. Render the
+    // summary directly rather than reconstructing from ids.
+    case "ai_intake:created": {
+      return `AI intake ready — screenshot dropped for review`;
+    }
+    case "ai_intake:status_changed": {
+      const to = typeof m.to === "string" ? m.to : "";
+      if (to === "review") return `AI intake ready · needs review`;
+      if (to === "failed") return `AI couldn't read a screenshot`;
+      return `${who} moved intake to ${to}`;
+    }
+    case "ai_intake:applied": {
+      const summary = typeof m.summary === "string" ? m.summary : null;
+      return summary ?? `${who} confirmed an AI intake`;
+    }
     default:
       return `${who} ${row.action.replace(/_/g, " ")} ${row.entityType}`;
   }

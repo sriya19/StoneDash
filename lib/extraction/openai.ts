@@ -11,8 +11,11 @@
 // Data-minimization: callers never pass StoneDash identifiers to
 // this module. It sees the file bytes, the mime type, and the
 // prompts — nothing else.
-
-import "server-only";
+//
+// No "server-only" guard: dependency-free wrapper around fetch +
+// process.env.OPENAI_API_KEY. Safe to import from a Node script
+// (e.g. scripts/smoke_intake_real.ts) as well as the Next.js
+// route handlers.
 
 import { costCents, isPricedModel } from "./cost";
 import type { PricedModel } from "./cost";

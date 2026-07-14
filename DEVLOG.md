@@ -333,6 +333,48 @@ Non-scheduling `repair` events always use kind=`repair` (added to the CHECK cons
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
 - `pnpm smoke` → **80 checks / 0 FAIL.** Full apply path is exercised end-to-end in sub-step 12's `smoke:intake` chain (mocked pipeline → apply → verify writes landed). Today's smoke doesn't run the confirm path — intake seed lands in sub-step 11, smoke chain in sub-step 12.
 
+### Sub-step 11 — 6C dashboard KPI + seed + real-API smoke (complete)
+
+**Dashboard KPI renamed** from "AI extractions this month" to **"AI activity this month"** — sums extractions + intakes. Sublabel now reads `N pending review · $X.XX` where both counts and dollars aggregate across the two tables. Card fires `urgent` when either has pending items.
+
+**Activity feed** learns three new verbs:
+- `ai_intake:created` → `"AI intake ready — screenshot dropped for review"`
+- `ai_intake:status_changed` → `"AI intake ready · needs review"` (review) / `"AI couldn't read a screenshot"` (failed)
+- `ai_intake:applied` — reads `metadata.summary` directly from the row. That's the sentence sub-step 10's RPC composes per **user Q11 refinement**. The feed doesn't reconstruct anything from ids; it prints what the RPC decided the confirm meant.
+
+**Seed** grows a canned intake pair:
+- **Review row** — Amelia Ross WhatsApp lookalike. Extraction + matches (all null) + proposal (`create_customer` + `create_order`) shape-compatible with real pipeline output.
+- **Confirmed row** — Sarah Chen scheduling request matched against seeded order + a canned `activity_log` row with `metadata.summary` so the dashboard feed renders the Q11 sentence: *"AI intake confirmed scheduling for Sarah Chen — appended install-confirmation note to the matched order."*
+
+Both use `__SEED__` storage_path prefixes so a future cleanup pass can find them.
+
+**Fixture generator** at `scripts/build_intake_fixture.ts`. One-shot Playwright script renders three synthetic screenshots (WhatsApp, email, SMS) at 400×800@2x. Committed to `test/fixtures/*.png` — nightly runs don't need Playwright.
+
+**Real-API smoke** at `scripts/smoke_intake_real.ts` — **user Q13 refinement in action.** Three real GPT-4o calls against the three fixtures. Assertions per fixture:
+- `whatsapp-new-job` — `request_type='new_job'`, no matched customer, proposal contains both `create_customer` and `create_order`.
+- `email-scheduling-matches-seed` — `request_type='scheduling'`, matched customer is non-null with tier > `none` (Sarah Chen via seeded name trigram).
+- `sms-ambiguous` — `request_type` in `{unclear, question}`, proposal is a single `no_op`.
+
+**Real run results** (2026-07-14):
+```
+=== whatsapp-new-job ===        Step A: 2¢ · request_type=new_job
+=== email-scheduling-matches-seed === Step A: 2¢ · request_type=scheduling
+=== sms-ambiguous ===           Step A: 1¢ · request_type=question
+9 check(s): 9 OK, 0 FAIL
+total real-API cost: 5¢
+```
+
+**5¢ total real-API spend** — well under the ~15¢ Q13 budget. Skipped gracefully when `OPENAI_API_KEY` is missing (same pattern as the existing Playwright-not-installed skip in the DOM smoke). Not yet wired into `pnpm smoke` — sub-step 12 chains it into `pnpm smoke:intake`.
+
+**One incidental cleanup:** `import "server-only"` removed from `lib/intake/pipeline.ts`, `lib/extraction/openai.ts`, and `lib/extraction/pipeline.ts` — the tsx smoke needs to import these directly and none of them create secrets or clients (they take bytes / context from callers). Matches the same choice already made on `lib/intake/match.ts` in sub-step 6. Route handlers + smokes both import fine; the guard was never doing real work here.
+
+**Explicit caveat carried in the DEVLOG:** synthetic HTML-rendered PNGs are NOT phone screenshots of real WhatsApp threads. Different fonts, different anti-aliasing, different chrome. This smoke verifies the pipeline's happy paths, not real-world accuracy. The shop's actual usage is the accuracy test.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **80 checks / 0 FAIL.**
+- `pnpm tsx --env-file=.env.local scripts/smoke_intake_real.ts` → **9 / 9 OK · 5¢ cumulative real-API spend.**
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)

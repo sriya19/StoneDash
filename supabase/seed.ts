@@ -841,6 +841,181 @@ async function main() {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Task 6C — canned ai_intake_events (skips the real OpenAI pipeline)
+  // ---------------------------------------------------------------------
+  //
+  // Two canned rows so the /intake page + the dashboard KPI have
+  // realistic demo data. NEITHER touches OpenAI — extraction /
+  // matches / proposal JSONB are shape-compatible with what the
+  // real pipeline writes, but every row is inserted directly via
+  // the service-role client.
+
+  const intakeStoragePath = `${org.id}/intake/__SEED__demo-whatsapp.png`;
+
+  const intakeReview = await admin
+    .from("ai_intake_events")
+    .insert({
+      org_id: org.id,
+      uploaded_by: userId,
+      storage_path: intakeStoragePath,
+      status: "review",
+      cost_cents: 2,
+      extraction: {
+        contact_name: "Amelia Ross",
+        phone: "(555) 411-8823",
+        email: null,
+        address: "48 Larchmont Ave, Vienna, VA",
+        request_type: "new_job",
+        project_details:
+          "Kitchen remodel — Calacatta Gold quartz, single sink cutout, eased edge, ~42 sqft.",
+        requested_dates: [
+          {
+            raw: "next Monday",
+            iso: nowUtc(7).toISOString().slice(0, 10),
+          },
+        ],
+        requested_action:
+          "Amelia wants a quote for a kitchen countertop replacement + measurement next week.",
+        urgency: "soon",
+        raw_transcript:
+          "Amelia: Hi! We just closed on a house in Vienna and need to redo the kitchen counters…",
+      },
+      matches: {
+        matched_customer: {
+          id: null,
+          confidence: 0,
+          tier: "none",
+          method: null,
+        },
+        matched_order: {
+          id: null,
+          confidence: 0,
+          tier: "none",
+          method: null,
+        },
+        matched_contractor: {
+          id: null,
+          confidence: 0,
+          tier: "none",
+          method: null,
+        },
+      },
+      proposal: {
+        primary: [
+          {
+            key: "customer:new",
+            type: "create_customer",
+            name: "Amelia Ross",
+            phone: "(555) 411-8823",
+            email: null,
+            address: "48 Larchmont Ave, Vienna, VA",
+            defaultChecked: true,
+            description: "Create customer Amelia Ross · (555) 411-8823",
+          },
+          {
+            key: "order:new",
+            type: "create_order",
+            projectName: "Kitchen remodel — Calacatta Gold quartz",
+            stoneType: null,
+            notes:
+              "Amelia wants a quote for a kitchen countertop replacement + measurement next week.",
+            stage: "quote",
+            customerRef: { kind: "new", key: "customer:new" },
+            defaultChecked: true,
+            description: "Create order (Kitchen remodel — …) as quote for new customer",
+          },
+        ],
+        alternates: [],
+      },
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  // Confirmed intake — feed a plausible activity_log entry so the
+  // dashboard's activity feed renders the metadata.summary sentence
+  // from the user Q11 refinement.
+  if (firstOrders.length >= 1 && intakeReview.data) {
+    const [confirmedOrder] = firstOrders as [{ id: string }];
+    const confirmedIntakePath = `${org.id}/intake/__SEED__demo-scheduling.png`;
+    const confirmedIntake = await admin
+      .from("ai_intake_events")
+      .insert({
+        org_id: org.id,
+        uploaded_by: userId,
+        storage_path: confirmedIntakePath,
+        status: "confirmed",
+        cost_cents: 1,
+        reviewed_by: userId,
+        reviewed_at: new Date().toISOString(),
+        extraction: {
+          contact_name: "Sarah Chen",
+          phone: null,
+          email: null,
+          address: null,
+          request_type: "scheduling",
+          project_details: "Kitchen install",
+          requested_dates: [
+            {
+              raw: "this Friday morning",
+              iso: nowUtc(3).toISOString().slice(0, 10),
+            },
+          ],
+          requested_action: "Confirm Friday morning install.",
+          urgency: "soon",
+          raw_transcript:
+            "Sarah: Just confirming — Friday morning still good for the install?",
+        },
+        matches: {
+          matched_customer: {
+            id: null,
+            confidence: 0.9,
+            tier: "high",
+            method: "name_trigram",
+          },
+          matched_order: {
+            id: confirmedOrder.id,
+            confidence: 0.9,
+            tier: "high",
+            method: "customer_link",
+          },
+          matched_contractor: {
+            id: null,
+            confidence: 0,
+            tier: "none",
+            method: null,
+          },
+        },
+        proposal: { primary: [], alternates: [] },
+        applied_actions: [
+          {
+            type: "append_note",
+            key: "note:append",
+            entity_id: confirmedOrder.id,
+          },
+        ],
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (confirmedIntake.data) {
+      // Write the summary-carrying activity_log row so the feed
+      // renders the sentence from the user Q11 refinement.
+      await admin.from("activity_log").insert({
+        org_id: org.id,
+        actor_id: userId,
+        entity_type: "ai_intake",
+        entity_id: confirmedIntake.data.id,
+        action: "applied",
+        metadata: {
+          via: "ai_intake",
+          summary:
+            "AI intake confirmed scheduling for Sarah Chen — appended install-confirmation note to the matched order.",
+        },
+      });
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.warn(
     `Seed complete. Demo logins:\n` +
@@ -851,7 +1026,8 @@ async function main() {
       `${orderSeeds.length} orders, 2 contractor payments, ` +
       `${crewMembers.length} crew, ${upcomingInstalls.length} upcoming installs, ` +
       `${linksCreated} share links, 2 standalone events (1 task, 1 all-day), ` +
-      `3 canned file_extractions (review + confirmed + failed) with 1 reminder.`,
+      `3 canned file_extractions (review + confirmed + failed) with 1 reminder, ` +
+      `2 canned ai_intake_events (review + confirmed).`,
   );
 }
 

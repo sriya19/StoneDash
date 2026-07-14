@@ -142,7 +142,14 @@ export default async function DashboardPage() {
     Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
   ).toISOString();
 
-  const [ordersRes, installsRes, activityRes, contractorBalRes, extractionsRes] = await Promise.all([
+  const [
+    ordersRes,
+    installsRes,
+    activityRes,
+    contractorBalRes,
+    extractionsRes,
+    intakesRes,
+  ] = await Promise.all([
     supabase
       .from("orders")
       .select("id, stage, quote_amount, balance_due, created_at")
@@ -172,6 +179,14 @@ export default async function DashboardPage() {
       .select("id, status, cost_cents")
       .gte("created_at", monthStartUtc)
       .returns<ExtractionKpiRow[]>(),
+    // Task 6C — intake KPI joins the same "AI activity this month"
+    // card. Defensive-null on error since a missing migration
+    // shouldn't 500 the dashboard.
+    supabase
+      .from("ai_intake_events")
+      .select("id, status, cost_cents")
+      .gte("created_at", monthStartUtc)
+      .returns<{ id: string; status: string; cost_cents: number | null }[]>(),
   ]);
 
   const orders = ordersRes.data ?? [];
@@ -181,12 +196,20 @@ export default async function DashboardPage() {
   const activity = activityRes.data ?? [];
   const contractorBalances = contractorBalRes.data ?? [];
   const extractionsThisMonth = extractionsRes.data ?? [];
-  const extractionConfirmed = extractionsThisMonth.filter((e) => e.status === "confirmed").length;
-  const extractionPending = extractionsThisMonth.filter((e) => e.status === "review").length;
-  const extractionSpendCents = extractionsThisMonth.reduce(
-    (s, e) => s + (e.cost_cents ?? 0),
-    0,
-  );
+  const intakesThisMonth = intakesRes.data ?? [];
+  // Task 6C: KPI card sums extractions + intakes. Confirmed and
+  // pending counts are the shop-visible action figures; spend is
+  // the observability figure.
+  const aiConfirmed =
+    extractionsThisMonth.filter((e) => e.status === "confirmed").length +
+    intakesThisMonth.filter((i) => i.status === "confirmed").length;
+  const aiPending =
+    extractionsThisMonth.filter((e) => e.status === "review").length +
+    intakesThisMonth.filter((i) => i.status === "review").length;
+  const aiSpendCents =
+    extractionsThisMonth.reduce((s, e) => s + (e.cost_cents ?? 0), 0) +
+    intakesThisMonth.reduce((s, i) => s + (i.cost_cents ?? 0), 0);
+  const aiActivityTotal = extractionsThisMonth.length + intakesThisMonth.length;
 
   // KPI aggregates
   const inFabrication = orders.filter((o) => o.stage === "fabrication");
@@ -324,18 +347,18 @@ export default async function DashboardPage() {
           href="/orders?stage=invoiced"
         />
         <KpiCard
-          label="AI extractions this month"
-          value={extractionConfirmed.toString()}
+          label="AI activity this month"
+          value={aiConfirmed.toString()}
           sublabel={
-            extractionsThisMonth.length === 0
-              ? "No documents processed yet"
-              : `${extractionPending} pending review · ${formatMoney(
-                  extractionSpendCents / 100,
+            aiActivityTotal === 0
+              ? "No documents or intakes yet"
+              : `${aiPending} pending review · ${formatMoney(
+                  aiSpendCents / 100,
                   org.currency,
                 )}`
           }
           icon={Sparkles}
-          urgent={extractionPending > 0}
+          urgent={aiPending > 0}
         />
       </div>
 
