@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { mintInternalToken } from "@/lib/extraction/internal-token";
 import { hasAtLeast } from "@/lib/rbac";
 
@@ -94,22 +95,99 @@ export async function confirmIntake(input: {
   intakeId: string;
   edits: Record<string, unknown>;
   selectedActionKeys: string[];
-}): Promise<ActionResult<{ applied: unknown[] }>> {
-  const { role } = await getCurrentUserAndOrg();
+}): Promise<ActionResult<{ applied: ApplyIntakeEntry[] }>> {
+  const { userId, org, role } = await getCurrentUserAndOrg();
   if (!hasAtLeast(role, "manager")) {
     return { ok: false, error: "Only managers and above can confirm intakes" };
   }
   const supabase = createSupabaseServerClient();
+
+  // 1. Atomic-in-Postgres: customer + order + event + note +
+  //    activity_log in one txn (apply_intake RPC from 0024).
   const { data, error } = await supabase.rpc("apply_intake", {
     p_intake_id: input.intakeId,
     p_edits: input.edits,
     p_selected_action_keys: input.selectedActionKeys,
   });
   if (error) return { ok: false, error: error.message };
-  const applied = Array.isArray(data) ? (data as unknown[]) : [];
+  const applied: ApplyIntakeEntry[] = Array.isArray(data)
+    ? (data as ApplyIntakeEntry[])
+    : [];
+
+  // 2. Screenshot copy — PLAN Q12. Bucket-level server-side COPY
+  //    from {org}/intake/... to {org}/{order_id}/... + insert an
+  //    order_attachments row. Non-fatal — if the RPC succeeded
+  //    but the copy fails, the intake is still 'confirmed'; we
+  //    log and move on. The intake row keeps its own copy for
+  //    audit.
+  const createdOrder = applied.find(
+    (a) => a.type === "create_order" && typeof a.entity_id === "string",
+  );
+  const matchedOrderId = pickMatchedOrderIdFromApplied(applied);
+  const targetOrderId =
+    (createdOrder?.entity_id as string | undefined) ?? matchedOrderId ?? null;
+
+  if (targetOrderId) {
+    try {
+      const admin = createSupabaseAdminClient();
+      const { data: intakeRow } = await admin
+        .from("ai_intake_events")
+        .select("storage_path")
+        .eq("id", input.intakeId)
+        .maybeSingle<{ storage_path: string }>();
+      if (intakeRow?.storage_path) {
+        const filename =
+          intakeRow.storage_path.split("/").pop() ?? "intake.png";
+        const attachmentKey = crypto.randomUUID();
+        const newPath = `${org.id}/${targetOrderId}/${attachmentKey}-${filename}`;
+        const { error: copyErr } = await admin.storage
+          .from("order-files")
+          .copy(intakeRow.storage_path, newPath);
+        if (!copyErr) {
+          await admin.from("order_attachments").insert({
+            org_id: org.id,
+            order_id: targetOrderId,
+            storage_path: newPath,
+            original_name: filename,
+            mime: null,
+            size_bytes: null,
+            kind: "photo",
+            uploaded_by: userId,
+          });
+        } else {
+          process.stderr.write(
+            `[intake] screenshot copy failed: ${copyErr.message}\n`,
+          );
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[intake] copy path threw: ${msg}\n`);
+    }
+  }
+
   revalidatePath("/intake");
   revalidatePath("/dashboard");
+  revalidatePath("/orders");
   return { ok: true, data: { applied } };
+}
+
+type ApplyIntakeEntry = {
+  type: string;
+  key?: string;
+  entity_id?: string;
+  order_number?: string;
+};
+
+function pickMatchedOrderIdFromApplied(
+  entries: ApplyIntakeEntry[],
+): string | null {
+  const noteOrEvent = entries.find(
+    (a) =>
+      (a.type === "append_note" || a.type === "create_event") &&
+      typeof a.entity_id === "string",
+  );
+  return (noteOrEvent?.entity_id as string | undefined) ?? null;
 }
 
 export async function discardIntake(input: {

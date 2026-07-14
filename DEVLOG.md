@@ -297,6 +297,42 @@ Non-scheduling `repair` events always use kind=`repair` (added to the CHECK cons
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. One lint fix mid-run: unescaped `'` in the sheet description. `/intake` bundle grew from 4.42 kB → 8.31 kB.
 - `pnpm smoke` → **80 checks / 0 FAIL.**
 
+### Sub-step 10 — 6C apply_intake RPC + screenshot copy (complete)
+
+**Migration `0024_apply_intake_impl.sql`** — fills in the `apply_intake` SECURITY DEFINER RPC scaffolded in migration 0022. Biggest single migration of Task 6; runs the whole confirm inside one Postgres txn.
+
+**RPC body:**
+1. **Auth + gate.** `auth.uid()` required; must be a member of `v_intake.org_id`; must have `owner/admin/manager` role. Also asserts `status='review'` — a second confirm on the same row raises `check_violation` instead of double-applying.
+2. **Iterate `proposal.primary` in emission order** (which IS dependency order per sub-step 7's dispatcher: customer → order → event → note).
+3. **Skip unchecked actions** via `NOT (v_action_key = ANY(v_selected))`.
+4. **Per-action `CASE`:**
+   - `create_customer` — INSERT into customers with `edits ?? proposal` defaults. Captures new id into `v_customer_id`.
+   - `create_order` — resolves `customerRef.kind='matched'` to the matched id OR `kind='new'` to `v_customer_id` (falls back to `matched_customer` if user unchecked customer:new but kept order:new). `generate_order_number` + INSERT. Captures `v_order_id`.
+   - `create_event` — resolves `orderRef` similarly, calls the existing `create_order_event` RPC (same shape the manual `<EventDialog>` uses).
+   - `append_note` — appends `\n\n[YYYY-MM-DD HH:MM] <body>` to `orders.notes`. Preserves prior notes.
+   - `no_op` — recorded in `applied_actions` for the audit trail; no write.
+5. **Unknown action type** → RAISE `check_violation`. Belt-and-suspenders vs. rogue clients smuggling novel action types past sub-step 7's client whitelist.
+6. **Status flip + activity_log.** `UPDATE ai_intake_events SET status='confirmed', applied_actions=<jsonb>, reviewed_by, reviewed_at`. Then ONE `activity_log` row with `metadata.via='ai_intake'` AND **`metadata.summary` per user Q11 refinement** — a rendered human-readable sentence naming every entity created: *"AI intake created customer NAME + order TM-1055 (Kitchen remodel) + event repair Mon Jun 8 — from screenshot."* Sub-step 11's activity feed `phraseFor` branch reads this string directly rather than reconstructing from the metadata bag.
+
+**Any failure at any step rolls the whole thing back** — intake stays in `'review'` for retry.
+
+**Screenshot copy runs in the server action, not the RPC** — Postgres can't call Supabase Storage. `lib/actions/intake.ts:confirmIntake`:
+1. Calls the RPC.
+2. Determines target order id: prefers the just-created order's id from `applied`; falls back to a matched order's id from any `create_event` / `append_note` entry.
+3. Reads `intake.storage_path` via service-role, `admin.storage.from('order-files').copy(from, to)` for a bucket-level server-side copy, INSERTs a matching `order_attachments` row with `kind='photo'`.
+4. **Non-fatal on failure** — if the RPC succeeded but the copy fails, the intake is still `confirmed`; a stderr line records the miss. The intake row keeps its own copy for audit either way (per PLAN Q12).
+
+**Discard** already implemented in sub-step 9 — simple status transition, no downstream state.
+
+**Design decisions worth recording:**
+- RPC iterates `primary` in emission order rather than sorting by action type. Sub-step 7's dispatcher already emits in dependency order, so relying on that saves a topological sort and keeps the RPC linear.
+- `no_op` still writes to `applied_actions` even without touching any table. The audit trail should show that a reviewer confirmed a "no action" intake (vs. leaving it in `review` forever). Discards get `status='discarded'` and don't record an applied array at all — distinction preserved.
+- Append-note timestamp is UTC (`now() AT TIME ZONE 'UTC'`) rather than org-local. `orders.notes` is a shared field that different reviewers read; UTC is unambiguous without needing a JOIN to `organizations.timezone`.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **80 checks / 0 FAIL.** Full apply path is exercised end-to-end in sub-step 12's `smoke:intake` chain (mocked pipeline → apply → verify writes landed). Today's smoke doesn't run the confirm path — intake seed lands in sub-step 11, smoke chain in sub-step 12.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
