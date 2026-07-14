@@ -268,6 +268,35 @@ Non-scheduling `repair` events always use kind=`repair` (added to the CHECK cons
 - `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build registers `/intake`, `/api/intake/[intakeId]`, `/api/intake/status`.
 - `pnpm smoke` → **33 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction = 80 checks / 0 FAIL.** New route: `/intake`.
 
+### Sub-step 9 — 6C IntakeReviewSheet (complete)
+
+**`<IntakeReviewSheet>`** at `components/app/intake-review-sheet.tsx`. Right-side Sheet at `sm:max-w-5xl` — wider than Task 5's `<ExtractionReviewSheet>` (`sm:max-w-4xl`) because up to four actions can render per intake with inline editors each.
+
+**Two-column layout at `md+`:**
+- **Left (6/11)** — screenshot preview inside a rounded-xl card. Plain `<img>` (same reasoning as the list thumbnails).
+- **Right (5/11)** — stacked: "What I understood" plain-English summary; "Matched to" panel showing tier + method per entity; "Proposed actions" — one `<ActionCard>` per primary action; footer with `[Discard] [Confirm and apply]`.
+
+**`<ActionCard>` per-type editors** — checkbox + description as header, expandable inline editors when checked:
+- `create_customer` — name / phone / email / address 2-col grid.
+- `create_order` — projectName / stoneType / notes.
+- `create_event` — datetime-local for date+time, number for duration, location, notes.
+- `append_note` — textarea for body.
+- `no_op` — no checkbox, no inputs; description only.
+
+`startsAtIso` shape from `propose()` is `yyyy-MM-ddTHH:mm:ss` (local). `<input type="datetime-local">` wants `yyyy-MM-ddTHH:mm` — a `dateTimeInputValue()` regex helper strips seconds for display and appends `:00` on change.
+
+**`describeIntake(ex)`** at `lib/intake/describe.ts` — pure headline generator. Combines contact name + requested action, address, first mentioned date + its resolved form, urgency tag when `asap`/`soon`. Kept short; the reviewer opens the `<details>` transcript for depth.
+
+**Server actions** at `lib/actions/intake.ts`:
+- `confirmIntake({ intakeId, edits, selectedActionKeys })` — manager+ gated, calls `apply_intake` RPC. RPC body is stubbed until sub-step 10; today it raises `feature_not_supported` which the client surfaces as a toast. Sheet + wiring are complete now so sub-step 10 is a pure server-side fill-in.
+- `discardIntake({ intakeId, reason })` — manager+ gated, sets `status='discarded'` + `reviewed_by` + `reviewed_at`. Fully implemented, no RPC dependency.
+
+**Mount** — `<IntakeReviewMount intakeId>` async server component in `/intake/page.tsx` mirrors the `EventDialogMount` / `SendModalMount` / `ExtractionReviewSheetMount` pattern. UUID regex sanity-check on the query param so `?intake=whatever` drops silently rather than 500'ing. JSONB payloads cast at the boundary (`extraction as IntakeExtraction | null`) — the DB row types are `Record<string, unknown> | null`, the runtime shape comes from the pipeline that wrote them.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. One lint fix mid-run: unescaped `'` in the sheet description. `/intake` bundle grew from 4.42 kB → 8.31 kB.
+- `pnpm smoke` → **80 checks / 0 FAIL.**
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)

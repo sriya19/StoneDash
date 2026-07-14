@@ -78,3 +78,61 @@ export async function kickOffIntake(intakeId: string): Promise<void> {
     process.stderr.write(`[intake] kickoff failed for ${intakeId}: ${msg}\n`);
   });
 }
+
+// ---------------------------------------------------------------------------
+// confirmIntake / discardIntake
+// ---------------------------------------------------------------------------
+//
+// confirm: calls apply_intake (SECURITY DEFINER, sub-step 10
+// fills in the real body). Landing the wrapper now so sub-step
+// 9's review sheet has a stable action to call.
+//
+// discard: fully implemented — a status transition, no downstream
+// state. Manager+ gated here + at the DB via RLS from 0022.
+
+export async function confirmIntake(input: {
+  intakeId: string;
+  edits: Record<string, unknown>;
+  selectedActionKeys: string[];
+}): Promise<ActionResult<{ applied: unknown[] }>> {
+  const { role } = await getCurrentUserAndOrg();
+  if (!hasAtLeast(role, "manager")) {
+    return { ok: false, error: "Only managers and above can confirm intakes" };
+  }
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("apply_intake", {
+    p_intake_id: input.intakeId,
+    p_edits: input.edits,
+    p_selected_action_keys: input.selectedActionKeys,
+  });
+  if (error) return { ok: false, error: error.message };
+  const applied = Array.isArray(data) ? (data as unknown[]) : [];
+  revalidatePath("/intake");
+  revalidatePath("/dashboard");
+  return { ok: true, data: { applied } };
+}
+
+export async function discardIntake(input: {
+  intakeId: string;
+  reason?: string;
+}): Promise<ActionResult> {
+  const { userId, role } = await getCurrentUserAndOrg();
+  if (!hasAtLeast(role, "manager")) {
+    return { ok: false, error: "Only managers and above can discard intakes" };
+  }
+  const supabase = createSupabaseServerClient();
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("ai_intake_events")
+    .update({
+      status: "discarded",
+      reviewed_by: userId,
+      reviewed_at: nowIso,
+      error_message: input.reason?.trim() || null,
+      updated_at: nowIso,
+    })
+    .eq("id", input.intakeId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/intake");
+  return { ok: true, data: undefined };
+}

@@ -2,10 +2,14 @@ import { redirect } from "next/navigation";
 
 import { getCurrentUserAndOrg } from "@/lib/auth";
 import { hasAtLeast } from "@/lib/rbac";
-import { listRecentIntakes } from "@/lib/queries/intake";
-import { createSignedUrls } from "@/lib/actions/attachments";
+import { getIntakeEvent, listRecentIntakes } from "@/lib/queries/intake";
+import { createSignedUrl, createSignedUrls } from "@/lib/actions/attachments";
 import { IntakeUploader } from "@/components/app/intake-uploader";
 import { IntakeList } from "@/components/app/intake-list";
+import { IntakeReviewSheet } from "@/components/app/intake-review-sheet";
+import type { IntakeExtraction } from "@/lib/intake/types";
+import type { IntakeMatches } from "@/lib/intake/match";
+import type { Proposal } from "@/lib/intake/propose";
 
 export const metadata = { title: "AI Intake" };
 
@@ -56,13 +60,39 @@ export default async function IntakePage({
         <IntakeList rows={rows} thumbs={thumbs} />
       </div>
 
-      {/* Sub-step 9 mounts <IntakeReviewSheet> here when
-          ?intake=<id> is set. */}
       {searchParams.intake ? (
-        <p className="text-xs text-muted-foreground">
-          Review sheet lands in sub-step 9.
-        </p>
+        <IntakeReviewMount intakeId={searchParams.intake} />
       ) : null}
     </div>
+  );
+}
+
+async function IntakeReviewMount({ intakeId }: { intakeId: string }) {
+  // UUID sanity — invalid params silently drop rather than
+  // 500'ing on a bad query.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(intakeId)) {
+    return null;
+  }
+  const row = await getIntakeEvent(intakeId);
+  if (!row) return null;
+
+  const signed = await createSignedUrl(row.storage_path);
+  const signedSourceUrl = signed.ok ? signed.url : null;
+
+  // The JSONB payloads carry their real shapes from the pipeline;
+  // cast at the boundary so downstream code sees the right types.
+  const extraction = (row.extraction ?? null) as IntakeExtraction | null;
+  const matches = (row.matches ?? null) as IntakeMatches | null;
+  const proposal = (row.proposal ?? null) as Proposal | null;
+
+  return (
+    <IntakeReviewSheet
+      intakeId={intakeId}
+      signedSourceUrl={signedSourceUrl}
+      extraction={extraction}
+      matches={matches}
+      proposal={proposal}
+      errorMessage={row.error_message}
+    />
   );
 }
