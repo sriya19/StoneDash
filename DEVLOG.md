@@ -375,6 +375,53 @@ total real-API cost: 5¢
 - `pnpm smoke` → **80 checks / 0 FAIL.**
 - `pnpm tsx --env-file=.env.local scripts/smoke_intake_real.ts` → **9 / 9 OK · 5¢ cumulative real-API spend.**
 
+### Sub-step 12 — smoke:intake chain + README + DEVLOG wrap (complete)
+
+**New `pnpm smoke:intake` stage** chained after `smoke:extraction`. Three scripts, all mock-mode (never calls OpenAI):
+1. `test_ai_intake_propose.ts` — 11 pure-function unit checks (sub-step 7).
+2. `test_ai_intake_match.ts` — 6 pg_trgm-backed unit checks against seeded fixtures (sub-step 6).
+3. `smoke_intake_pipeline.ts` — new. End-to-end mock kickoff: seed a processing row → `POST /api/intake/[id]?fixture=whatsapp_new_job` with HMAC → poll → assert status flipped to `'review'` + all three JSONB payloads populated (`extraction.request_type='new_job'`, `matches` shape present, `proposal.primary` contains `create_customer`).
+
+**Real-API smoke stays a separate `pnpm smoke:intake:real` target** — not in the default chain. Keeps nightly runs credit-free; run on-demand when you want to validate the real model's classification behavior against the three synthetic fixtures.
+
+**Full smoke chain now runs FIVE stages, 103 checks:**
+`33 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction + 11 propose + 6 match + 6 pipeline = 103 checks / 0 FAIL`.
+
+**README extended** with an "AI Intake" section under How-to: the three-step pipeline (extract / match / propose), the apply-flow split between the atomic Postgres RPC and the storage-copy server action, the ~1-2¢ per-screenshot cost model, RLS shape, mock-mode toggle. The Smoke gate section grows a Stage 5 write-up + a Real-API smoke callout.
+
+---
+
+## Task 6 wrap
+
+**Ship date:** 2026-07-14. **Sub-steps:** 12. **Smoke chain:** 103 checks / 0 FAIL. **Real-API spend during dev:** 5¢.
+
+**What shipped:**
+- **6A** — inline customer creation directly in New Order + Quick Add, with `(lower(name), digits_only(phone))` collision detection via a SECURITY DEFINER RPC and a unique partial index. The "Use existing" one-click banner is the friction remover the shop asked for.
+- **6B** — per-event Google-Calendar-style color picker with 10 curated palette keys, per-kind defaults, and dirty-flag semantics. Consolidated four scattered kind→color maps into one `getEventColor` helper backed by `EVENT_COLOR_CLASSES`. New `'repair'` kind (amber default) added to the event enum for 6C's dispatcher.
+- **6C** — the flagship AI screenshot intake agent. `/intake` page + topbar button + drag-drop uploader. Three-step pipeline (vision extract / pg_trgm match / deterministic propose). Two-column review sheet with per-action editable cards. Atomic-in-Postgres `apply_intake` RPC + server-side storage copy on confirm. Dashboard "AI activity this month" KPI unifies extraction + intake spend. Activity feed reads the RPC-composed summary sentence directly per user Q11 refinement. Three synthetic fixtures + a real-API smoke that cost 5¢ total to run.
+
+**Migrations landed:** 0019 (inline customer collision), 0020 (event.color + pg_trgm + kind='repair'), 0021 (v_calendar_events + color), 0022 (ai_intake_events + apply_intake stub), 0023 (three trigram match RPCs), 0024 (apply_intake body).
+
+**User refinements to the plan (both accepted mid-flight):**
+- **Q11.** `apply_intake` writes `metadata.summary` as a rendered human-readable sentence naming every entity created, and the feed reads that string directly rather than reconstructing from ids. Format: *"AI intake created customer NAME + order TM-1055 + event repair Mon Jun 8 — from screenshot."*
+- **Q13.** Three synthetic fixtures instead of one, with three real GPT-4o calls at ~15¢ budget cap. Actual real-API spend during Task 6 build: 5¢.
+
+**Pause points used:** sub-step 3 (6A + 6B daily-use unblocked) and sub-step 7 (Steps A/B/C proven end-to-end via unit tests). Both were productive checkpoints.
+
+**Deferred / follow-up work:**
+- Bulk retroactive re-extract on Task 4-imported files (still deferred from Task 5).
+- Email + WhatsApp/SMS reminder delivery (still deferred from Task 5).
+- Multi-screenshot stitching (a WhatsApp thread across 3 shots understood as one context).
+- Retroactive re-matching when new customers are added later.
+- WhatsApp Business API for direct receipt (no upload step).
+- Email-forwarding intake (`intake@yourshop.com`).
+- Model-agnostic abstraction layer (still OpenAI-direct in v1).
+- Custom user-configurable document / intake types.
+- A stuck-processing reaper for fire-and-forget kickoffs that drop under serverless cold-start tear-down.
+
+**And still pending from Task 5's intro paragraph, reiterated here for visibility:**
+> **Prioritize revalidating Task 4 flows once real customer data is imported.** Task 6 modifies `createOrder` (sub-step 1's RPC path) — the CSV import doesn't call `createOrder`, so risk of interaction is low, but real data will surface things synthetic data can't.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)

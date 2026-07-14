@@ -570,9 +570,96 @@ one-time `console.warn` surfaces the missing key in dev.
 your client bundle and run up the bill. The `.env.example` warning is
 not optional — set them before deploying.
 
+### AI Intake — screenshot in, structured proposal out (Task 6C)
+
+**What it does.** Drop a screenshot of a WhatsApp thread / email / SMS
+into `/intake`. The pipeline runs three steps: Step A (vision LLM
+extracts fields), Step B (pg_trgm fuzzy match against your existing
+customers / orders / contractors), Step C (deterministic dispatcher
+proposes actions). You review, optionally edit, and confirm — the
+apply RPC writes customer / order / event / notes in one Postgres txn
+plus copies the screenshot to the resulting order's attachments.
+
+**Nothing writes without human confirmation.** Discarded intakes leave
+zero downstream state (except an audit row).
+
+**Where the code lives:**
+
+- `app/(app)/intake/page.tsx` — the drop page. Manager+ gated.
+- `app/api/intake/[intakeId]/route.ts` — HMAC-verified internal
+  fire-and-forget endpoint that runs the pipeline. Reuses the Task 5
+  HMAC token minter (`lib/extraction/internal-token.ts`) and OpenAI
+  wrapper (`lib/extraction/openai.ts`).
+- `lib/intake/prompts.ts` — vision system prompt. Injects today's ISO
+  date + org timezone so relative phrases ("Monday") resolve. Strict
+  JSON schema output with `additionalProperties: false`.
+- `lib/intake/pipeline.ts` — `runStepA` orchestrator. Defensive Zod
+  re-parse of the LLM output + a ±60/-3 day plausibility clamp on any
+  resolved ISO dates.
+- `lib/intake/match.ts` — Step B. `phone_exact` (digits-only normalize)
+  → `email_exact` → `name_trigram` for customers; project-name trigram
+  + customer-link for orders; contractor name trigram. Uses three
+  `intake_match_*_by_name` SECURITY DEFINER SQL functions from
+  migration 0023 that ride the GIN trigram indexes from 0020.
+- `lib/intake/propose.ts` — Step C. Pure function. Seven-way
+  dispatcher on `request_type × match`. Emits actions in dependency
+  order (customer → order → event → note) so the apply RPC can just
+  iterate.
+- `lib/intake/mock.ts` — three fixtures (`whatsapp_new_job`,
+  `scheduling_matches`, `unclear`) selected via `?fixture=<key>` on
+  the route.
+- `components/app/intake-review-sheet.tsx` — the two-column review
+  UI. Screenshot preview left, extraction summary + matches +
+  per-action editable cards right.
+- `components/app/topbar.tsx` — "AI Intake" outline button next to
+  the reminder bell. Sparkles icon, label hidden on mobile.
+
+**Apply flow (`apply_intake` RPC + confirmIntake action):**
+
+The apply is split across a Postgres RPC (atomic DB writes) and a
+server action (storage copy, which Postgres can't do). The RPC:
+
+1. Validates status is `'review'` (rejects double-confirms).
+2. Iterates `proposal.primary` in emission order (already dependency-
+   ordered).
+3. Per selected key: `create_customer` → INSERT + capture id.
+   `create_order` → resolve customerRef, `generate_order_number`,
+   INSERT. `create_event` → resolve orderRef, call
+   `create_order_event` RPC. `append_note` → append timestamped body
+   to `orders.notes` (UTC timestamp for unambiguous multi-timezone
+   reading).
+4. Any failure ROLLBACKs everything; intake stays `'review'` for
+   retry.
+5. Writes ONE `activity_log` row with `metadata.via='ai_intake'` AND
+   `metadata.summary` — a rendered human-readable sentence naming
+   every created entity. The feed's `phraseFor` reads this string
+   directly.
+
+The server action then runs the bucket-level `storage.copy` from
+`{org}/intake/...` to `{org}/{order_id}/...` + inserts an
+`order_attachments` row with `kind='photo'`. Non-fatal on failure —
+if the copy misses, the intake is still `confirmed` and the intake
+row keeps its own copy for audit.
+
+**Cost.** Per screenshot: ~1-2¢ (one GPT-4o call for extraction; no
+classifier stage here because intake is single-purpose). The
+`ai_intake_events.cost_cents` column tracks per-row; the dashboard's
+"AI activity this month" KPI sums both extraction and intake spend.
+
+**RLS.** Field-role users can SELECT the intake list (so shop-floor
+techs know what's queued) but not INSERT / UPDATE / DELETE. All
+mutation happens through manager+ gated server actions +
+manager+-guarded RLS policies (belt and suspenders).
+
+**Mock mode.** `NEXT_PUBLIC_MOCK_AI=1` or `?mode=mock` short-circuits
+Step A with a canned extraction. Steps B and C always run (PLAN Q8
+lock) so the local intelligence is exercised without burning credits.
+Three fixtures shipped; select via `?fixture=whatsapp_new_job` |
+`scheduling_matches` | `unclear`.
+
 ### Render-time smoke gate
 
-`pnpm smoke` runs four stages in sequence against a running `pnpm dev`
+`pnpm smoke` runs five stages in sequence against a running `pnpm dev`
 server. Catches the class of bugs `pnpm typecheck` + `next build` miss
 — server components that import non-component values from `"use client"`
 modules render-fail only at call time, and dynamic routes aren't
@@ -612,13 +699,35 @@ flips to `status='review'` / `document_type='template'` /
 `cost_cents=0`; and `POST /api/extractions/status` returns the row
 with the correct state.
 
+**Stage 5 — Intake smoke** (`pnpm smoke:intake`, ~3s). Three
+scripts chained:
+- `scripts/test_ai_intake_propose.ts` — 11 pure-function unit
+  checks against the seven-way dispatcher.
+- `scripts/test_ai_intake_match.ts` — 6 pg_trgm-backed checks
+  seeded against the demo org (exact phone, fuzzy name typo, no
+  match, ambiguous multi-match, contractor via project_details,
+  address-only doesn't false-positive).
+- `scripts/smoke_intake_pipeline.ts` — end-to-end mock-mode pipeline
+  smoke: seed row → mocked kickoff → assert `status='review'` +
+  extraction/matches/proposal populated correctly.
+
+**Real-API intake smoke** (`pnpm smoke:intake:real`, on-demand, not
+in the default chain). `scripts/smoke_intake_real.ts` runs THREE
+real GPT-4o calls against the three synthetic fixtures in
+`test/fixtures/` — asserts request_type, matching-shape, and
+proposal-shape per fixture. Budget is ~15¢; the actual last run
+was 5¢. Skips gracefully without `OPENAI_API_KEY`. Not on the
+default chain to keep nightly runs free.
+
 ```sh
 pnpm dev        # in another terminal
-pnpm smoke              # all four stages
+pnpm smoke              # all five stages (mocked; ~$0)
 pnpm smoke:ssr          # SSR only
 pnpm smoke:dom          # DOM only
 pnpm smoke:import       # CSV import end-to-end
 pnpm smoke:extraction   # AI extraction (mocked)
+pnpm smoke:intake       # AI intake (mocked, 3 chained scripts)
+pnpm smoke:intake:real  # AI intake (REAL GPT-4o, ~5-15¢ per run)
 pnpm smoke:ssr /j       # subset by path prefix
 ```
 
