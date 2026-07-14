@@ -200,6 +200,48 @@ Fixtures seeded under `__MATCH__` prefix, cleaned up after — repeatable.
 - `pnpm smoke` → **79 checks / 0 FAIL.**
 - `pnpm tsx --env-file=.env.local scripts/test_ai_intake_match.ts` → **6 / 6 OK.** (Not yet wired into `pnpm smoke`; sub-step 12's `smoke:intake` chain adds it.)
 
+### Sub-step 7 — 6C Step C: proposal dispatcher + unit tests (complete)
+
+**`lib/intake/propose.ts`** — the real seven-way dispatcher. Pure function, no DB, no LLM, no `"server-only"` — used identically by the review sheet's preview AND (in sub-step 10) by the apply RPC's whitelist so client + server always agree on "which action did the user check". Same design pattern as Task 5's `computeProposedActions()`.
+
+**Action types + stable keys** — `create_customer`, `create_order`, `create_event`, `append_note`, `no_op`. Keys are constants (`customer:new`, `order:new`, `event:new`, `note:append`, `noop`) so tampered clients can't smuggle novel action keys past the apply whitelist. Exported as `APPLY_ACTION_KEYS`.
+
+**Dispatcher matrix (7 request_type × match branches):**
+- `new_job + no customer match` → `create_customer` + `create_order` (stage=quote)
+- `new_job + customer match` → `create_order` only (customerRef=matched)
+- `repair + order match` → `create_event` (kind=repair, if date resolved) + `append_note`
+- `repair + no order match` → `create_customer` (if name present) + `create_order` (stage=quote, notes="Repair request: ...")
+- `scheduling + order match` → `create_event` (kind picked from text: `measurement` / `install` / `task`; regex against the raw transcript + requested_action) + `append_note`
+- `scheduling + no order match` → full chain: customer + order (stage=measurement) + event
+- `payment` → `no_op` — "review manually"
+- `question` / `unclear` → `no_op`
+
+**Kind auto-picker** for scheduling events (`pickEventKind`) — regex against `requested_action + project_details + raw_transcript`:
+- `\b(meas(ure|ur\w*)?|template|templating)\b` → `measurement`
+- `\b(install(ation|ing)?)\b` → `install`
+- otherwise → `task`
+
+Non-scheduling `repair` events always use kind=`repair` (added to the CHECK constraint in migration 0020).
+
+**Date handling** — `firstResolvedDate()` picks the first `iso` from the extraction's `requested_dates` array (which sub-step 5's pipeline already validated against the ±60/-3 day window). When no date is resolvable, we skip the `create_event` action entirely and still surface `append_note` so the reviewer has the raw context to schedule manually. Default event time is 09:00 in the org tz — same shape the manual `<EventDialog>` sends (`yyyy-MM-ddTHH:mm:ss` local, re-parsed via `parseLocalDateTime` at apply time).
+
+**Reference resolution** — `create_order` carries `customerRef: { kind: "matched", id } | { kind: "new", key }`; `create_event` and `append_note` similarly carry `orderRef`. If both a `create_customer` and `create_order` are in the same proposal, the order references the customer by KEY (`customer:new`) and the apply RPC resolves the freshly-inserted customer id at write time.
+
+**`scripts/test_ai_intake_propose.ts`** — 11 checks (7 dispatcher branches + 4 edge cases):
+1-6: the six write-producing branches, each verifying action types + kind/stage
+7-9: `payment` / `question` / `unclear` all → `no_op`
+10: scheduling + order match but no resolved date → `append_note` only (no create_event)
+11: `new_job` with `contact_name=null` → `create_order` only (no `create_customer` when we don't have a name)
+
+**All 11 checks green.** Pure-function test — no DB, no cleanup, always fast, always deterministic.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green.
+- `pnpm smoke` → **79 checks / 0 FAIL.**
+- `pnpm tsx --env-file=.env.local scripts/test_ai_intake_propose.ts` → **11 / 11 OK.**
+
+**This closes the sub-step 7 pause point per PLAN Q14.** Steps A, B, C are all real (no shims); the local intelligence is proven end-to-end via unit-style tests. Sub-steps 8-10 build the UI + apply layer around it; sub-step 11 lands the seed + the real-API smoke; sub-step 12 wraps.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)
