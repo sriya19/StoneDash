@@ -242,6 +242,32 @@ Non-scheduling `repair` events always use kind=`repair` (added to the CHECK cons
 
 **This closes the sub-step 7 pause point per PLAN Q14.** Steps A, B, C are all real (no shims); the local intelligence is proven end-to-end via unit-style tests. Sub-steps 8-10 build the UI + apply layer around it; sub-step 11 lands the seed + the real-API smoke; sub-step 12 wraps.
 
+### Sub-step 8 — 6C /intake page + AiIntakeButton in topbar (complete)
+
+**Topbar "AI Intake" button** — Sparkles icon + label, brand-tinted outline. Sits between the CommandPalette and the ReminderBell. Gated on `hasAtLeast(role, "manager")` server-side; field users never see it. Label collapses to icon-only on narrow (<md) viewports so the topbar stays clean on mobile.
+
+**`/intake` page** at `app/(app)/intake/page.tsx` — server component, manager+ gated. Redirects to `/dashboard` when the caller isn't at least manager (belt-and-suspenders alongside the button hiding on the topbar). Two sections:
+1. **`<IntakeUploader>`** — dropzone at the top. PNG/JPG/HEIC/WebP only, 10 MB per file, up to 10 files per drop per brief. Uses the browser Supabase client + `insertIntakeRow` + `kickOffIntake` chain. Bucket path convention `{org_id}/intake/{uuid}-{filename}` from migration 0022's header. Storage upload failures don't leave dangling `ai_intake_events` rows because the insert happens *after* the upload succeeds; row-insert failures do a best-effort storage cleanup of the orphan.
+2. **`<IntakeList>`** — newest-first list of intake rows with 56px signed-URL thumbnails, status chip, timestamp, and extracted `requested_action` as the summary line. `<EmptyState>` when there's nothing yet ("Drop a WhatsApp / email / SMS screenshot up top and the AI will read it…").
+
+**`<IntakeStatusChip>`** at `components/app/intake-status-chip.tsx` — five-state chip mirroring Task 5's `<ExtractionChip>`. `processing` shows pulsing dots + "Reading…"; `review` is a clickable Sparkles pill "Ready for review"; `confirmed` / `discarded` / `failed` render informational-only. Only `review` is interactive.
+
+**Polling** — `<IntakeList>` runs a 2s `setInterval` while at least one visible row is `'processing'` and stops the moment they've all moved. Same cadence as Task 5's file-card polling. Hits `POST /api/intake/status` with the batch of intake_ids; if any status changed, calls `router.refresh()` so the SSR re-fetches the enriched extraction data. Visibility listener stops the timer while the tab is hidden.
+
+**`POST /api/intake/status`** — auth-gated, RLS-scoped batch status lookup. Bounded at 100 intake_ids per call. Same shape as Task 5's `/api/extractions/status`.
+
+**Query helpers** at `lib/queries/intake.ts`:
+- `listRecentIntakes()` — newest-first, cap 50. Defensive-empty on error (same pattern as Task 5's reminders queries) so a missing migration doesn't 500 the page.
+- `getIntakeEvent(id)` — full-detail single-row load used by the review sheet (sub-step 9).
+
+**Design decisions to record:**
+- Chose plain `<img>` over `next/image` for thumbnails to avoid needing `remotePatterns` config for the Supabase URL. Thumbnails are 56×56 so the image-optimization win is negligible; the tradeoff isn't worth a global config change.
+- The `?intake=<id>` URL param is set up in the page but not yet mounted to anything — sub-step 9's `<IntakeReviewSheet>` binds to it. Today an inline "Review sheet lands in sub-step 9" note renders as a placeholder when the param is present.
+
+**Verification.**
+- `pnpm typecheck` + `pnpm lint` + `pnpm build` all green. Build registers `/intake`, `/api/intake/[intakeId]`, `/api/intake/status`.
+- `pnpm smoke` → **33 SSR + 3 DOM + 6 parse + 6 customers + 7 contractors + 10 orders + 6 collision + 9 extraction = 80 checks / 0 FAIL.** New route: `/intake`.
+
 ---
 
 ## Task 5 — AI document extraction (2026-06-30)

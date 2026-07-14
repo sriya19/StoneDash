@@ -254,6 +254,9 @@ const ROUTES: Route[] = [
   { path: "/reminders?filter=all" },
   // Task 5 sub-step 8. Settings AI tab.
   { path: "/settings?tab=ai" },
+  // Task 6C sub-step 8. AI intake page (manager+ gated; the demo
+  // owner has owner role so this renders).
+  { path: "/intake" },
 ];
 
 type Result =
