@@ -26,7 +26,15 @@ See `PLAN.md` for 15 Q-locks. Four were blockers found while grounding the brief
 
 **Verification.** `supabase db push` applied cleanly; `supabase migration list` shows `0025 | 0025`. typecheck / lint / build green (22/22 pages). `pnpm smoke`: 33/33 SSR routes, 3/3 DOM assertions, all import stages green.
 
-**One pre-existing smoke failure surfaced, unrelated to this migration.** `scripts/smoke_intake_pipeline.ts` asserts that a fresh mock intake proposes `create_customer`. That only holds while no customer matches the mock fixture persona. On 2026-08-23 the Demo Owner account confirmed three intakes through `/intake`, and `apply_intake` created Amelia Ross, Dee Mourateedes and Maria Gocso as real customers — so the matcher now correctly matches the mock persona and the proposal legitimately contains no `create_customer`. The assertion, not the matcher, is what's wrong. Tracked as TASK7-FOLLOWUP-02; the sibling collision in `test_ai_intake_match.ts` was fixed separately in `46cdf60`.
+**One pre-existing smoke failure surfaced, unrelated to this migration.** `scripts/smoke_intake_pipeline.ts` asserts that a fresh mock intake proposes `create_customer`. That only holds while no customer matches the mock fixture persona. On 2026-08-22 the Demo Owner account confirmed three intakes through `/intake`, and `apply_intake` created Amelia Ross, Dee Mourateedes and Maria Gocso as real customers — so the matcher now correctly matches the mock persona and the proposal legitimately contains no `create_customer`. The assertion, not the matcher, is what's wrong. Fixed in the following commit via per-run personas; see TODO.md TASK7-FOLLOWUP-01 and -02, both now closed.
+
+### Data hygiene — mock personas are now real customer rows (FOLLOWUP-03)
+
+The seeded demo org's customer table now contains mock-intake personas as real rows because they were confirmed during first-use testing. Before onboarding Top Marble's real production data, clean these out via a targeted DELETE, or clear-and-re-seed the demo org.
+
+Concretely: **Amelia Ross** `(555) 411-8823`, **Dee Mourateedes**, and **Maria Gocso**, all created by the Demo Owner through `/intake` on 2026-08-22, plus the four `confirmed` `ai_intake_events` they came from (the seed ships one). The demo org's customer count went from 8 seeded to 11.
+
+Worth recording as a general shape rather than a one-off: **confirming an AI intake writes real rows, so exercising the feature is indistinguishable from data entry.** Any test that assumes an identity is unknown will eventually go red on a database someone has actually used — which is precisely how both intake test failures in this sub-step arose. Tests own their fixtures per run; they do not get to assume what the database does not contain.
 
 ---
 

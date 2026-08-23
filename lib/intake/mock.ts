@@ -69,10 +69,34 @@ const FIXTURES: Record<IntakeMockKey, IntakeExtraction> = {
   },
 };
 
+/** Persona fields the intake smoke overrides to stay collision-proof. */
+export type MockPersonaOverride = {
+  contact_name?: string;
+  phone?: string;
+};
+
+/**
+ * The fixture personas are fixed names — which means that once someone
+ * confirms a mock intake through /intake, `apply_intake` creates a real
+ * customer with that identity and Step B legitimately starts matching it.
+ * Any assertion that depends on "this persona is unknown" then goes red on
+ * a database people actually use.
+ *
+ * `persona` lets a caller (in practice, scripts/smoke_intake_pipeline.ts)
+ * substitute a unique per-run identity so matching can never collide with
+ * real records. It is honoured in mock mode only.
+ */
 export function mockIntakeExtraction(
   key: IntakeMockKey = "whatsapp_new_job",
+  persona?: MockPersonaOverride,
 ): IntakeExtraction {
-  return FIXTURES[key];
+  const fixture = FIXTURES[key];
+  if (!persona || (!persona.contact_name && !persona.phone)) return fixture;
+  return {
+    ...fixture,
+    contact_name: persona.contact_name ?? fixture.contact_name,
+    phone: persona.phone ?? fixture.phone,
+  };
 }
 
 export function isMockKey(v: string | null | undefined): v is IntakeMockKey {

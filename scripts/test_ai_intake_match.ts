@@ -21,6 +21,16 @@ import type { IntakeExtraction } from "@/lib/intake/types";
 
 const PREFIX = "__MATCH__";
 
+// Per-run phone for the exact-phone case. A fixed number is not safe: the
+// mock intake persona in lib/intake/mock.ts becomes a real customer as soon
+// as anyone confirms that intake through /intake, and an exact-phone lookup
+// then matches the real record instead of this test's own fixture. Reserved
+// 999 exchange + the run stamp's last four digits cannot collide with
+// seeded or real data. Same pattern as scripts/smoke_intake_pipeline.ts.
+const RUN_STAMP = String(Date.now());
+const PHONE_EXACT = `(555) 999-${RUN_STAMP.slice(-4)}`;
+const PHONE_EXACT_DIGITS = PHONE_EXACT.replace(/[^0-9]/g, "");
+
 function admin(): SupabaseClient {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -69,13 +79,8 @@ async function main() {
   const { data: customers } = await sb
     .from("customers")
     .insert([
-      // Case 1 target: exact phone. Uses the reserved 999 exchange so it
-      // cannot collide with real customer records. The previous number,
-      // (555) 411-8823, belongs to the mock intake persona in
-      // lib/intake/mock.ts — confirming that intake through /intake creates
-      // a real Amelia Ross customer, and this assertion then matched her
-      // instead of its own __MATCH__ fixture.
-      { org_id: org.id, name: `${PREFIX}Amelia Ross`, phone: "(555) 999-8823" },
+      // Case 1 target: exact phone — see PHONE_EXACT above.
+      { org_id: org.id, name: `${PREFIX}Amelia Ross`, phone: PHONE_EXACT },
       // Case 2 target: fuzzy name (test uses "Sara Jonson")
       { org_id: org.id, name: `${PREFIX}Sarah Johnson`, phone: "555-201-3344" },
       // Case 4 target: ambiguous — two customers named "John Smith"
@@ -103,7 +108,7 @@ async function main() {
   const r1 = await runMatches(
     sb,
     org.id,
-    baseExtraction({ phone: "5559998823" }),
+    baseExtraction({ phone: PHONE_EXACT_DIGITS }),
   );
   checks.push([
     "1. exact phone match hits high tier",

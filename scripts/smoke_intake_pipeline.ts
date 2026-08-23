@@ -15,6 +15,21 @@ import { createClient } from "@supabase/supabase-js";
 
 const NAME_PREFIX = "__SMOKE_INTAKE__";
 
+// Per-run persona. The canned fixture in lib/intake/mock.ts uses a fixed
+// identity (Amelia Ross), and once that intake is confirmed through /intake
+// `apply_intake` creates a real customer with it — after which Step B
+// correctly matches the real record and the "proposal includes
+// create_customer" assertion below legitimately stops holding. Overriding
+// the persona per run keeps the assertion about pipeline behaviour rather
+// than about database contents. Same reasoning as the __MATCH__ prefixing
+// in scripts/test_ai_intake_match.ts (TODO.md TASK7-FOLLOWUP-01).
+const CUSTOMER_PREFIX = "__SMOKE__";
+const RUN_STAMP = String(Date.now());
+const PERSONA_NAME = `${CUSTOMER_PREFIX}Amelia_${RUN_STAMP}`;
+// Reserved 999 exchange, last four digits of the run stamp — cannot collide
+// with seeded or real customer phone numbers.
+const PERSONA_PHONE = `(555) 999-${RUN_STAMP.slice(-4)}`;
+
 function mintInternalToken(intakeId: string): string {
   const secret =
     process.env.EXTRACTION_INTERNAL_SECRET ||
@@ -39,6 +54,11 @@ async function cleanup(): Promise<void> {
     .from("ai_intake_events")
     .delete()
     .ilike("storage_path", `%${NAME_PREFIX}%`);
+  // This smoke stops at the proposal and never applies, so no customer
+  // should exist. Defensive: if the smoke ever grows an apply step, or a
+  // previous run was interrupted mid-apply, don't leave personas behind
+  // for the next run to match against.
+  await sb.from("customers").delete().ilike("name", `${CUSTOMER_PREFIX}%`);
 }
 
 async function main() {
@@ -85,7 +105,9 @@ async function main() {
   // per PLAN Q8).
   const token = mintInternalToken(seeded.id);
   const res = await fetch(
-    `${devUrl}/api/intake/${seeded.id}?fixture=whatsapp_new_job`,
+    `${devUrl}/api/intake/${seeded.id}?fixture=whatsapp_new_job` +
+      `&persona_name=${encodeURIComponent(PERSONA_NAME)}` +
+      `&persona_phone=${encodeURIComponent(PERSONA_PHONE)}`,
     {
       method: "POST",
       headers: { Authorization: `Internal ${token}` },

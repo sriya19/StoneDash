@@ -4,21 +4,27 @@ Tickets deliberately deferred out of a PR to keep it reviewable. Pick up when th
 
 ---
 
-## TASK7-FOLLOWUP-01 — Harden the ai_intake match test against phone collisions
+## ~~TASK7-FOLLOWUP-01~~ — CLOSED: ai_intake match test phone collision
 
-Harden `scripts/test_ai_intake_match.ts` to scope its exact-phone assertion to prefixed rows (`__MATCH__%`) so it doesn't collide with real customer records. The current fix (commit `46cdf60`, using the reserved 999 exchange) is a workaround; scoping the assertion is the durable fix.
+**Addressed via per-run persona.** `scripts/test_ai_intake_match.ts` now builds its exact-phone fixture from the reserved 999 exchange plus the run stamp's last four digits, so no fixed number exists to collide with.
 
-Small task, ~30 min. Not urgent.
+Originally filed against commit `46cdf60`, which switched to a fixed `(555) 999-8823`. That removed the immediate collision but left another fixed number in place. The per-run form is the durable fix — note the originally-proposed remedy ("scope the assertion to `__MATCH__%` rows") would not actually have worked: `runMatches` searches all customers, so the test cannot restrict what the matcher sees.
 
-## TASK7-FOLLOWUP-02 — `smoke_intake_pipeline` assertion is state-dependent
+## ~~TASK7-FOLLOWUP-02~~ — CLOSED: `smoke_intake_pipeline` assertion was state-dependent
 
-`scripts/smoke_intake_pipeline.ts` asserts that a fresh mock intake proposes `create_customer`. That only holds while no customer matches the mock fixture persona in `lib/intake/mock.ts` (Amelia Ross, `(555) 411-8823`). Once anyone confirms that mock intake through `/intake`, `apply_intake` creates a real Amelia Ross and the matcher correctly matches her — so the proposal legitimately contains no `create_customer` and the smoke goes red.
+**Addressed via per-run persona.** `scripts/smoke_intake_pipeline.ts` asserted that a fresh mock intake proposes `create_customer`. That held only while no customer matched the fixture persona in `lib/intake/mock.ts` (Amelia Ross, `(555) 411-8823`). Once that intake was confirmed through `/intake` on 2026-08-22, `apply_intake` created a real Amelia Ross, Step B correctly matched her, and the proposal legitimately contained no `create_customer`.
 
-The matcher is right; the assertion is wrong. It encodes "this persona has never been onboarded", which is not an invariant of a database people actually use.
+The matcher was right; the assertion was wrong — it encoded "this persona has never been onboarded", which is not an invariant of a database people actually use.
 
-**Options:** give the pipeline smoke a unique per-run persona (name + phone suffixed with the run timestamp) so it can never match existing data — preferred, mirrors what FOLLOWUP-01 does for the match test; or relax the assertion to "proposal is non-empty and internally consistent" rather than naming a specific action type.
+Fixed by giving the smoke a unique identity per run (`__SMOKE__Amelia_${stamp}` / `(555) 999-${stamp4}`), passed to the mock route via `persona_name` / `persona_phone` query params honoured in mock mode only. `mockIntakeExtraction()` gained an optional persona override to support it. Cleanup also deletes `__SMOKE__%` customers defensively, in case the smoke ever grows an apply step.
 
-Blocks `pnpm smoke` from going fully green on any database where the mock intake has been confirmed. ~45 min.
+## TASK7-FOLLOWUP-03 — Mock-intake personas exist as real customers in the demo org
+
+The seeded demo org's `customers` table now contains mock-intake personas as real rows, because they were confirmed through `/intake` during first-use testing on 2026-08-22: **Amelia Ross** `(555) 411-8823`, **Dee Mourateedes**, **Maria Gocso**. All three were created by the Demo Owner account via `apply_intake`, alongside four `confirmed` `ai_intake_events` (the seed ships one).
+
+Before onboarding Top Marble's real production data, clean these out with a targeted `DELETE`, or clear-and-re-seed the demo org.
+
+Not urgent, and not a correctness problem — the tests no longer depend on their absence (FOLLOWUP-01, -02). It is a tidiness issue that becomes a data-quality one the moment the demo org stops being purely demo.
 
 ---
 

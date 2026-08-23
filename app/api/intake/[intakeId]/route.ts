@@ -134,7 +134,20 @@ export async function POST(
 
     if (mocked) {
       const key = isMockKey(fixtureParam) ? fixtureParam : "whatsapp_new_job";
-      extraction = mockIntakeExtraction(key);
+      // Mock-mode-only persona override, so the intake smoke can run a
+      // unique identity per run and never collide with real customer
+      // records created by earlier /intake confirmations.
+      const personaName = url.searchParams.get("persona_name");
+      const personaPhone = url.searchParams.get("persona_phone");
+      extraction = mockIntakeExtraction(
+        key,
+        personaName || personaPhone
+          ? {
+              contact_name: personaName ?? undefined,
+              phone: personaPhone ?? undefined,
+            }
+          : undefined,
+      );
       rawResponse = { mocked: true, fixture: key };
     } else {
       // Download screenshot bytes.
