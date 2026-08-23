@@ -4,6 +4,32 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)
+
+The Send-to-crew modal shipped in Task 3 looks like it sends messages and doesn't. Everything in this task either stops that lie, removes the retyping around it, or captures the evidence that would justify real messaging in Task 8.
+
+See `PLAN.md` for 15 Q-locks. Four were blockers found while grounding the brief against the codebase, all approved with fixes: `{{shop_phone}}` had no source column (Q1); the referrer-restricted browser Maps key cannot sign server-side calls (Q2); HTML-escaping the renderer would corrupt SMS text and emoji (Q5); ETA staleness needed its own timestamp column (Q11). Three approved deviations: extend the existing Shop tab rather than add a section (Q3), no `activity_log` row per message send (Q13), ten sub-steps rather than thirteen (Q14).
+
+### Sub-step 1 — Migration 0025: messaging schema (complete)
+
+**`0025_messaging.sql`** — two new tables, three altered:
+
+- **`message_templates`** — `UNIQUE (org_id, slug)` is the whole design. System defaults ship from the seed with `is_system_default=true`; an org edit replaces that row for that org; "reset to default" is a DELETE that lets the seed's canonical copy be restored. CHECKs on `audience`, non-blank `slug`, non-blank `body`. `tg_set_updated_at` trigger. RLS: SELECT `is_org_member` (field crew need to see which template a message came from), writes `org_role IN ('owner','admin','manager')` — the `contractors` shape from 0011.
+- **`message_send_log`** — append-only. RLS per Q4: rather than funnel writes through a `SECURITY DEFINER` RPC (the `contractor_payments` shape), this is a plain INSERT gated on `is_org_member(org_id) AND sender_id = auth.uid()`, so a member cannot forge entries attributed to a colleague. There is **no** UPDATE or DELETE policy at all, plus `REVOKE UPDATE, DELETE` — belt and suspenders, same posture 0011 took. Real immutability without an RPC for what is a plain append. Three indexes per the brief; the event/order ones are partial (`WHERE … IS NOT NULL`) since most rows carry only one.
+- **`orders`** — `site_contact_name/phone/email`, plus `estimated_travel_min`, `estimated_travel_meters`, `estimated_travel_computed_at`. The timestamp exists because `orders.updated_at` moves on every unrelated edit: a stage change would make a stale ETA look fresh and an untouched order would never go stale, so `ETA_STALE_HOURS` (72) has to compare against a column that only the ETA writer touches. `estimated_travel_meters` is persisted because `message_send_log.metadata` records `distance_meters` — not storing it would mean paying for a second Routes API call to recover a number the first call already returned. Sanity CHECKs: minutes in `[0, 1440]`, meters `>= 0`.
+- **`crew_members`** — `is_favorite` + partial index `(org_id) WHERE is_favorite`. The 5-per-org cap is deliberately **not** a DB constraint (Q9): "at most 5 rows per org" isn't expressible as unique or check, a trigger is disproportionate for a cosmetic picker limit, and the blast radius of losing the race is a sixth chip in a list. Task 6A took the opposite tradeoff for customer collisions because duplicate customers are real data corruption; this isn't.
+- **`organizations`** — `phone` plus four shop address columns. `phone` is org-level rather than `profiles.phone` because the number a customer is told to call must not change with whichever manager clicked Send.
+
+**Audit triggers on `message_templates` only.** Per Q13, `message_send_log` is itself the audit record for sends; mirroring 30 sends/day into `activity_log` would bury stage changes and payments in the dashboard feed. Template edits *are* config changes and do log. Three triggers following the 0018 shape: after-insert (skipping `is_system_default` rows so seeding an org doesn't emit six feed entries), after-update (only when `body` or `is_active` actually changed), and a before-delete cleanup mirroring 0006 so an org cascade can't trip the AFTER DELETE trigger against an already-deleted parent.
+
+**Prisma** — hand-edited rather than `db:pull`. The schema had already drifted: none of Task 5/6's tables (`file_extractions`, `ai_intake_events`, `reminders`) are in it, so an introspection would have swept all three into this commit alongside the messaging work. Two new models plus four altered, `prisma format` + `validate` clean, client regenerated.
+
+**Verification.** `supabase db push` applied cleanly; `supabase migration list` shows `0025 | 0025`. typecheck / lint / build green (22/22 pages). `pnpm smoke`: 33/33 SSR routes, 3/3 DOM assertions, all import stages green.
+
+**One pre-existing smoke failure surfaced, unrelated to this migration.** `scripts/smoke_intake_pipeline.ts` asserts that a fresh mock intake proposes `create_customer`. That only holds while no customer matches the mock fixture persona. On 2026-08-23 the Demo Owner account confirmed three intakes through `/intake`, and `apply_intake` created Amelia Ross, Dee Mourateedes and Maria Gocso as real customers — so the matcher now correctly matches the mock persona and the proposal legitimately contains no `create_customer`. The assertion, not the matcher, is what's wrong. Tracked as TASK7-FOLLOWUP-02; the sibling collision in `test_ai_intake_match.ts` was fixed separately in `46cdf60`.
+
+---
+
 ## Workflow discipline — migration commits (2026-08-22)
 
 Surfaced during a fresh-machine environment verification, not during feature work. Recording it because the failure was silent across two full tasks and nothing in the repo signalled it — `pnpm typecheck` / `lint` / `build` / `smoke` were all green the entire time.

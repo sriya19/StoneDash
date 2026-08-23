@@ -70,55 +70,62 @@ enum AttachmentKind {
 // ===========================================================================
 
 model Organization {
-  id             String   @id @default(uuid()) @db.Uuid
-  name           String
-  slug           String   @unique
-  logoUrl        String?  @map("logo_url")
-  timezone       String   @default("America/New_York")
-  currency       String   @default("USD")
-  orderPrefix    String   @map("order_prefix")
-  orderSeqStart  Int      @default(1000) @map("order_seq_start")
-  ownerId        String   @map("owner_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String
+  slug             String   @unique
+  logoUrl          String?  @map("logo_url")
+  timezone         String   @default("America/New_York")
+  currency         String   @default("USD")
+  orderPrefix      String   @map("order_prefix")
+  orderSeqStart    Int      @default(1000) @map("order_seq_start")
+  ownerId          String   @map("owner_id") @db.Uuid
+  phone            String?
+  shopAddressLine1 String?  @map("shop_address_line1")
+  shopCity         String?  @map("shop_city")
+  shopState        String?  @map("shop_state")
+  shopPostalCode   String?  @map("shop_postal_code")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
-  members      OrgMember[]
-  customers    Customer[]
-  contractors  Contractor[]
-  orders       Order[]
-  attachments  OrderAttachment[]
-  payments     ContractorPayment[]
-  crewMembers  CrewMember[]
-  orderEvents  OrderEvent[]
-  shareLinks   EventShareLink[]
-  activity     ActivityLog[]
-  sequence     OrgOrderSeq?
+  members     OrgMember[]
+  customers   Customer[]
+  contractors Contractor[]
+  orders      Order[]
+  attachments OrderAttachment[]
+  payments    ContractorPayment[]
+  crewMembers CrewMember[]
+  orderEvents OrderEvent[]
+  shareLinks  EventShareLink[]
+  activity    ActivityLog[]
+  sequence    OrgOrderSeq?
+  templates   MessageTemplate[]
+  sendLog     MessageSendLog[]
 
   @@map("organizations")
 }
 
 model Profile {
-  id           String   @id @db.Uuid
-  fullName     String?  @map("full_name")
-  avatarUrl    String?  @map("avatar_url")
-  phone        String?
-  activeOrgId  String?  @map("active_org_id") @db.Uuid
-  theme        String   @default("light")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  id          String   @id @db.Uuid
+  fullName    String?  @map("full_name")
+  avatarUrl   String?  @map("avatar_url")
+  phone       String?
+  activeOrgId String?  @map("active_org_id") @db.Uuid
+  theme       String   @default("light")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   @@map("profiles")
 }
 
 model OrgMember {
-  id                String     @id @default(uuid()) @db.Uuid
-  orgId             String     @map("org_id") @db.Uuid
-  userId            String?    @map("user_id") @db.Uuid
-  role              MemberRole @default(manager)
-  invitedEmail      String?    @map("invited_email")
-  inviteToken       String?    @unique @map("invite_token")
-  inviteAcceptedAt  DateTime?  @map("invite_accepted_at") @db.Timestamptz
-  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  id               String     @id @default(uuid()) @db.Uuid
+  orgId            String     @map("org_id") @db.Uuid
+  userId           String?    @map("user_id") @db.Uuid
+  role             MemberRole @default(manager)
+  invitedEmail     String?    @map("invited_email")
+  inviteToken      String?    @unique @map("invite_token")
+  inviteAcceptedAt DateTime?  @map("invite_accepted_at") @db.Timestamptz
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -129,21 +136,21 @@ model OrgMember {
 }
 
 model Customer {
-  id            String   @id @default(uuid()) @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
-  name          String
-  company       String?
-  email         String?
-  phone         String?
-  addressLine1  String?  @map("address_line1")
-  addressLine2  String?  @map("address_line2")
-  city          String?
-  state         String?
-  postalCode    String?  @map("postal_code")
-  notes         String?
-  createdBy     String?  @map("created_by") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  name         String
+  company      String?
+  email        String?
+  phone        String?
+  addressLine1 String?  @map("address_line1")
+  addressLine2 String?  @map("address_line2")
+  city         String?
+  state        String?
+  postalCode   String?  @map("postal_code")
+  notes        String?
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   orders       Order[]
@@ -153,39 +160,46 @@ model Customer {
 }
 
 model Order {
-  id                      String        @id @default(uuid()) @db.Uuid
-  orgId                   String        @map("org_id") @db.Uuid
-  orderNumber             String        @map("order_number")
-  customerId              String?       @map("customer_id") @db.Uuid
-  contractorId            String?       @map("contractor_id") @db.Uuid
-  projectName             String?       @map("project_name")
-  stage                   OrderStage    @default(quote)
-  priority                OrderPriority @default(normal)
-  stoneType               String?       @map("stone_type")
-  edgeProfile             String?       @map("edge_profile")
-  sinkCutouts             Int           @default(0) @map("sink_cutouts")
-  cooktopCutouts          Int           @default(0) @map("cooktop_cutouts")
-  estimatedSqft           Decimal?      @map("estimated_sqft") @db.Decimal
-  quoteAmount             Decimal?      @map("quote_amount") @db.Decimal
-  depositReceived         Decimal       @default(0) @map("deposit_received") @db.Decimal
-  balanceDue              Decimal       @default(0) @map("balance_due") @db.Decimal
-  measuredAt              DateTime?     @map("measured_at") @db.Date
-  fabricationStartDate    DateTime?     @map("fabrication_start_date") @db.Date
-  scheduledInstallDate    DateTime?     @map("scheduled_install_date") @db.Date
-  installedAt             DateTime?     @map("installed_at") @db.Date
-  notes                   String?
-  createdBy               String?       @map("created_by") @db.Uuid
-  assignedTo              String?       @map("assigned_to") @db.Uuid
-  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt               DateTime      @default(now()) @map("updated_at") @db.Timestamptz
+  id                        String        @id @default(uuid()) @db.Uuid
+  orgId                     String        @map("org_id") @db.Uuid
+  orderNumber               String        @map("order_number")
+  customerId                String?       @map("customer_id") @db.Uuid
+  contractorId              String?       @map("contractor_id") @db.Uuid
+  projectName               String?       @map("project_name")
+  stage                     OrderStage    @default(quote)
+  priority                  OrderPriority @default(normal)
+  stoneType                 String?       @map("stone_type")
+  edgeProfile               String?       @map("edge_profile")
+  sinkCutouts               Int           @default(0) @map("sink_cutouts")
+  cooktopCutouts            Int           @default(0) @map("cooktop_cutouts")
+  estimatedSqft             Decimal?      @map("estimated_sqft") @db.Decimal
+  quoteAmount               Decimal?      @map("quote_amount") @db.Decimal
+  depositReceived           Decimal       @default(0) @map("deposit_received") @db.Decimal
+  balanceDue                Decimal       @default(0) @map("balance_due") @db.Decimal
+  measuredAt                DateTime?     @map("measured_at") @db.Date
+  fabricationStartDate      DateTime?     @map("fabrication_start_date") @db.Date
+  scheduledInstallDate      DateTime?     @map("scheduled_install_date") @db.Date
+  installedAt               DateTime?     @map("installed_at") @db.Date
+  notes                     String?
+  siteContactName           String?       @map("site_contact_name")
+  siteContactPhone          String?       @map("site_contact_phone")
+  siteContactEmail          String?       @map("site_contact_email")
+  estimatedTravelMin        Int?          @map("estimated_travel_min")
+  estimatedTravelMeters     Int?          @map("estimated_travel_meters")
+  estimatedTravelComputedAt DateTime?     @map("estimated_travel_computed_at") @db.Timestamptz
+  createdBy                 String?       @map("created_by") @db.Uuid
+  assignedTo                String?       @map("assigned_to") @db.Uuid
+  createdAt                 DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime      @default(now()) @map("updated_at") @db.Timestamptz
 
-  organization  Organization                     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  customer      Customer?                        @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  contractor    Contractor?                      @relation(fields: [contractorId], references: [id], onDelete: SetNull)
-  stageHistory  OrderStageHistory[]
-  attachments   OrderAttachment[]
-  allocations   ContractorPaymentAllocation[]
-  events        OrderEvent[]
+  organization Organization                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  customer     Customer?                     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contractor   Contractor?                   @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  stageHistory OrderStageHistory[]
+  attachments  OrderAttachment[]
+  allocations  ContractorPaymentAllocation[]
+  events       OrderEvent[]
+  sendLog      MessageSendLog[]
 
   @@unique([orgId, orderNumber])
   @@index([orgId, stage])
@@ -224,16 +238,16 @@ model Contractor {
 }
 
 model ContractorPayment {
-  id            String   @id @default(uuid()) @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
-  contractorId  String   @map("contractor_id") @db.Uuid
-  amount        Decimal  @db.Decimal(12, 2)
-  receivedOn    DateTime @map("received_on") @db.Date
-  method        String?
-  reference     String?
-  notes         String?
-  createdBy     String?  @map("created_by") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  contractorId String   @map("contractor_id") @db.Uuid
+  amount       Decimal  @db.Decimal(12, 2)
+  receivedOn   DateTime @map("received_on") @db.Date
+  method       String?
+  reference    String?
+  notes        String?
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization Organization                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   contractor   Contractor                    @relation(fields: [contractorId], references: [id], onDelete: Cascade)
@@ -244,11 +258,11 @@ model ContractorPayment {
 }
 
 model ContractorPaymentAllocation {
-  id         String   @id @default(uuid()) @db.Uuid
-  paymentId  String   @map("payment_id") @db.Uuid
-  orderId    String   @map("order_id") @db.Uuid
-  amount     Decimal  @db.Decimal(12, 2)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id        String   @id @default(uuid()) @db.Uuid
+  paymentId String   @map("payment_id") @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  amount    Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   payment ContractorPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -260,13 +274,13 @@ model ContractorPaymentAllocation {
 }
 
 model OrderStageHistory {
-  id         String      @id @default(uuid()) @db.Uuid
-  orderId    String      @map("order_id") @db.Uuid
-  fromStage  OrderStage? @map("from_stage")
-  toStage    OrderStage  @map("to_stage")
-  changedBy  String?     @map("changed_by") @db.Uuid
-  note       String?
-  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  id        String      @id @default(uuid()) @db.Uuid
+  orderId   String      @map("order_id") @db.Uuid
+  fromStage OrderStage? @map("from_stage")
+  toStage   OrderStage  @map("to_stage")
+  changedBy String?     @map("changed_by") @db.Uuid
+  note      String?
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -275,16 +289,16 @@ model OrderStageHistory {
 }
 
 model OrderAttachment {
-  id            String         @id @default(uuid()) @db.Uuid
-  orgId         String         @map("org_id") @db.Uuid
-  orderId       String         @map("order_id") @db.Uuid
-  storagePath   String         @map("storage_path")
-  originalName  String?        @map("original_name")
-  mime          String?
-  sizeBytes     BigInt?        @map("size_bytes")
-  kind          AttachmentKind @default(other)
-  uploadedBy    String?        @map("uploaded_by") @db.Uuid
-  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  id           String         @id @default(uuid()) @db.Uuid
+  orgId        String         @map("org_id") @db.Uuid
+  orderId      String         @map("order_id") @db.Uuid
+  storagePath  String         @map("storage_path")
+  originalName String?        @map("original_name")
+  mime         String?
+  sizeBytes    BigInt?        @map("size_bytes")
+  kind         AttachmentKind @default(other)
+  uploadedBy   String?        @map("uploaded_by") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -295,14 +309,14 @@ model OrderAttachment {
 }
 
 model ActivityLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  orgId       String   @map("org_id") @db.Uuid
-  actorId     String?  @map("actor_id") @db.Uuid
-  entityType  String   @map("entity_type")
-  entityId    String?  @map("entity_id") @db.Uuid
-  action      String
-  metadata    Json     @default("{}")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  action     String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -312,8 +326,8 @@ model ActivityLog {
 }
 
 model OrgOrderSeq {
-  orgId    String @id @map("org_id") @db.Uuid
-  nextSeq  Int    @map("next_seq")
+  orgId   String @id @map("org_id") @db.Uuid
+  nextSeq Int    @map("next_seq")
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -333,12 +347,13 @@ model CrewMember {
   role       String?
   notes      String?
   isActive   Boolean  @default(true) @map("is_active")
+  isFavorite Boolean  @default(false) @map("is_favorite")
   userId     String?  @map("user_id") @db.Uuid
   createdBy  String?  @map("created_by") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
-  organization Organization            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organization Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
   assignments  OrderEventAssignment[]
 
   @@index([orgId, isActive])
@@ -346,27 +361,28 @@ model CrewMember {
 }
 
 model OrderEvent {
-  id            String   @id @default(uuid()) @db.Uuid
-  orgId         String   @map("org_id") @db.Uuid
-  orderId       String?  @map("order_id") @db.Uuid
-  kind          String
-  status        String   @default("scheduled")
-  title         String?
-  isAllDay      Boolean  @default(false) @map("is_all_day")
-  startsAt      DateTime @map("starts_at") @db.Timestamptz
-  durationMin   Int      @default(60) @map("duration_min")
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  orderId      String?  @map("order_id") @db.Uuid
+  kind         String
+  status       String   @default("scheduled")
+  title        String?
+  isAllDay     Boolean  @default(false) @map("is_all_day")
+  startsAt     DateTime @map("starts_at") @db.Timestamptz
+  durationMin  Int      @default(60) @map("duration_min")
   // endsAt is a STORED generated column in Postgres; not introspectable by
   // Prisma. Read it via raw queries / Supabase client when needed.
-  locationText  String?  @map("location_text")
-  notes         String?
-  createdBy     String?  @map("created_by") @db.Uuid
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  locationText String?  @map("location_text")
+  notes        String?
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   organization Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
   order        Order?                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
   assignments  OrderEventAssignment[]
   shareLinks   EventShareLink[]
+  sendLog      MessageSendLog[]
 
   @@index([orgId, startsAt])
   @@index([orderId])
@@ -375,14 +391,14 @@ model OrderEvent {
 }
 
 model OrderEventAssignment {
-  id            String   @id @default(uuid()) @db.Uuid
-  eventId       String   @map("event_id") @db.Uuid
-  crewMemberId  String   @map("crew_member_id") @db.Uuid
-  role          String?
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id           String   @id @default(uuid()) @db.Uuid
+  eventId      String   @map("event_id") @db.Uuid
+  crewMemberId String   @map("crew_member_id") @db.Uuid
+  role         String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  event       OrderEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  crewMember  CrewMember @relation(fields: [crewMemberId], references: [id], onDelete: Cascade)
+  event      OrderEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  crewMember CrewMember @relation(fields: [crewMemberId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, crewMemberId])
   @@index([eventId])
@@ -391,18 +407,64 @@ model OrderEventAssignment {
 }
 
 model EventShareLink {
-  id            String    @id @default(uuid()) @db.Uuid
-  orgId         String    @map("org_id") @db.Uuid
-  eventId       String    @map("event_id") @db.Uuid
-  slug          String    @unique
-  createdBy     String?   @map("created_by") @db.Uuid
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz
-  lastOpenedAt  DateTime? @map("last_opened_at") @db.Timestamptz
+  id           String    @id @default(uuid()) @db.Uuid
+  orgId        String    @map("org_id") @db.Uuid
+  eventId      String    @map("event_id") @db.Uuid
+  slug         String    @unique
+  createdBy    String?   @map("created_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz
+  lastOpenedAt DateTime? @map("last_opened_at") @db.Timestamptz
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   event        OrderEvent   @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([orgId, eventId])
   @@map("event_share_links")
+}
+
+model MessageTemplate {
+  id              String   @id @default(uuid()) @db.Uuid
+  orgId           String   @map("org_id") @db.Uuid
+  slug            String
+  audience        String
+  title           String
+  body            String
+  isSystemDefault Boolean  @default(false) @map("is_system_default")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdBy       String?  @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, slug])
+  @@index([orgId, audience])
+  @@map("message_templates")
+}
+
+model MessageSendLog {
+  id                String   @id @default(uuid()) @db.Uuid
+  orgId             String   @map("org_id") @db.Uuid
+  senderId          String?  @map("sender_id") @db.Uuid
+  templateSlug      String?  @map("template_slug")
+  audience          String?
+  channel           String
+  eventId           String?  @map("event_id") @db.Uuid
+  orderId           String?  @map("order_id") @db.Uuid
+  recipientKind     String?  @map("recipient_kind")
+  recipientId       String?  @map("recipient_id") @db.Uuid
+  recipientSnapshot Json     @default("{}") @map("recipient_snapshot")
+  messageBody       String   @default("") @map("message_body")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  event        OrderEvent?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  order        Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([eventId])
+  @@index([orderId])
+  @@map("message_send_log")
 }
