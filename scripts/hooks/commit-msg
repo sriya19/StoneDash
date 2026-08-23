@@ -1,0 +1,50 @@
+#!/bin/sh
+# Guard against the Task 5/6 migration drift: a commit that talks about a
+# migration must actually contain migration SQL.
+#
+# Install:  cp scripts/hooks/commit-msg .git/hooks/commit-msg
+#           chmod +x .git/hooks/commit-msg
+# Bypass:   add [skip-migration-check] to the message, or commit --no-verify
+#
+# Background: migrations 0018-0024 were applied to the hosted database and
+# never committed. The SQL existed only in the live DB until it was
+# recovered weeks later from supabase_migrations.schema_migrations.
+# See DEVLOG.md > "Workflow discipline — migration commits".
+
+msg_file="$1"
+
+# Strip comment lines so the template's "# Please enter..." can't match.
+body=$(grep -v '^#' "$msg_file")
+
+# Explicit opt-out for commits that legitimately discuss migrations
+# without changing them (docs, retrospectives, the DEVLOG entry itself).
+case "$body" in
+  *'[skip-migration-check]'*) exit 0 ;;
+esac
+
+# Only enforce when the message actually talks about a migration.
+if ! printf '%s' "$body" | grep -qiE '\bmigrations?\b'; then
+  exit 0
+fi
+
+# Staged SQL under supabase/migrations/ satisfies the check.
+if git diff --cached --name-only --diff-filter=ACMR \
+    | grep -qE '^supabase/migrations/.*\.sql$'; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+✗ Commit rejected: the message mentions a migration, but no
+  supabase/migrations/*.sql file is staged.
+
+  This is the Task 5/6 drift guard. Migrations 0018-0024 were applied
+  to the hosted database and never committed; the SQL existed only in
+  the live DB until it was recovered weeks later.
+
+  Fix:    git add supabase/migrations/NNNN_*.sql
+  Check:  git status --short supabase/migrations/
+
+  If this commit genuinely only discusses migrations without changing
+  them, add [skip-migration-check] to the message.
+EOF
+exit 1

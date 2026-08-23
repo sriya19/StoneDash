@@ -51,6 +51,8 @@ pnpm install
 `postinstall` runs `prisma generate`, so the Prisma client is ready
 before the first `pnpm dev`.
 
+Install the migration-drift guard: `cp scripts/hooks/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg`
+
 ### 2. Create a Supabase project
 
 1. Visit <https://supabase.com/dashboard> → **New project**.
