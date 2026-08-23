@@ -4,6 +4,152 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Workflow discipline — migration commits (2026-08-22)
+
+Surfaced during a fresh-machine environment verification, not during feature work. Recording it because the failure was silent across two full tasks and nothing in the repo signalled it — `pnpm typecheck` / `lint` / `build` / `smoke` were all green the entire time.
+
+### What was found
+
+On a clean clone, `supabase migration list` reported seven migrations applied to the hosted project with no file on disk:
+
+| Version | Name | On disk | Applied remotely |
+|---|---|---|---|
+| 0018 | `extractions` | ❌ | ✅ |
+| 0019 | `inline_customer_collision` | ❌ | ✅ |
+| 0020 | `event_color_and_pg_trgm` | ❌ | ✅ |
+| 0021 | `v_calendar_events_color` | ❌ | ✅ |
+| 0022 | `ai_intake` | ❌ | ✅ |
+| 0023 | `intake_match_rpcs` | ❌ | ✅ |
+| 0024 | `apply_intake_impl` | ❌ | ✅ |
+
+The repo stopped at `0017_scheduling_v2_rpcs`. The database was at `0024`. Local `main` was in sync with `origin/main`, so this was not a stale checkout.
+
+### The commit messages claimed otherwise
+
+Every commit across Tasks 5 and 6 whose message mentions a migration, and the number of `.sql` files actually in its diff:
+
+| Commit | Subject | `.sql` in diff |
+|---|---|---|
+| `0691dcd` | feat(extractions): **migration 0018** — file_extractions + reminders | **0** (PLAN.md only) |
+| `2c67d32` | feat(reminders): topbar bell + /reminders page + polling endpoint | **0** |
+| `27ef42f` | feat(orders): inline customer creation with collision detection | **0** |
+| `46bb216` | feat(events): color column + 'repair' kind + pg_trgm prerequisite | **0** |
+| `3680057` | feat(intake): **ai_intake_events schema** + apply_intake RPC scaffold | **0** |
+| `110482e` | feat(intake): Step B — pg_trgm matching + 6 unit tests | **0** |
+| `08133b9` | feat(intake): **apply_intake RPC body** + screenshot copy on confirm | **0** |
+| `de93b95` | docs+smoke: Task 6 wrap | **0** |
+
+`0691dcd` is the sharpest case: a commit titled *"migration 0018 — file_extractions + reminders"* whose entire diff is one file, `PLAN.md`. The others carry real TypeScript (`lib/supabase/types.ts`, `lib/actions/intake.ts`, validators) — the app-side half of each change landed, the schema half did not.
+
+### Scope — a clean break at 0017
+
+Every commit that has ever added a `supabase/migrations/*.sql` file:
+
+- **0001–0005** `5c1b858` · **0006** `a55cf01` · **0007** `e0c0951` · **0008** `c2ba8fa` · **0009** `de2bc12` · **0010** `1d8f53c` · **0011–0012** `37f8f97` · **0013–0015** `3125ecd` · **0016** `dcf636b` · **0017** `acac8d0`
+- **0018–0024** — `72d56cf` only, which is the recovery commit
+
+Tasks 1 through 3.1 committed migrations alongside the code that depended on them, every time. From 0018 onward it never happened once. The discipline didn't erode gradually; it stopped between `acac8d0` and `0691dcd`.
+
+### Why this mattered
+
+**PR #1's "recovery" was the first time migrations 0018–0024 entered version control at all.** Not a re-add after a bad merge, not a restore from a deleted branch — the initial commit of that SQL, weeks after the schema went live.
+
+Until then the only copy of that schema definition was the running Postgres instance. Losing Supabase access — account lockout, project deletion, a bad `db reset`, a billing lapse — would have made those seven migrations unrecoverable except by hand-reading the live database and reconstructing the DDL by inspection. Three tables, ~12 functions, triggers, indexes, and RLS policies, all reverse-engineered under pressure.
+
+`supabase db reset` was the sharpest edge: it rebuilds from disk. Run at any point before the recovery, it would have silently destroyed the extractions, event-color, and AI-intake schema, and the repo would have offered nothing to rebuild from.
+
+### How recovery was possible
+
+Supabase's `supabase_migrations.schema_migrations` stores each migration's original SQL in a `statements` text array, not merely a checksum. The seven files were reconstructed from that column, so they are the statements as executed — not a schema diff inferred from current state.
+
+`supabase db pull` was deliberately not used: it squashes everything into a single new migration with a fresh timestamp, discarding version numbers, names, and boundaries. Statement-level recovery preserved all three, plus the original authoring comments.
+
+Verified afterward: the recovered files are byte-identical (matching git blob hashes) to nothing — there was no prior repo copy to compare against. Their correctness rests on being the executed statements plus a passing `migration list` showing 0001–0024 aligned on both sides.
+
+### Mechanism — inferred, but well supported
+
+The migration files existed locally and were applied with the CLI, then never staged.
+
+Two pieces of evidence: the `schema_migrations` rows carry `version`, `name`, and `statements`, and that table is populated by `supabase db push`, not by the dashboard SQL editor — ad-hoc SQL run in the dashboard leaves no migration-history row. And the recovered SQL carries filename headers (`-- 0021_v_calendar_events_color.sql — Task 6B follow-up`), meaning the statements were authored as named files on disk before being pushed.
+
+So the sequence was: write `supabase/migrations/NNNN_name.sql` → `supabase db push` → the DB records it → `git add` the TypeScript and docs → commit → the `.sql` file is left untracked, and the next `git status` glance shows a clean-looking tree because attention has moved on.
+
+### Rule for future tasks
+
+**Any commit whose message mentions `migration NNNN` MUST show `supabase/migrations/NNNN_*.sql` in its diff. If it doesn't, the commit is a bug — the SQL wasn't staged.**
+
+Corollaries:
+
+- Schema and the code that depends on it belong in the same commit. A commit that adds a column and the action reading that column should not be separable — if the SQL is missing, the TypeScript is describing a table shape that no fresh clone can produce.
+- `supabase db push` succeeding is not evidence that anything was committed. It reads the working tree, not the index.
+- After any `db push`, run `git status` and confirm `supabase/migrations/` is empty of untracked files before committing.
+- Treat a mismatch between `ls supabase/migrations/` and `supabase migration list` as a release blocker, not a curiosity.
+
+### Proposed guard — a `commit-msg` hook (drafted, NOT installed)
+
+One correction to the obvious approach: this cannot be a `pre-commit` hook. `pre-commit` runs *before* the commit message exists, so it has no message to inspect. The hook that receives the message is `commit-msg`, which gets the message file as `$1` and can also read the staged index — both halves of the check.
+
+Draft, intended for `.git/hooks/commit-msg`:
+
+```sh
+#!/bin/sh
+# Guard against the Task 5/6 migration drift: a commit that talks about a
+# migration must actually contain migration SQL.
+#
+# Install:  cp scripts/hooks/commit-msg .git/hooks/commit-msg
+#           chmod +x .git/hooks/commit-msg
+# Bypass:   add [skip-migration-check] to the message, or commit --no-verify
+
+msg_file="$1"
+
+# Strip comment lines so the template's "# Please enter..." can't match.
+body=$(grep -v '^#' "$msg_file")
+
+# Explicit opt-out for commits that legitimately discuss migrations
+# without changing them (docs, retrospectives, this DEVLOG entry).
+case "$body" in
+  *'[skip-migration-check]'*) exit 0 ;;
+esac
+
+# Only enforce when the message actually talks about a migration.
+if ! printf '%s' "$body" | grep -qiE '\bmigrations?\b'; then
+  exit 0
+fi
+
+# Staged SQL under supabase/migrations/ satisfies the check.
+if git diff --cached --name-only --diff-filter=ACMR \
+    | grep -qE '^supabase/migrations/.*\.sql$'; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+✗ Commit rejected: the message mentions a migration, but no
+  supabase/migrations/*.sql file is staged.
+
+  This is the Task 5/6 drift guard. Migrations 0018-0024 were applied
+  to the hosted database and never committed; the SQL existed only in
+  the live DB until it was recovered weeks later.
+
+  Fix:    git add supabase/migrations/NNNN_*.sql
+  Check:  git status --short supabase/migrations/
+
+  If this commit genuinely only discusses migrations without changing
+  them, add [skip-migration-check] to the message.
+EOF
+exit 1
+```
+
+Known limits, worth weighing before installing:
+
+- **Word-match is coarse.** Any message containing "migration" trips it, including docs and retrospectives — hence the `[skip-migration-check]` escape hatch. Tightening to `migration [0-9]{4}` would cut false positives but miss `0691dcd`-style phrasing variants; the loose match plus an opt-out is the safer default.
+- **It does not verify the number matches.** A message saying "migration 0018" with `0019_*.sql` staged passes. Checking the specific number is possible but brittle against commits that legitimately land several migrations at once (`5c1b858` landed five, `3125ecd` three).
+- **`.git/hooks/` is not version-controlled.** Every clone must install it. Keeping the source at `scripts/hooks/commit-msg` and adding a `postinstall` copy step (or adopting husky) is the durable form — that's a separate decision, not part of this entry.
+- **`--no-verify` bypasses it entirely.** This is a guard against forgetting, not against intent.
+
+Not installed. Awaiting review.
+
+---
+
 ## Task 6 — Real-shop-use fixes + AI intake agent (2026-07-07)
 
 Three fixes surfaced now that real shop data is flowing through StoneDash:
