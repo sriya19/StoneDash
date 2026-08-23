@@ -69,8 +69,13 @@ async function main() {
   const { data: customers } = await sb
     .from("customers")
     .insert([
-      // Case 1 target: exact phone
-      { org_id: org.id, name: `${PREFIX}Amelia Ross`, phone: "(555) 411-8823" },
+      // Case 1 target: exact phone. Uses the reserved 999 exchange so it
+      // cannot collide with real customer records. The previous number,
+      // (555) 411-8823, belongs to the mock intake persona in
+      // lib/intake/mock.ts — confirming that intake through /intake creates
+      // a real Amelia Ross customer, and this assertion then matched her
+      // instead of its own __MATCH__ fixture.
+      { org_id: org.id, name: `${PREFIX}Amelia Ross`, phone: "(555) 999-8823" },
       // Case 2 target: fuzzy name (test uses "Sara Jonson")
       { org_id: org.id, name: `${PREFIX}Sarah Johnson`, phone: "555-201-3344" },
       // Case 4 target: ambiguous — two customers named "John Smith"
@@ -98,7 +103,7 @@ async function main() {
   const r1 = await runMatches(
     sb,
     org.id,
-    baseExtraction({ phone: "5554118823" }),
+    baseExtraction({ phone: "5559998823" }),
   );
   checks.push([
     "1. exact phone match hits high tier",
