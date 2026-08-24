@@ -36,6 +36,26 @@ Concretely: **Amelia Ross** `(555) 411-8823`, **Dee Mourateedes**, and **Maria G
 
 Worth recording as a general shape rather than a one-off: **confirming an AI intake writes real rows, so exercising the feature is indistinguishable from data entry.** Any test that assumes an identity is unknown will eventually go red on a database someone has actually used — which is precisely how both intake test failures in this sub-step arose. Tests own their fixtures per run; they do not get to assume what the database does not contain.
 
+### Sub-step 2 — System templates + renderer (complete)
+
+**`lib/messaging/system-templates.ts`** — the six shipped templates as a shared module rather than inline in the seed, so `scripts/test_message_templates.ts` exercises the real bodies instead of a copy that drifts. `ready_for_install` drops `{{next_openings}}` per Q10; the remaining five are verbatim from the brief.
+
+Seeded with `upsert(..., { onConflict: "org_id,slug" })`. That is deliberate rather than a plain insert: `message_templates` is UNIQUE on `(org_id, slug)`, and an org override occupies the same slug, so re-seeding restores the shipped body — which is exactly the semantics of "reset to default". No separate reset path is needed.
+
+**`lib/messaging/render-template.ts`** — pure, single-pass. Three decisions worth recording:
+
+- **No HTML escaping** (Q5). Output goes to a `<textarea>` value, the clipboard, and URL-encoded deep links; React escapes at render and `encodeURIComponent` handles the URL. Escaping here would put `Ben &amp; Jerry&#39;s` into an SMS and mangle `crew_dispatch`'s emoji.
+- **Single-pass substitution** is the actual injection defence. `String.replace` walks the source once and never re-scans what a replacement inserted, so a `customer_name` of `"{{shop_phone}}"` is emitted literally. Test 5 pins this.
+- **Empty placeholders get a tidy pass.** Without it, "…call {{shop_phone}}." renders as "call ." for an org with no phone. The tidy collapses space-before-punctuation, empty parens, doubled spaces, and label-only lines — but never newlines, because `crew_dispatch` is a six-line block whose structure is meaningful. Tests 8 and 9 pin both halves.
+
+**`lib/messaging/phone.ts`** — `digitsOnly()` as the TypeScript twin of the SQL `digits_only()` from 0019, tested for parity against known inputs so the two cannot drift. Plus the three deep-link builders, each returning `null` when there is no recipient rather than emitting a link that goes nowhere — the modal disables the button on `null`. `wa.me` over `whatsapp://` (Q7) so the link resolves to WhatsApp Web when the desktop app is absent; `sms:…?body=` per RFC 5724 (Q8).
+
+**13 unit tests** in a new `pnpm smoke:messaging` stage, chained into `pnpm smoke`. Beyond the ten planned: token matching is case-insensitive and tolerates inner whitespace, `templatePlaceholders()` enumeration, and the deep-link builders' null behaviour.
+
+Verified without a destructive re-seed: the six templates were upserted into the demo org through the same code path the seed uses, rather than running `pnpm db:seed`, which deletes and rebuilds the org and would have destroyed the manual `/intake` test data recorded above as FOLLOWUP-03.
+
+typecheck / lint / build green (22/22). `pnpm smoke` green across all seven stages.
+
 ---
 
 ## Workflow discipline — migration commits (2026-08-22)

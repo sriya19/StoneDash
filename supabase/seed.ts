@@ -16,6 +16,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "../lib/db";
 import { generateShareLinkSlug } from "../lib/share-link/slug";
+import { SYSTEM_TEMPLATES } from "../lib/messaging/system-templates";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -1016,6 +1017,24 @@ async function main() {
     }
   }
 
+  // Task 7 — system default message templates. Upserted on (org_id, slug)
+  // so re-seeding refreshes the canonical bodies without clobbering an org
+  // override's identity: an override shares the slug, so this restores it to
+  // the shipped text, which is exactly what "reset to default" means.
+  await admin.from("message_templates").upsert(
+    SYSTEM_TEMPLATES.map((t) => ({
+      org_id: org.id,
+      slug: t.slug,
+      audience: t.audience,
+      title: t.title,
+      body: t.body,
+      is_system_default: true,
+      is_active: true,
+      created_by: userId,
+    })),
+    { onConflict: "org_id,slug" },
+  );
+
   // eslint-disable-next-line no-console
   console.warn(
     `Seed complete. Demo logins:\n` +
@@ -1027,7 +1046,8 @@ async function main() {
       `${crewMembers.length} crew, ${upcomingInstalls.length} upcoming installs, ` +
       `${linksCreated} share links, 2 standalone events (1 task, 1 all-day), ` +
       `3 canned file_extractions (review + confirmed + failed) with 1 reminder, ` +
-      `2 canned ai_intake_events (review + confirmed).`,
+      `2 canned ai_intake_events (review + confirmed), ` +
+      `${SYSTEM_TEMPLATES.length} system message templates.`,
   );
 }
 
