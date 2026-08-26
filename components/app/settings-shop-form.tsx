@@ -63,6 +63,42 @@ export function SettingsShopForm({ initial }: Props) {
           Slug can&apos;t be changed yet; contact support if you need to migrate.
         </p>
       </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="s-phone">Shop phone</Label>
+        <Input id="s-phone" placeholder="(703) 555-0100" {...form.register("phone")} />
+        <p className="text-xs text-muted-foreground">
+          Used in customer messages — &ldquo;any last questions call …&rdquo;. Left
+          blank, that sentence just omits the number.
+        </p>
+      </div>
+
+      <div className="space-y-3 rounded-md border p-3">
+        <div>
+          <h3 className="text-sm font-medium">Shop address</h3>
+          <p className="text-xs text-muted-foreground">
+            The starting point for drive-time estimates on customer ETA
+            messages. Optional — without it you can still type an ETA by hand.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="s-addr1">Street address</Label>
+          <Input id="s-addr1" {...form.register("shopAddressLine1")} />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="s-city">City</Label>
+            <Input id="s-city" {...form.register("shopCity")} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="s-state">State</Label>
+            <Input id="s-state" {...form.register("shopState")} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="s-zip">Postal code</Label>
+            <Input id="s-zip" {...form.register("shopPostalCode")} />
+          </div>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="s-tz">Timezone</Label>

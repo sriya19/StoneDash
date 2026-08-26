@@ -64,6 +64,21 @@ export async function updateOrganization(
   }
   const { org } = await getCurrentUserAndOrg();
   const supabase = createSupabaseServerClient();
+
+  // Read the current address so we can tell whether it actually moved —
+  // Routes API is billed per call, so a save that only renamed the shop
+  // must not trigger a batch recompute (PLAN.md caching rules).
+  const { data: before } = await supabase
+    .from("organizations")
+    .select("shop_address_line1, shop_city, shop_state, shop_postal_code")
+    .eq("id", org.id)
+    .maybeSingle<{
+      shop_address_line1: string | null;
+      shop_city: string | null;
+      shop_state: string | null;
+      shop_postal_code: string | null;
+    }>();
+
   const { error } = await supabase
     .from("organizations")
     .update({
@@ -72,9 +87,32 @@ export async function updateOrganization(
       currency: parsed.data.currency,
       order_prefix: parsed.data.orderPrefix,
       order_seq_start: parsed.data.orderSeqStart,
+      phone: parsed.data.phone ?? null,
+      shop_address_line1: parsed.data.shopAddressLine1 ?? null,
+      shop_city: parsed.data.shopCity ?? null,
+      shop_state: parsed.data.shopState ?? null,
+      shop_postal_code: parsed.data.shopPostalCode ?? null,
     })
     .eq("id", org.id);
   if (error) return { ok: false, error: error.message };
+
+  const addressChanged =
+    (before?.shop_address_line1 ?? null) !== (parsed.data.shopAddressLine1 ?? null) ||
+    (before?.shop_city ?? null) !== (parsed.data.shopCity ?? null) ||
+    (before?.shop_state ?? null) !== (parsed.data.shopState ?? null) ||
+    (before?.shop_postal_code ?? null) !== (parsed.data.shopPostalCode ?? null);
+
+  if (addressChanged) {
+    // Every cached ETA was measured from the old origin. Recompute in the
+    // background — a slow settings save is worse than a briefly stale ETA,
+    // and refreshOrderEta degrades to a no-op without a server key.
+    const { recomputeUpcomingEtas } = await import("@/lib/actions/eta");
+    void recomputeUpcomingEtas().catch(() => {
+      // Best-effort. A failure here leaves stale values that the staleness
+      // check will pick up on next use; it must not fail the save.
+    });
+  }
+
   revalidatePath("/", "layout");
   return { ok: true, data: undefined };
 }

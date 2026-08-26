@@ -36,6 +36,12 @@ export type OrganizationRow = {
   order_prefix: string;
   order_seq_start: number;
   owner_id: string;
+  // Task 7 — {{shop_phone}} placeholder + Routes API origin.
+  phone: string | null;
+  shop_address_line1: string | null;
+  shop_city: string | null;
+  shop_state: string | null;
+  shop_postal_code: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -30,6 +30,16 @@ export const UpdateOrganizationInput = z.object({
     .toUpperCase()
     .regex(/^[A-Z0-9]{1,6}$/, "1–6 uppercase letters or digits"),
   orderSeqStart: z.number().int().min(1).max(1_000_000),
+  // Task 7. phone backs the {{shop_phone}} placeholder — org-level rather
+  // than profiles.phone so the number a customer is told to call does not
+  // change with whichever manager clicked Send.
+  phone: optionalString(z.string().trim().max(40)),
+  // Shop address is the origin for Routes API travel time. All optional:
+  // an unset address degrades ETA to manual entry, never a hard failure.
+  shopAddressLine1: optionalString(z.string().trim().max(200)),
+  shopCity: optionalString(z.string().trim().max(120)),
+  shopState: optionalString(z.string().trim().max(60)),
+  shopPostalCode: optionalString(z.string().trim().max(20)),
 });
 
 export type UpdateOrganizationInputT = z.input<typeof UpdateOrganizationInput>;

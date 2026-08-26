@@ -78,6 +78,28 @@ Resolution rules worth recording:
 
 typecheck / lint / build green (22/22). `pnpm smoke` green across all eight stages.
 
+### Sub-step 4 — ETA backend + shop address (complete)
+
+**`lib/eta/google-distance-matrix.ts`** — Routes API v2 `computeRouteMatrix`, not legacy Distance Matrix. `departureTime: now` with `routingPreference: TRAFFIC_AWARE`: at 3pm on a Tuesday the honest number matters more than the shortest path. Routes v2 requires an explicit `X-Goog-FieldMask`; without it the response omits `duration` and the paid call is wasted.
+
+**The key separation is the point of the file.** `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is HTTP-referrer restricted, and referrer restrictions are validated against the `Referer` header a *browser* sends — a `fetch()` from a server action sends none, so that key answers `REQUEST_DENIED`. Loosening its restrictions to make it work would leave an unrestricted key shipping in the client bundle. `.env.example` now states outright that these must be two different keys and why, because "same key, looser restrictions" is the obvious wrong shortcut.
+
+**Degradation, which is where this sub-step actually earns its keep:**
+
+- `computeTravelTime` returns `null` for every failure mode — missing key, non-2xx, `ROUTE_NOT_FOUND`, malformed duration, network error, blank address. The `catch` is deliberately bare: there is no failure here worth crashing a message over.
+- A missing key logs **one** warning line per process, mirroring the `OPENAI_API_KEY` pattern. A warning, not an error — no key is a supported configuration.
+- `refreshOrderEta` answers `{ ok: false, reason: 'missing_key' }` *before* touching the database, so a shop without a key spends no queries and sees no error toast. The result type is deliberately not the shared `ActionResult`: callers must distinguish "not configured" (reveal the manual input) from "broke" (show an error).
+
+**Cache policy** — `shouldRecomputeEta` spends a call only when the answer could have changed: addresses moved, nothing cached, or older than `ETA_STALE_HOURS` (72). `orders.updated_at` is unusable for this, which is why 0025 added a dedicated `estimated_travel_computed_at`. `updateOrganization` compares the address before and after and only fires `recomputeUpcomingEtas` when it actually moved — renaming the shop must not trigger a batch of billed calls. That batch is bounded at 50 upcoming installs and runs best-effort, so a slow or failing Google call can never fail a settings save.
+
+**Banner gating is an AND, not an OR** — `installEventCount > 0` **and** (address unset **or** key missing). A new account with nothing scheduled has nothing to compute an ETA for, so nagging it to configure Google Maps is pure noise. The two causes render separate copy because they have different fixes: one is a form on the same page, the other is an env var and a deploy. The install-event count is a single `head: true` count query in the settings page, skipped entirely for roles that can't see the Shop tab.
+
+**A second `server-only` collision.** `lib/eta/google-distance-matrix.ts` cannot carry the guard for the same reason `build-context.ts` couldn't — `tsx` throws at import. Here it is safe to omit rather than split: Next only inlines `NEXT_PUBLIC_`-prefixed variables into the client bundle, so `GOOGLE_MAPS_SERVER_KEY` cannot leak even if the module were imported from a client component; the lookup would find no key and degrade to `null`, which is the documented behaviour anyway. The guard would have caught a mistake, not prevented a leak. Same posture as `lib/intake/match.ts`.
+
+**11 tests** in a new `pnpm smoke:eta` stage, pinned to `MOCK_ETA=1` so the suite never spends money. The mock is derived from a hash of the two addresses rather than random, so assertions are stable. Coverage weights the cache policy heavily — an off-by-one there is silent and costs real money.
+
+typecheck / lint / build green (22/22). `pnpm smoke` green across all nine stages.
+
 ---
 
 ## Workflow discipline — migration commits (2026-08-22)

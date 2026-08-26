@@ -7,6 +7,8 @@ import { canEditOrganization, canManageMembers } from "@/lib/rbac";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SettingsProfileForm } from "@/components/app/settings-profile-form";
 import { SettingsShopForm } from "@/components/app/settings-shop-form";
+import { SettingsEtaBanner } from "@/components/app/settings-eta-banner";
+import { composeShopAddress, hasServerKey } from "@/lib/eta/google-distance-matrix";
 import {
   SettingsMembers,
   type MemberListRow,
@@ -86,6 +88,20 @@ export default async function SettingsPage({
       fullName: row.user_id ? profilesById.get(row.user_id) ?? null : null,
       authEmail: row.user_id ? emailsById.get(row.user_id) ?? null : null,
     }));
+  }
+
+  // Task 7 — ETA banner gating. Counted once here rather than inside the
+  // banner so opening any tab costs at most one extra query, and only when
+  // the user can actually see the Shop tab.
+  let installEventCount = 0;
+  if (canShop) {
+    const supabase = createSupabaseServerClient();
+    const { count } = await supabase
+      .from("order_events")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", org.id)
+      .eq("kind", "install");
+    installEventCount = count ?? 0;
   }
 
   const tab =
@@ -171,6 +187,11 @@ export default async function SettingsPage({
 
         {canShop ? (
           <TabsContent value="shop">
+            <SettingsEtaBanner
+              installEventCount={installEventCount}
+              hasShopAddress={composeShopAddress(org).length > 0}
+              hasServerKey={hasServerKey()}
+            />
             <SettingsShopForm
               initial={{
                 name: org.name,
@@ -179,6 +200,11 @@ export default async function SettingsPage({
                 currency: org.currency,
                 orderPrefix: org.order_prefix,
                 orderSeqStart: org.order_seq_start,
+                phone: org.phone ?? "",
+                shopAddressLine1: org.shop_address_line1 ?? "",
+                shopCity: org.shop_city ?? "",
+                shopState: org.shop_state ?? "",
+                shopPostalCode: org.shop_postal_code ?? "",
               }}
             />
           </TabsContent>
