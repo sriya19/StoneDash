@@ -56,6 +56,28 @@ Verified without a destructive re-seed: the six templates were upserted into the
 
 typecheck / lint / build green (22/22). `pnpm smoke` green across all seven stages.
 
+### Sub-step 3 — Context builder (complete)
+
+**`lib/messaging/build-context.ts`** turns an event id and/or order id into the flat string map the renderer substitutes. Formatting lives here so the renderer can stay pure string substitution.
+
+Resolution rules worth recording:
+
+- **`site_address`** — `event.location_text` → composed customer address → `""` (Q6). The event location is the most specific and most recently touched value; the customer address covers orders whose events predate the location field. `computeTravelTime` will resolve its destination the same way in sub-step 4, so the ETA and the message always describe the same place.
+- **`site_contact_*`** — `order.site_contact_*` → `customer.*` → `""`. The fallback is what makes the fields optional in sub-step 6's UI: a direct-customer job needs nothing filled in.
+- **`event_time`** — `"All day"` when `is_all_day`, short-circuiting before the time formatter, matching the Task 3.1 convention. `event_duration` follows suit rather than rendering "24h".
+- **`notes`** — event notes preferred over order notes. The crew cares about this visit, not the whole job.
+- **`project_name`** falls back to `event.title`, which is what makes `crew_dispatch` render sensibly for a standalone event with no order behind it.
+
+**Two structural findings.**
+
+`lib/supabase/errors.ts` carries `import "server-only"`, which throws at import time under `tsx` — so a module that uses `assertNoQueryError` cannot be driven by a test script. That is why `lib/intake/match.ts` takes a `SupabaseClient` and skips the helper entirely. Rather than repeat that compromise, the implementation moved to `lib/supabase/query-error.ts` with no guard, and `errors.ts` now re-exports it behind the guard. Existing importers (`lib/auth.ts`, `app/onboarding/page.tsx`) are untouched and keep their client-component protection; `build-context.ts` imports the unguarded module directly. The quality bar's `assertNoQueryError` requirement is met on all six reads.
+
+`orders.balance_due` is **derived**, not stored — `tg_compute_balance_due` (0004) recomputes it as `quote_amount - deposit_received` on every insert and update. The first version of the test set `balance_due: 2480` directly and got `$0.00` back. The fixture now drives it through `quote_amount` / `deposit_received`. Worth remembering for any future fixture: writing `balance_due` is silently ignored.
+
+**8 integration tests** against the seeded DB, chained into `pnpm smoke:messaging`. Fixtures are created under a `__CTX__` prefix with a per-run stamp and torn down in a `finally`, including restoring the org's original `phone` — the same discipline TASK7-FOLLOWUP-01/-02 forced on the intake tests. Coverage: customer-only, site-contact fallback, site-contact override, contractor, standalone event, all-day rendering, timed rendering in the org tz, and address precedence.
+
+typecheck / lint / build green (22/22). `pnpm smoke` green across all eight stages.
+
 ---
 
 ## Workflow discipline — migration commits (2026-08-22)
