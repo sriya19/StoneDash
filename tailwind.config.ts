@@ -58,6 +58,16 @@ const config: Config = {
           DEFAULT: "var(--success)",
           foreground: "var(--success-foreground)",
         },
+        // Task 8 — secondary accent. `bg-info`, `text-info`,
+        // `bg-info-muted`, `border-info-border`, `text-info-foreground`.
+        // Sits beside success/destructive because that is the family it
+        // belongs to; see the split rule in globals.css.
+        info: {
+          DEFAULT: "var(--info)",
+          foreground: "var(--info-foreground)",
+          muted: "var(--info-muted)",
+          border: "var(--info-border)",
+        },
         border: "var(--border)",
         input: "var(--input)",
         ring: "var(--ring)",

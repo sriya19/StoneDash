@@ -4,6 +4,46 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 8 — Bright blue as secondary accent + calendar contrast bump (2026-08-31)
+
+Two visual changes. Fix 1 adds a second semantic color and enforces a split rule; Fix 2 makes calendar events scannable. No features, no schema, no layout.
+
+See `PLAN.md` for the 8 Q-locks, all approved. The split rule, in one line: **`brand`/`primary` is a verb, `info` is a noun.** If clicking it does something to the user's data it is terracotta; if it tells the user where they are, what something is, or what just happened, it is blue; neutral chrome stays zinc.
+
+### Sub-step 1 — `info` token, wired end to end (complete)
+
+**Named `info`, not the brief's suggested `accent-info`** (Q1). `--accent` is already taken in this codebase and means something else entirely — the warm hover tint (`#FFF7ED` orange-50 light / `#2A1E16` dark) that paints dropdown-item hover, ghost-button hover and table-row hover. Nesting under it would have put `bg-accent-info` one keystroke from `bg-accent` while meaning the opposite: cool not warm, semantic not interaction. The brief's own CSS-variable spec already pointed here — it asked for `--info-*`, not `--accent-info-*`. `info` also completes the conventional status triple beside the existing `success` and `destructive`, which is the family it belongs to and the one the chips being edited in sub-step 4 already read from.
+
+**Dark mode is blue-400, not the brief's suggested blue-500.** The brief anticipated blue-600 being too heavy on dark and proposed blue-500. Measured, blue-500 doesn't clear WCAG AA either, because `--info` is used as *text* — links, chip labels, banner copy, icons — at least as often as it is used as a surface, and text contrast is judged against the tinted surface it sits on, not the page background:
+
+| dark-mode candidate | on `--card` #1F1F23 | on `--info-muted` #172554 | on `--background` #18181B |
+|---|---|---|---|
+| blue-600 `#2563EB` | 3.18:1 | 2.84:1 | 3.43:1 |
+| blue-500 `#3B82F6` | 4.47:1 | 4.00:1 | 4.82:1 |
+| **blue-400 `#60A5FA`** | **6.46:1** | **5.78:1** | **6.97:1** |
+
+blue-500 clears AA against the bare page background and only fails once it sits on a surface, which is the easy way to talk yourself into it. blue-400 clears everywhere.
+
+Light mode keeps blue-600 `#2563EB` as specified: 4.94:1 on `--background`, 5.17:1 on `--card`, 4.75:1 on `--info-muted`. Every value clears AA in both themes.
+
+**`--ring` and `--sidebar-ring` became `var(--info)` in this same commit.** That is the entire "focus rings on all inputs/buttons" item from the brief. Grounding the brief turned up that every focus ring in the product already resolves through `ring-ring` — 13 call sites across `button`, `input`, `textarea`, `select`, `checkbox`, `tabs`, `dialog`, `sheet`, `badge`, `calendar` and `file-gallery`, not one of them hardcoding a color. Task 4's consolidation is what made this two lines instead of a sweep. Verified by reading `--tw-ring-color` off a focused input at three widths in both themes: `#2563EB` light, `#60A5FA` dark, six for six.
+
+**The sidebar family moved as a unit** (Q2), in the variables here and in the component in sub-step 3. `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-primary` and `--sidebar-ring` all go to the info palette. The mid-commit screenshot is the argument for why: with the variables changed and the component's `border-l-brand` / `text-brand` not yet touched, the active nav item renders a terracotta strip and a terracotta icon on a blue-tinted row with a blue label. It reads as a rendering bug, which is exactly what shipping "just the strip" would have looked like permanently. Note this also moves the *hover* tint on inactive items, since `--sidebar-accent` serves both states — correct, since the whole sidebar is navigational.
+
+**`--info-foreground` is currently unused.** It means "text on a solid `--info` surface", and nothing in this task paints one — the chips use `bg-info/10 text-info`, the nav strip is a border, the banner is a tint. Declared anyway because the brief specifies it and `bg-info` + `text-info-foreground` is the obvious next solid-blue surface. Recording it rather than contriving a use for it, and rather than leaving the next person to wonder whether its absence was an oversight. `--sidebar-primary` has been unused in the same way since Task 4.
+
+**Proof of wiring: the ETA banner** (Q6), converted here rather than in a later sub-step so the token is verified on a real surface instead of a scratch component that then has to be deleted. It exercises `bg-info-muted`, `border-info-border` and `text-info` together.
+
+Worth noting what the conversion *removed*: the banner previously carried four `dark:` variants (`dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-200 dark:text-amber-300/90`). Routed through tokens it needs none — both themes fall out of the variable definitions. That is the argument for tokens over palette classes in one diff.
+
+Body copy went to `text-foreground/80` and the footer to `text-foreground/70` rather than a tinted blue. `text-muted-foreground` measured 4.44:1 on `--info-muted` in light, marginally under AA; `text-foreground/70` clears it comfortably in both themes. Icon swapped `AlertTriangle` → `Info`, per Q6 — a triangle on a blue panel would be saying two different things at once.
+
+**The other three amber banners stay amber** (`csv-import-sheet`, `new-order-dialog`, `quick-add-order-sheet`). Each warns about a mistake the user is about to make — a skipped import row, a duplicate customer. If amber and blue both meant "notice", amber would stop meaning anything, and the duplicate-customer warning is the exact surface Task 6A built to prevent real data corruption. The rule that fell out: **blue reports a state, amber warns about a consequence.**
+
+**Verification.** typecheck / lint / build green (22/22 pages). `pnpm smoke` green across all eight stages: 33/33 SSR routes, 3/3 DOM assertions, 71 unit checks. Tokens confirmed present in the built CSS with all four variables resolving per theme and `bg-info-muted` / `border-info-border` / `text-info` generated by JIT. Screenshots at 375 / 768 / 1280 in both themes.
+
+---
+
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)
 
 The Send-to-crew modal shipped in Task 3 looks like it sends messages and doesn't. Everything in this task either stops that lie, removes the retyping around it, or captures the evidence that would justify real messaging in Task 8.

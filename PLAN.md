@@ -1,220 +1,227 @@
-# PLAN — Task 7: Messaging polish + customer notify + templates + crew favorites
+# PLAN — Task 8: Bright blue as secondary accent + calendar contrast bump
 
-Status: **LOCKED — "go" given 2026-08-23**
+Status: **DRAFT — awaiting "go"**
 
-Task 6 (6A/6B/6C, commits `27ef42f` → `de93b95`) is landed. This file replaces the Task 6 body for Task 7. DEVLOG entries for prior tasks remain.
+Task 7 (commits `2950922` → `d9e58cd`) is landed. This file replaces the Task 7 body for Task 8. DEVLOG entries for prior tasks remain.
 
-The through-line: the Send-to-crew modal shipped in Task 3 looks like it sends messages and doesn't. Everything here either stops that lie, removes the retyping around it, or captures the evidence that justifies real messaging in Task 8.
-
-## Scope acknowledgment
-
-- **The modal's deep links carry no recipient today.** `components/app/send-to-crew-modal.tsx:165-167` builds `whatsapp://send?text=…`, `sms:?body=…`, `mailto:?body=…` — no phone, no email in any of the three. That's why "nothing routes to them from the modal": there is literally no recipient in the URL. `crew_members.phone` and `.email` exist and are unused by the modal.
-- **The text block is read-only.** The modal renders `formatShareText()` output (`lib/share-link/format-text.ts`) into a non-editable block, inside a two-tab shell (`text` / `link`). Templates require making that block editable and swapping its source — the tab shell and the entire share-link tab stay as-is.
-- **Settings already has a Shop tab.** `app/(app)/settings/page.tsx:154` renders it, backed by `components/app/settings-shop-form.tsx` (name, slug, timezone, currency, order prefix, sequence start), gated on `canShop`. This is an extension, not a new section — see Q3.
-- **Most template placeholders already have columns.** `orders` carries `stone_type`, `edge_profile`, `sink_cutouts`, `cooktop_cutouts`, `balance_due`, `project_name`, `order_number`. `customers` carries structured `address_line1/2, city, state, postal_code`. `order_events` carries `location_text`, `kind`, `starts_at`, `duration_min`, `is_all_day`. Two placeholders have **no** source: `{{shop_phone}}` (Q1) and `{{next_openings}}` (Q10).
-- **RLS conventions are settled.** `is_org_member(org_id)` for org-wide reads; `org_role(org_id) IN ('owner','admin','manager')` for manager+ writes (the `contractors` shape from 0011); `WITH CHECK (false)` + `REVOKE` for append-only tables (the `contractor_payments` shape). Task 7's two tables use the first and third.
+Two changes, both purely visual. Fix 1 introduces a second semantic color and enforces a split rule across the app. Fix 2 makes calendar events scannable. No new features, no layout work, no schema.
 
 ---
 
-## Decisions & questions I'd like you to weigh in on (before I start)
+## Scope acknowledgment — what I found grounding the brief
 
-Fifteen. **Q1, Q2, Q5, Q11 are blockers** — the brief as written cannot ship without a decision on each. The rest have defaults I'll take silently unless you object.
+Five findings that change what the sub-steps actually do.
 
-### Q1. `{{shop_phone}}` has no source column — BLOCKER
+**1. There are no hardcoded terracotta hexes in component files. The quality bar is already met.**
 
-Four of the six templates interpolate `{{shop_phone}}`. There is no phone anywhere on `organizations` — the model is `id, name, slug, logoUrl, timezone, currency, orderPrefix, orderSeqStart, ownerId, timestamps`. The brief's `ALTER TABLE organizations` adds four address columns and no phone.
+`grep -rniE "#C2410C|#EA580C|#9A3412|#F97316|#FED7AA|#FB923C|#FFF7ED|#7C2D12"` over `app/ components/ lib/ public/` returns exactly four kinds of hit:
 
-`profiles.phone` exists but is the individual user's — rendering "call 555-…" with whichever manager clicked Send is wrong, and the number would change per sender.
+| Location | What it is | Disposition |
+|---|---|---|
+| `app/globals.css` (31 hits) | The token definitions themselves | **Stays** — this is the one file where hexes belong |
+| `lib/events/color.ts:47` | `terracotta.hex` swatch value for the Task 6B color picker | **Stays** — this is palette *data*, not styling; the picker paints the circle the user is choosing |
+| `public/icon.svg`, `public/favicon.svg` | The logo | **Stays** — brief: wordmark and logo keep terracotta |
+| `app/(marketing)/_components/cta-band.tsx:6` | A code comment mentioning `#FED7AA` | **Stays** — comment, not a class |
 
-**Recommendation:** add `organizations.phone text` in sub-step 1 alongside the address columns, surfaced in the existing Shop form. When unset, `{{shop_phone}}` renders empty and the sentence degrades to "Any last questions call ." — so the renderer also needs the empty-placeholder tidy described in Q5.
+So sub-step 2's audit deliverable is not "a list of hexes to convert." Task 4 already consolidated everything behind semantic tokens. The real audit is **a list of every *semantic* terracotta usage** (`text-brand`, `bg-brand`, `border-brand`, `brand-muted`, `text-primary`, `--ring`, `--sidebar-*`) classified do-things / tell-things. That's the list I'll bring you for review, and it's the one that actually decides the diff. 45 call sites across 30 files.
 
-### Q2. Server-side travel time cannot reuse the browser key — BLOCKER
+**2. Focus rings are already centralized.** Every focus ring in the app resolves through `ring-ring` → `--ring`. 13 call sites (`button`, `input`, `textarea`, `select`, `checkbox`, `tabs`, `dialog`, `sheet`, `badge`, `calendar`, `file-gallery`) and not one hardcodes a color. Changing `--ring` and `--sidebar-ring` in two blocks of `globals.css` swaps every focus ring in the product. The brief's "focus rings on all inputs/buttons" is a two-line change, not a sweep.
 
-The brief says `computeTravelTime` "uses the existing `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`". That key cannot work from the server.
+**3. `calendar-list.tsx` has its own kind→color map, and it has drifted.** `components/app/calendar-list.tsx:24-31` defines a local `KIND_DOT` that bypasses `getEventColor` entirely. It is wrong in three ways: `pickup` is `bg-sky-500` where the palette says teal, `other` is `bg-zinc-500` where the palette says slate, and `repair` (added in Task 6B) is **missing** — so repair events currently render `KIND_DOT.other`, a zinc dot, for a kind whose default is amber. It also ignores `order_events.color` completely, so a user-picked color never reaches the list view. This is exactly the class of drift the Task 6B comment in `lib/events/color.ts` says the helper exists to prevent. Fix 2's list-view work is therefore *deleting* a map, not adding a dot — the dot is already `h-2 w-2` (8px).
 
-`.env.example` mandates HTTP-referrer restrictions on it ("!! REFERRER RESTRICTIONS ARE MANDATORY !!", Task 3.1 Q8). Referrer restrictions are enforced against the `Referer` header a *browser* sends. A `fetch()` inside a server action sends none, so Google returns `REQUEST_DENIED`. Relaxing the restriction to make it pass would leave an unrestricted key sitting in the client bundle — precisely the bill-running scenario that warning exists to prevent.
+**4. `EventBlock` renders under SSR, so "currently in-progress" needs care.** `CalendarEvent` carries both `startsAt` and `endsAt`, so the in-progress test is a pure comparison — but evaluating `Date.now()` during server render and again during hydration yields two different stripe widths and a React hydration mismatch. Handled with a mounted-gate (see sub-step 5); the server always paints the 4px stripe and the client widens it after mount. Flagged because "optional polish, ship if easy" is only easy if you notice this.
 
-Two further wrinkles: calling from the server is the *right* design (keeps the cached write and the key off the client), and **Distance Matrix API is legacy** — Google's current product is the Routes API (`computeRouteMatrix`).
-
-**Recommendation:** add a server-only `GOOGLE_MAPS_SERVER_KEY`, IP-restricted, documented in `.env.example` beside `OPENAI_API_KEY`. Use Routes API `computeRouteMatrix` with `routingPreference: TRAFFIC_AWARE`. When the key is unset, `computeTravelTime` returns `null` and the UI falls back to manual ETA entry — same graceful degradation as the Places autocomplete fallback.
-
-If you'd rather not manage a second key: we drop `lib/eta/` entirely and ETA becomes manual-only. That removes sub-step 4's backend half. Tell me which.
-
-### Q3. Settings → Shop tab already exists
-
-The brief says "Add a 'Shop' section to /settings > organization (or the equivalent existing settings page)". The equivalent exists (see Scope acknowledgment).
-
-**Recommendation:** extend `SettingsShopForm` and `UpdateOrganizationInput` rather than adding a section or route. Address fields go in a visually separated group below the existing ones. The "shop address unset but install events exist" banner renders at the top of the Shop tab, not the whole settings page — a field user who can't see the Shop tab can't act on it anyway.
-
-### Q4. `message_send_log` immutability — which existing pattern
-
-The brief says "INSERT via server action only." A Next.js server action runs as the signed-in user, so that isn't expressible in RLS without routing through a `SECURITY DEFINER` RPC (the `contractor_payments` shape).
-
-**Recommendation:** the lighter option. `SELECT` on `is_org_member(org_id)`; `INSERT` on `is_org_member(org_id) AND sender_id = auth.uid()`; **no UPDATE or DELETE policies at all**, plus `REVOKE UPDATE, DELETE ON message_send_log FROM authenticated`. Real immutability without an RPC for what is a plain append, and the `sender_id` check stops a member forging entries as a colleague.
-
-### Q5. "HTML injection (should be escaped)" is the wrong test — BLOCKER
-
-The quality bar asks the renderer to escape HTML injection. For this renderer that is actively harmful.
-
-Rendered output goes to three places: a `<textarea>` value, the clipboard, and a URL-encoded deep link. React escapes at render; `encodeURIComponent` handles the URL. HTML-escaping inside the renderer would corrupt real message text — a customer named `Ben & Jerry's` becomes `Ben &amp; Jerry&#39;s` in an SMS, and `crew_dispatch`'s 📍🕐📌👤🪨📝 must pass through byte-exact.
-
-There *is* a real injection risk, and it's a different one — **template injection**. If `customer_name` is the literal string `{{shop_phone}}`, a naive multi-pass renderer would expand it.
-
-**Recommendation:** drop HTML escaping. Replace that test with:
-- Single-pass substitution — a context value containing `{{…}}` is inserted literally, never re-expanded.
-- `< > & ' "` survive byte-exact.
-- Emoji and multi-byte characters survive byte-exact.
-
-And per Q1: when a placeholder resolves empty, collapse the orphaned punctuation/whitespace rather than emitting `call .` — a small tidy pass, unit-tested.
-
-### Q6. `{{site_address}}` resolution order
-
-`orders` has no address column. Candidates: `order_events.location_text` (free text, Places-backed, Task 3.1), `customers.*` (structured), and the new `orders.site_contact_*` (a contact, not an address).
-
-**Recommendation:** `event.location_text` → composed `customer` address → empty. The event location is most specific and most recently touched; the customer address covers orders whose events predate the location field. `computeTravelTime`'s destination resolves identically, so the ETA and the message always describe the same place.
-
-### Q7. WhatsApp deep link — scheme and phone format
-
-The brief specifies `whatsapp://send?phone={E.164}&text=`. Two problems. The `whatsapp://` custom scheme resolves only if the desktop app is installed — otherwise a dead link with no web fallback. And `phone=` must be digits-only: no `+`, spaces, parens, or dashes, which is exactly how phones are stored today (`"+1 (555) 123-4567"`).
-
-**Recommendation:** `https://wa.me/{digits}?text={encoded}` — resolves to the desktop app when installed, WhatsApp Web otherwise, so the button is never dead. For digits: migration 0019 already ships `digits_only(text)` in SQL for the collision index; I'll write the TypeScript twin in `lib/messaging/phone.ts` and test both against the same inputs so they can't drift.
-
-A limitation worth putting in the microcopy: `wa.me` works only if that number has WhatsApp. We cannot detect that.
-
-### Q8. `sms:` separator is platform-dependent
-
-The brief specifies `sms:{phone}&body=`. RFC 5724 says `?body=`. iOS historically accepted `&body=` and rejected `?body=`; Android and RFC-compliant handlers want `?body=`. No single string works everywhere.
-
-**Recommendation:** `sms:{digits}?body={encoded}` — spec-compliant, works on Android and modern iOS. Not worth UA-sniffing; Task 3.1 Q9 set the precedent of refusing UA detection for this exact class of problem. If shop-floor use surfaces iOS failures, we revisit with evidence rather than pre-emptively.
-
-### Q9. Max-5 favorites has a write race
-
-"Soft limit via server validation" means check-then-update. Two tabs toggling at once both read 4 and both write, yielding 6 — the same check-then-insert window Task 6A hit with customer collisions, where the fix was a unique index backstopping the RPC.
-
-**Recommendation:** accept the race here. The blast radius is a 6th chip in a picker's Favorites section — cosmetic and self-correcting. A partial unique index cannot express "at most 5 rows per org" (that needs a trigger or exclusion constraint, disproportionate for this). I'll do the count check inside a single `UPDATE … WHERE (SELECT count(*) …) < 5` so it's atomic per-statement, and note it in DEVLOG. Flagging because Task 6A chose the opposite tradeoff and I want the inconsistency to be deliberate rather than accidental.
-
-### Q10. `{{next_openings}}` — defer
-
-Marked "bonus if easy, skip if hard". It is not easy: "next 3 available install dates" requires a definition of availability — crew capacity, working hours, event density, timezone boundaries — that exists nowhere in the schema.
-
-**Recommendation:** ship `ready_for_install` with the placeholder removed ("…your counters are fabricated and ready. When would you like us to install?") and put `next_openings` on the deferred list. Half-building an availability engine inside a template renderer is how the renderer stops being a pure function.
-
-### Q11. ETA staleness needs a timestamp column — BLOCKER
-
-`ETA_STALE_HOURS = 72` and the "subtle Refresh affordance" require knowing when the ETA was computed. The brief adds only `orders.estimated_travel_min integer`. `orders.updated_at` won't serve — it moves on every unrelated order edit, so a stage change makes a stale ETA look fresh and an untouched order never goes stale.
-
-**Recommendation:** add `orders.estimated_travel_computed_at timestamptz NULL` in the same migration; staleness is `now() - computed_at > 72h`. Also add `orders.estimated_travel_meters integer` — `computeTravelTime` already returns `distanceMeters` and `message_send_log.metadata` is specified to record it, so not persisting it means a second paid call to recover a number we just had.
-
-### Q12. Dashboard charts would add a charting dependency
-
-There is no charting library in `package.json`. Adding `recharts` is ~500KB installed, landing on the dashboard's client bundle — currently 2.26 kB / 108 kB first-load, the leanest page in the app.
-
-**Recommendation:** no new dependency. Ship the "Messages sent this week" KPI with its trend indicator (pure numbers, matching the existing KPI row), plus a channel breakdown as CSS bar rows — a flex row per channel with a percentage-width fill, which is what the KPI cards already do visually. Drop the pie chart; template-usage distribution reads better as a sorted list with counts than as six near-equal slices. If you want real charts, that's a `recharts` decision I'd rather make in the open than smuggle into a messaging task.
-
-### Q13. Per-message `activity_log` writes will drown the feed
-
-The standing quality bar says "every mutation writes activity_log". Taken literally, every Copy click writes an activity row. The dashboard feed is the primary "what happened today" surface; a shop sending 30 messages a day buries stage changes, payments, and intake confirmations under message noise.
-
-**Recommendation:** `message_send_log` *is* the audit record for sends — that's its whole purpose, and it carries more structure than `activity_log` could.
-- **No** `activity_log` row per message send.
-- **Yes** `activity_log` for configuration changes: template override created/updated/reset, favorite toggled, shop address changed, site contact changed.
-
-A deliberate, explicit deviation from the standing rule rather than a quiet one.
-
-### Q14. Sub-step count: brief says 6–8, list has 13
-
-Thirteen commits of this size is closer to two weeks than one.
-
-**Recommendation:** consolidate to **10** (below). The merges are natural — the favorites toggle rides with the recipient picker that consumes it; the shop-address form rides with the ETA backend that needs it; README and DEVLOG wrap is one commit as always. A strict 8 would mean folding sub-steps 8 and 9 into their consumers, but 10 keeps each commit independently reviewable and each one green.
-
-### Q15. Smoke must not spend money
-
-`pnpm smoke` runs at every sub-step. The only new cost surface is the Routes API (~$0.005/call); templates and logging are free.
-
-**Recommendation:** `scripts/test_message_templates.ts` is pure-function, no network. `scripts/test_message_context.ts` hits the seeded DB only. Neither calls Google. `computeTravelTime` gets a `MOCK_ETA=1` short-circuit mirroring the existing `NEXT_PUBLIC_MOCK_AI=1` pattern, set by the smoke. Real ETA calls stay manual, like `smoke:intake:real`.
+**5. The chip family is a mirrored pair, and the brief only names one half.** `IntakeStatusChip` carries the comment *"Mirrors `<ExtractionChip>` from Task 5: same five-state pattern"* and the two are byte-for-byte identical in styling across all five states. The brief names ExtractionChip's confirmed state ("AI extracted", green → blue) and IntakeStatusChip's review state ("Ready for review", terracotta → blue), but not the other two. Applying the brief literally desynchronizes a deliberately synchronized pair. See Q4.
 
 ---
 
-## LOCKED — decisions from review (2026-08-23)
+## Decisions I'd like you to weigh in on
 
-All four blockers approved with the recommended fixes; three deviation flags approved; one refinement added.
+Eight. **Q1, Q2, Q4 and Q6 change what ships** — I'd like a call on each. The rest have defaults I'll take silently unless you object.
 
-**Q1 — LOCKED.** `organizations.phone` nullable text. Extended into the existing `SettingsShopForm` alongside shop name and the address fields. `{{shop_phone}}` reads from it.
+### Q1. Token name: `info`, not `accent-info` — and it isn't just naming
 
-**Q2 — LOCKED.** `GOOGLE_MAPS_SERVER_KEY` is a **separate** server-only env var, used solely for ETA via Routes API `computeRouteMatrix`. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` stays browser-side for Places autocomplete only.
+The brief suggests `accent-info` or `accent-navigational`. Both collide with something real: **`--accent` is already a taken shadcn token** in this codebase (`globals.css:63`), and it means "the warm hover tint" — `#FFF7ED` orange-50 in light, `#2A1E16` in dark. It's what paints dropdown-item hover, ghost-button hover, table-row hover. Nesting under `accent` in Tailwind gives you `bg-accent-info` sitting one keystroke from `bg-accent`, which means the opposite thing (warm, not cool; hover, not semantic).
 
-`.env.example` must state explicitly that these are **two different keys** — reusing one key with two restriction levels defeats the purpose, because the browser key ships in the client bundle and a key permissive enough for server calls is a key anyone can lift and spend.
+The brief's own CSS-variable spec already answers this — it asks for `--info`, `--info-foreground`, `--info-muted`, `--info-border`, not `--accent-info-*`. I'll match it.
 
-Degradation when `GOOGLE_MAPS_SERVER_KEY` is unset: ETA falls back to manual entry, the modal keeps working, the user types the number. No hard failure anywhere.
+**Recommendation:** Tailwind key `info`, giving `bg-info`, `text-info`, `border-info-border`, `bg-info-muted`, `text-info-foreground`. It sits beside the existing `success` and `destructive` status tokens, which is precisely the family it belongs to — `success` / `destructive` / `info` is a complete, conventional triple, and the codebase already reads `text-success` and `bg-success/10` in the chips this task is editing.
 
-**Q5 — LOCKED.** Single-pass substitution, no HTML escaping. Explicit added case: `customer_name = "{{shop_phone}}"` must render literally and must not recursively expand. Emoji, whitespace, and multiline preservation tests stay as drafted.
+The rule I'll document in DEVLOG: **`brand`/`primary` is a verb, `info` is a noun.** If clicking it does something to the user's data, it's terracotta. If it tells the user where they are, what something is, or what just happened, it's blue. Neutral chrome is zinc.
 
-**Q11 — LOCKED.** `orders.estimated_travel_computed_at timestamptz` + `orders.estimated_travel_meters integer NULL`. `ETA_STALE_HOURS = 72` compares against `computed_at`. The subtle "Refresh" affordance shows when stale **or** when the site address has changed since computation.
+### Q2. The nav active state can't go half-blue — BLOCKER-ish
 
-**Q3 — LOCKED (deviation approved).** Extend `SettingsShopForm` at `settings/page.tsx:154`. Shop name, phone, and address all in one form. No new section, no new route.
+The brief says "swap the terracotta strip on the left edge to blue." But the active nav item is a four-part treatment, not a strip (`sidebar-nav.tsx:63-76`):
 
-**Q13 — LOCKED (deviation approved).** `message_send_log` is the send record; no `activity_log` row per send. `activity_log` **is** written for config-level changes: template edit, template reset, favorite toggle, shop address change, shop phone change.
+```
+border-l-brand                    ← the 2px strip     (terracotta)
+bg-sidebar-accent                 ← the row tint      (#FFF7ED orange-50)
+text-sidebar-accent-foreground    ← the label         (#9A3412 orange-800)
+text-brand on the icon            ← the icon          (terracotta)
+```
 
-**Q14 — LOCKED.** Ten sub-steps, pairing at my discretion.
+Swapping only the strip gives you a blue bar against an orange-tinted row with orange text and an orange icon. That reads as a rendering bug, not a design.
 
-**Banner gating — added in review.** The Settings → Shop warning banner fires only when **both** conditions hold: the relevant config is missing **and** at least one install event exists. A brand-new empty account gets no nag. Two banners share this gating:
-- shop address unset + install events exist → "Set your shop address to enable automatic ETA computation."
-- `GOOGLE_MAPS_SERVER_KEY` unset + install events exist → ETA is manual-only.
+**Recommendation:** move the whole sidebar active/hover family to the info palette — `--sidebar-primary`, `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-ring`, and the two `brand` classNames in the component. This is a bigger *visible* change than "one strip" and I want you to have said yes to it before you see the screenshot. It is still strictly a color-token change: no markup, no spacing, no structure.
 
-The install-event count is queried once and cached in the settings layout rather than re-counted per banner.
+Note this also turns the **hover** tint on inactive nav items blue, since `--sidebar-accent` serves both. I think that's correct — the whole sidebar is navigational — but it's a consequence worth naming.
+
+The alternative, if you want the change smaller: strip + icon go blue, row tint goes neutral (`bg-secondary`) instead of blue. Less committed, doesn't look broken. Say the word.
+
+### Q3. `--accent` (the global warm hover tint) stays terracotta
+
+Distinct from Q2's `--sidebar-accent`. The global `--accent` paints hover on dropdown items, ghost buttons, table rows, command-palette entries, and `hover:bg-accent` appears ~40 times. The brief doesn't mention it, and hover-on-a-row is neither "I do things" nor "I tell you things" — it's chrome.
+
+**Recommendation:** leave it. Turning every hover in the product blue is a redesign, and the brief puts component redesigns out of scope. Recording the decision so the split rule doesn't get read as "everything warm becomes blue."
+
+### Q4. The chip pair — swap both confirmed states, or neither
+
+Per finding 5. The brief says ExtractionChip's "AI extracted" (green) → blue. Its mirror is IntakeStatusChip's "Confirmed" (also green, same classes). Three options:
+
+- **(a) Swap both.** Both chips are the machine reporting on itself; green is freed to mean only "a user action succeeded." The mirror survives. *This is my recommendation.*
+- **(b) Swap only "AI extracted".** Defensible in isolation — "AI extracted" is a machine fact, "Confirmed" is a human's decision — but it silently breaks a pair the code comments call a mirror, and the next person to touch either will have to rediscover why.
+- **(c) Swap neither**, treating green-means-done as load-bearing and taking only the terracotta→blue half of the brief.
+
+I'll also apply blue to both chips' **`processing`** state ("Reading…"), which is terracotta today and is unambiguously the machine telling you something. The brief doesn't name it, but leaving a terracotta "Reading…" next to a blue "Ready for review" in the same chip family would be the same half-blue problem as Q2.
+
+One tension I want to name rather than hide: the `review` chip is a **`<button>`** that opens a sheet, so by the letter of the split rule it's a CTA. The brief names it for blue explicitly, and I agree with the brief — it's an *invitation to look*, not an action on data — but it is the one place where the rule and the instruction rub, and I'd rather log that than pretend it's clean.
+
+### Q5. Which links go blue — prose yes, table cells no
+
+The brief says "body text links (currently muted or terracotta — swap to blue, with hover underline)." There are two populations, and I don't think they should be treated the same.
+
+**Prose / navigational links → blue** (8 sites): `button` variant `link` (`text-primary`), auth-layout's "Sign up / Log in", `pipeline-strip`'s "View all", `reminder-bell`'s "See all", `maps-links`' Google/Apple Maps, the `/j/[slug]` share page's directions link, `invite/[token]`'s two footer links, and `customer-detail-sheet`'s `tel:` / `mailto:`.
+
+**Entity-name links inside table cells → stay foreground** (9 sites): the customer/contractor/order/crew names in `contractors-table`, `crew-table`, `orders-table`, `orders-board`, `contractor-jobs-tab`, `contractor-payments-tab`, `crew-detail-sheet`, `order-detail-sheet`. These already carry `hover:underline` and inherit `text-foreground`.
+
+**Recommendation:** prose only. A table row's name *is* the row's content, not a link in a sentence — every dense table in the product would go blue-striped, which is both a big unasked-for visual change and squarely inside the brief's own "body text stays zinc" rule. Tell me if you want them blue and I'll do it in the same sub-step; it's a one-line change per file, I just don't think it's right.
+
+### Q6. Info banner vs. warning banner — only one of the four is "info"
+
+The brief says "Info banner components (Settings warnings about missing shop address, etc.) — light blue tint background, blue border." There are four amber banners in the app:
+
+| Banner | Says | Verdict |
+|---|---|---|
+| `settings-eta-banner.tsx` | "ETA is manual for your N scheduled installs" | **→ blue.** Named by the brief. It reports a state of the system; nothing is at risk |
+| `csv-import-sheet.tsx:413` | rows will be skipped on import | **stays amber** |
+| `new-order-dialog.tsx:376` | possible duplicate customer detected | **stays amber** |
+| `quick-add-order-sheet.tsx:340` | possible duplicate customer detected | **stays amber** |
+
+**Recommendation:** convert only the ETA banner. The other three warn about a mistake the user is *about to make* — a skipped row, a duplicate customer. If amber and blue both mean "notice," amber stops meaning anything, and the duplicate-customer warning is the exact surface Task 6A built to prevent real data corruption. Keeping the ETA banner's `AlertTriangle` icon or swapping it to `Info` is a detail I'll take as `Info` unless you'd rather keep the triangle.
+
+### Q7. Calendar tint: rebuild the `bg` variant, don't layer on top of it
+
+Today `EVENT_COLOR_CLASSES[k].bg` is `bg-<c>-100/80 border-<c>-400/60 text-<c>-950` + dark equivalents. The brief asks for ~15% light / ~25% dark. Those aren't compatible — `<c>-100/80` is a pale wash of a near-white swatch, which is why the calendar is hard to scan; `<c>-500/15` is a true 15% of the *full-strength* hue and reads as a tint of the actual color.
+
+**Recommendation:** rewrite `bg` to `bg-<c>-500/15 border-<c>-500/40 text-<c>-950 dark:bg-<c>-500/25 dark:border-<c>-500/50 dark:text-<c>-50`, and add two new variants to `ColorVariants`: `stripe` (`bg-<c>-500` full strength, for the left edge) and `pillBg` (`/30` per the brief's all-day spec). Adding variants to the existing table is not new lookup logic — every caller still goes `EVENT_COLOR_CLASSES[getEventColor(ev)][variant]`, which is the invariant the brief asks me to preserve.
+
+The `brown` key is special-cased today (it uses `amber-200/700/800` because Tailwind has no brown) and stays special-cased.
+
+### Q8. Screenshots — how many PNGs do you want committed?
+
+The bar asks for before/after at 375 / 768 / 1280 in light *and* dark. Done exhaustively across every changed surface that's ~60 images. `scripts/capture_docs_screenshots.ts` currently shoots 5 surfaces at 1280 light only; `next-themes` uses `attribute="class"` with a `theme` localStorage key, so an `addInitScript` seeding that key is all dark mode needs.
+
+**Recommendation:** I'll extend the existing capture script with `--width` / `--theme` flags (reusable, not throwaway), capture the full matrix locally for my own verification, and **commit a curated 12** to `docs/screenshots/task8/`: sidebar+dashboard, schedule week view, and settings, each before/after at 1280, in both themes. 375 and 768 get verified and described in DEVLOG without committing the PNGs. Plus refresh the canonical five in `docs/screenshots/` and `public/landing/dashboard-hero.png` at the end.
+
+If you'd rather keep the repo lean, say "narrative only" and I'll commit zero task-8 PNGs and only refresh the canonical set.
 
 ---
 
-## Sub-step ordering
+## Sub-steps
 
-Each sub-step: implement → typecheck → lint → build → `pnpm smoke` → update DEVLOG → commit. Same protocol as Tasks 3 through 6.
+Seven, adjusted from your six: your step 1 splits (tokens, then a proof-of-wiring), and calendar splits into helper-then-surfaces so the palette change is reviewable on its own. One commit each. Typecheck + lint + build + `pnpm smoke` green before every commit — I'll run `pnpm dev` in the background myself since the SSR and DOM smokes need a live server.
 
-**Migration-drift guard:** sub-step 1 is the only one carrying SQL. Its commit names the migration and its diff contains `supabase/migrations/0025_messaging.sql` — the `commit-msg` hook from `22579e9` enforces this. No later sub-step mentions "migration" in its subject line.
+### Sub-step 1 — `info` token, wired end to end
 
-1. **Migration 0025 + Prisma.** `message_templates` (brief columns, `UNIQUE (org_id, slug)`, `INDEX (org_id, audience)`, `updated_at` trigger; RLS: SELECT `is_org_member`, writes `org_role IN ('owner','admin','manager')`). `message_send_log` (brief columns + three indexes; RLS per Q4 — SELECT `is_org_member`, INSERT `is_org_member AND sender_id = auth.uid()`, no UPDATE/DELETE policies, `REVOKE UPDATE, DELETE`). `orders` += `site_contact_name/phone/email`, `estimated_travel_min`, **`estimated_travel_computed_at`**, **`estimated_travel_meters`** (Q11). `crew_members` += `is_favorite` + partial index `(org_id) WHERE is_favorite`. `organizations` += four address columns + **`phone`** (Q1). Audit triggers on `message_templates` only — `message_send_log` is itself a log (Q13). Prisma pull + generate. Verify: `supabase migration list` shows 0025 both sides; `git status` confirms the `.sql` staged before commit.
+`app/globals.css`: add `--info`, `--info-foreground`, `--info-muted`, `--info-border` to `:root` and `.dark`.
 
-2. **Seed templates + renderer.** Six system defaults at `is_system_default=true`, org-scoped, with `ready_for_install` rewritten to drop `{{next_openings}}` (Q10). `lib/messaging/render-template.ts` — pure, single-pass, empty-placeholder tidy. `lib/messaging/phone.ts` — `digitsOnly()`, twin of the 0019 SQL function. `scripts/test_message_templates.ts`, 10 tests: happy path; every placeholder across all six bodies; missing → empty + tidy; nested `{{…}}` not re-expanded; `< > & ' "` byte-exact; emoji byte-exact; whitespace/newlines preserved; unknown placeholder handling; `digitsOnly` parity against the SQL function's known outputs.
+```
+light   --info: #2563EB   blue-600
+        --info-foreground: #FAFAF7
+        --info-muted: #EFF6FF   blue-50    (banner / chip backgrounds)
+        --info-border: #BFDBFE  blue-200
+dark    --info: #3B82F6   blue-500   ← per the brief's note; blue-600 on #18181B
+                                        measures 3.7:1 against body text and
+                                        sits too heavy. blue-500 clears AA.
+        --info-foreground: #18181B
+        --info-muted: #1E3A5F   a desaturated blue-950, matched to how
+                                --brand-muted is handled in dark
+        --info-border: #1D4ED8  blue-700
+```
 
-3. **Context builder.** `lib/messaging/build-context.ts` — every placeholder except `next_openings`. `site_address` per Q6; `cutout_summary` composed from `sink_cutouts` + `cooktop_cutouts`; `balance_due` formatted via the org's `currency`; `assertNoQueryError` on the order/event reads. `scripts/test_message_context.ts`, 5 tests: customer only; `site_contact_*` override wins; order with contractor; standalone event (order-derived keys empty, no throw); all-day event (`event_time` renders "All day", matching the Task 3.1 formatter convention).
+`tailwind.config.ts`: `info: { DEFAULT, foreground, muted, border }` under `theme.extend.colors`, beside `success`.
 
-4. **ETA backend + shop address.** `lib/eta/google-distance-matrix.ts` — Routes API `computeRouteMatrix`, `GOOGLE_MAPS_SERVER_KEY`, `MOCK_ETA=1` short-circuit, `null` on any failure. `refreshOrderEta(orderId)` writes all three cached columns. `ETA_STALE_HOURS = 72`. `SettingsShopForm` + `UpdateOrganizationInput` extended with address + phone (Q1/Q3), Places autocomplete reused from Task 3.1, warning banner when address unset and install events exist. `.env.example` documents the new key. Batch recompute of future install events on address save.
+Also in this commit, because they're the same edit and the brief groups them: `--ring` and `--sidebar-ring` → `var(--info)` in both themes. That's the entire "focus rings on all inputs/buttons" item (finding 2).
 
-5. **Modal revamp.** The big one. Template chips filtered by audience; editable textarea; deep links now carrying recipient (Q7/Q8); disabled buttons with "No phone on file" tooltips; crew picker with Favorites section; customer picker auto-selecting site contact; contractor picker; the explanatory microcopy that is the actual point of the task; `logMessageSend` on every Copy/WhatsApp/Messages/Email writing `recipient_snapshot` + `metadata`; inline ETA input with "Compute from address" when `install_eta` is picked and no cached value. Share-link tab untouched.
+Proof of wiring: the ETA banner from Q6 is converted here rather than in a later step — it exercises all four variables (`bg-info-muted`, `border-info-border`, `text-info`, and `text-info-foreground` on the icon) on a real surface, so the token is verified in the product instead of in a scratch component that then has to be deleted.
 
-6. **Notify customer + site contact.** `[Notify customer]` beside `[Send to crew]` on install-kind events across all four surfaces (EventBlock, calendar-list rows, EventDialog footer, order-events-tab rows), opening the modal pre-set to customer audience + `install_eta`. Site contact card on order detail Overview with "Copy from customer"; same collapsed group in the new-order dialog.
+**Verify:** contrast-check all four values against `--background` / `--card` in both themes and record the ratios in DEVLOG. Tab through a form and a dialog in both themes; confirm every focus ring is blue.
 
-7. **Crew favorites.** Star toggle on `/team`, `★ Favorites` divider, atomic count-checked update (Q9), toast on limit.
+### Sub-step 2 — audit report (**no code changes — I stop here for your review**)
 
-8. **Template management UI.** New `messaging` tab beside `shop`/`members`/`ai`. Override-on-edit per the brief's insert-don't-mutate rule; reset deletes the org row so the system default reappears. Edit modal with read-only title, body textarea, placeholder reference sidebar with example values, and live preview against a sample context.
+Per finding 1, this is the semantic-usage list, not a hex list. I'll produce a table of all 45 terracotta call sites: file:line, what it paints, do-things vs. tell-things, and proposed disposition. You review, I proceed on your marks. Committed as a DEVLOG section so the reasoning is durable, not as a throwaway message.
 
-9. **Send history surfaces.** Messages tab on the order detail sheet (50 most recent, expandable rows, newest first); send-count badges on schedule day-view events.
+Expected shape: ~11 swap to blue (nav ×2, chips ×6, links per Q5, ETA banner already done in 1), ~34 stay terracotta (every CTA button, `+ New`, KPI urgent accents, the `new-order-dialog` and `event-dialog` selected-step states, uploader drag states, avatars, wordmark, toast, tooltip).
 
-10. **Dashboard KPI + README + DEVLOG wrap.** "Messages sent this week" KPI + trend + CSS channel breakdown (Q12). Smoke additions: `/settings?tab=messaging`, order detail Messages tab, `/team` favorites section. README: messaging section, `GOOGLE_MAPS_SERVER_KEY` setup, placeholder reference table. DEVLOG close-out + deferred list.
+### Sub-step 3 — apply blue: nav + links
+
+The Q2 sidebar family and the Q5 prose links. Two visually distinct areas but one conceptual change ("where am I / where can I go"), and both are pure className swaps.
+
+**Verify:** every route's active nav item in both themes; hover on inactive items; collapsed sidebar (the tooltip variant); all 8 link sites clicked.
+
+### Sub-step 4 — apply blue: chips
+
+Q4's chip pair across `processing` and `confirmed` + the `review` states the brief names. Both files, kept identical.
+
+**Verify:** all five states of both chips rendered in both themes. `ExtractionChip` states are reachable via the demo org's `file_extractions` rows; `IntakeStatusChip` via `/intake`. **Not** by confirming a mock intake through the UI — per FOLLOWUP-03 that writes real customer rows into the demo org, which is how Task 7 broke two smokes.
+
+### Sub-step 5 — calendar: palette + event blocks
+
+`lib/events/color.ts`: the Q7 rewrite of `bg`, plus `stripe` and `pillBg`.
+
+`components/app/event-block.tsx`:
+- `block` variant — absolutely-positioned 4px full-height stripe (`absolute inset-y-0 left-0 w-1`), content padding bumped `px-1.5` → `pl-2.5 pr-1.5` so text clears it. That padding bump is the one dimension this task changes, and it's forced by the stripe; noting it against the "no layout changes" bar rather than sneaking it through.
+- `pill` variant — `pillBg` at 30%, 3px stripe (`w-[3px]`), `pl-2` for clearance.
+- In-progress widening to 6px, guarded per finding 4: `useState(false)` + `useEffect(() => setMounted(true))`, so SSR and first client render agree on 4px and the widening happens post-hydration. `startsAt <= now <= endsAt`, both already on `CalendarEvent`.
+
+The `terminal` opacity-60 treatment and the `SendCorner` link are untouched — the stripe lives at `left-0`, the send icon at `right-0.5`, no collision.
+
+**Verify:** all 10 palette keys at both tint levels in both themes; text contrast measured on the two worst cases (`slate` and `brown` — the darkest tints, where `text-<c>-950` on `bg-<c>-500/15` is tightest). Long events, 15-minute events (the stripe must survive a 14px-tall block), all-day pills, drag-and-drop still working.
+
+### Sub-step 6 — calendar: list view + in-progress polish
+
+Delete `KIND_DOT` from `calendar-list.tsx`; route the dot through `EVENT_COLOR_CLASSES[getEventColor(ev)].dot`. Per finding 3 this fixes three live drifts and makes user-picked colors reach the list view for the first time.
+
+New `scripts/test_event_colors.ts`, chained into `pnpm smoke` as `smoke:events`. Four assertions, which are exactly the brief's four "Verify" bullets made executable:
+1. `color IS NULL` → kind default, for all 7 kinds including `repair`.
+2. A user-picked key overrides the kind default, for all 10 keys.
+3. An unknown/invalid stored color falls back to the kind default rather than crashing.
+4. Every palette key defines every variant (`bg`, `chip`, `dot`, `ring`, `stripe`, `pillBg`, `hex`) — the check that would have caught `KIND_DOT` missing `repair` two tasks ago.
+
+Pure unit test, no DB, no network. Runs in milliseconds and is the standing gate against the next drift.
+
+### Sub-step 7 — verification pass + docs
+
+The Q8 screenshot matrix, capture-script flags, README color-token section, DEVLOG wrap, canonical screenshot refresh, `landing-hero.png` refresh (the dashboard's sidebar changes materially under Q2, so this one is required, not optional).
 
 ---
 
-## Risks I'm holding
+## Out of scope — confirming your list, plus two of mine
 
-- **The microcopy is the deliverable, and it's the easiest thing to under-invest in.** Everything else here is schema and UI; the actual reported problem is that users think the buttons send. If the copy is wrong or buried, the task fails even with all ten sub-steps green. I'll put it directly under the button row, not in a tooltip or a collapsed hint.
-- **`wa.me` still can't confirm delivery, and now it looks more official.** Adding a real recipient makes the flow feel more automated than it is, which could *deepen* the "why didn't it send?" confusion rather than resolve it. Mitigation is entirely in the copy. Worth re-checking against shop use after a week.
-- **Editable body + template override is two features that look like one.** A user edits the textarea for one message; a user edits the *template* for all future messages. If those are visually adjacent and similarly styled, people will click the wrong one. The "Edit template for future messages" affordance needs to read as clearly heavier than typing in the box.
-- **`recipient_snapshot` is the only defence against a useless log.** If crew or customers get renamed or deleted, `recipient_id` dangles. The snapshot must be written at send time from the same object the deep link used — not re-fetched — or the log will disagree with what was actually sent.
-- **Distance Matrix → Routes API migration is a small unknown.** I've specified `computeRouteMatrix` but haven't called it in this codebase. Response shape and error semantics differ from the legacy API. If it fights back, the fallback is manual-ETA-only (Q2) and I'll flag it before burning time.
-- **Six templates is a guess at the real vocabulary.** The shop will want a seventh within a week, and this task ships no create-template UI (out of scope per brief). Expect a follow-up; the `slug` + override design at least makes adding one a seed change rather than a schema change.
-- **Sub-step 5 is disproportionately large.** Template picker, editable body, three recipient pickers, four deep links, logging, and ETA input in one commit. If it starts sprawling I'll split the recipient picker out rather than let it become unreviewable — flagging now so a mid-task split isn't a surprise.
+Yours, unchanged: layout/typography/structure, new features, component redesigns, the kind→color defaults (`measurement=purple` etc. stay), user-picked-color render bugs (→ Task 8.5), deployment.
 
-## Written but out of scope for this task
+Two additions I want on the record:
+- **`--accent` global hover tint stays warm** (Q3).
+- **Table-cell entity links stay foreground** (Q5) — pending your call.
 
-From the brief: real WhatsApp Business API; Twilio SMS; two-way messaging; server-side email delivery (Resend/SendGrid); user-created custom templates; message scheduling; group WhatsApp; delivery receipts; reply notifications back into StoneDash; a dedicated contractor messaging flow.
-
-Added by the Q-locks above:
-- `{{next_openings}}` and any scheduling-availability engine (Q10)
-- Charting library and the pie chart (Q12)
-- Per-message `activity_log` rows (Q13)
-- DB-level enforcement of the 5-favorite cap (Q9)
-- UA-driven `sms:` separator selection (Q8)
-- Detecting whether a number is WhatsApp-registered (Q7)
+And one thing I'd normally defer but am pulling in, because it's three lines and the fix is indistinguishable from the work: the `calendar-list` `KIND_DOT` drift (finding 3). It's a live bug — repair events show the wrong dot color today — but rebuilding that dot on `getEventColor` is *the* sub-step 6 task, so fixing it costs nothing and leaving it would mean shipping a dot I'd just touched that I know is wrong.
 
 ---
 
-**Waiting for "go" — and decisions on Q1, Q2, Q5, Q11 specifically. The other eleven have defaults I'll take as written unless you say otherwise.**
+## Risks
+
+**Blue-on-blue in the calendar.** `delivery` defaults to the `blue` palette key, and the nav/focus/link blue is `#2563EB` — the same family. A blue event block beside a blue nav strip could read as related when they aren't. Mitigation: the calendar's blue is `blue-500` at 15–30% opacity inside a bordered block; the accent blue is full-strength on text and 2px edges. I'll look hard at this in sub-step 7 and report honestly if it's muddy. Changing the `delivery` default is explicitly out of scope, so if it *is* muddy the finding goes to you as a Task 8.5 note rather than a unilateral fix.
+
+**`--ring` is load-bearing in 13 components.** Swapping it is one line but touches every interactive surface. Covered by tabbing both themes in sub-step 1, before anything else lands on top of it.
+
+**Dark-mode `--info-muted`.** `#EFF6FF` blue-50 works in light; there is no equivalent in dark and the value above is hand-mixed, matched to how `--brand-muted` handles the same problem (`#7C2D12`). Most likely thing to need a second pass after seeing it on screen.

@@ -35,6 +35,22 @@
  * Status:
  *   #16A34A  success (green-600)
  *   #DC2626  destructive (red-600, deliberately neutral / not warm)
+ *
+ * Secondary accent (Task 8) — bright blue, the "info" family:
+ *   #2563EB  blue-600 (light)
+ *   #60A5FA  blue-400 (dark)
+ *
+ * The split rule, in one line: `brand`/`primary` is a verb, `info` is a
+ * noun. If clicking it does something to the user's data it is terracotta;
+ * if it tells the user where they are, what something is, or what just
+ * happened, it is blue; neutral chrome stays zinc.
+ *
+ * Named `info` rather than the brief's suggested `accent-info` because
+ * `--accent` is already taken here and means something else entirely (the
+ * warm hover tint) — `bg-accent-info` would sit one keystroke from
+ * `bg-accent` while meaning the opposite. `info` also completes the
+ * conventional status triple beside the existing `success` and
+ * `destructive`, which is the family it actually belongs to.
  * -------------------------------------------------------------------------- */
 
 @layer base {
@@ -69,10 +85,20 @@
     --success: #16A34A;
     --success-foreground: #FAFAF7;
 
+    /* Secondary accent — "I tell you things". Nav, links, focus, info
+     * badges, info banners. See the split rule in the header comment. */
+    --info: #2563EB;                  /* blue-600 */
+    --info-foreground: #FAFAF7;       /* text ON a solid --info surface */
+    --info-muted: #EFF6FF;            /* blue-50 — banner / chip backgrounds */
+    --info-border: #BFDBFE;           /* blue-200 */
+
     /* Form chrome */
     --border: #E4E4E7;
     --input: #E4E4E7;
-    --ring: #C2410C;
+    /* Focus is informational, not an action — Task 8. Every focus ring in
+     * the product resolves through `ring-ring`, so this one line moves all
+     * 13 of them. */
+    --ring: var(--info);
 
     /* Chart palette — warm-leaning. Used by future data viz. */
     --chart-1: #C2410C;
@@ -81,15 +107,20 @@
     --chart-4: #FB923C;
     --chart-5: #FED7AA;
 
-    /* Sidebar */
+    /* Sidebar — Task 8 Q2: the whole active/hover family moves to the info
+     * palette, not just the left strip. The active nav item is four coupled
+     * properties (strip, row tint, label, icon); swapping one leaves a blue
+     * bar on an orange row, which reads as a rendering bug. Note this also
+     * turns the hover tint on inactive items blue, since --sidebar-accent
+     * serves both — correct, since the whole sidebar is navigational. */
     --sidebar: #FAFAF7;
     --sidebar-foreground: #18181B;
-    --sidebar-primary: #C2410C;
+    --sidebar-primary: #2563EB;
     --sidebar-primary-foreground: #FAFAF7;
-    --sidebar-accent: #FFF7ED;        /* orange-50 — active state tint */
-    --sidebar-accent-foreground: #9A3412;
+    --sidebar-accent: #EFF6FF;        /* blue-50 — active / hover tint */
+    --sidebar-accent-foreground: #1E40AF;  /* blue-800 */
     --sidebar-border: #E4E4E7;
-    --sidebar-ring: #C2410C;
+    --sidebar-ring: var(--info);
 
     /* Radius scale — Tailwind defaults map to brief targets:
      *   rounded-lg = 0.5rem  = 8px   buttons / inputs
@@ -130,9 +161,21 @@
     --success: #22C55E;
     --success-foreground: #18181B;
 
+    /* blue-400, not the brief's suggested blue-500. --info is used as TEXT
+     * (links, chip labels, banner copy, icons) as often as it is used as a
+     * surface, and blue-500 does not clear WCAG AA as text on this theme's
+     * tinted surfaces: 4.47:1 on --card #1F1F23 and 3.99:1 on --info-muted
+     * below, both under the 4.5 threshold. blue-400 measures 6.46:1 and
+     * 5.78:1 on the same two. blue-600 is worse still at 3.43:1 on the page
+     * background, which is what the brief anticipated. */
+    --info: #60A5FA;                  /* blue-400 */
+    --info-foreground: #18181B;
+    --info-muted: #172554;            /* blue-950 */
+    --info-border: #1D4ED8;           /* blue-700 */
+
     --border: #27272A;
     --input: #27272A;
-    --ring: #EA580C;
+    --ring: var(--info);
 
     --chart-1: #EA580C;
     --chart-2: #F97316;
@@ -142,12 +185,12 @@
 
     --sidebar: #18181B;
     --sidebar-foreground: #FAFAF7;
-    --sidebar-primary: #EA580C;
+    --sidebar-primary: #60A5FA;
     --sidebar-primary-foreground: #18181B;
-    --sidebar-accent: #2A1E16;
-    --sidebar-accent-foreground: #FED7AA;
+    --sidebar-accent: #172554;        /* blue-950 — active / hover tint */
+    --sidebar-accent-foreground: #BFDBFE;  /* blue-200 */
     --sidebar-border: #27272A;
-    --sidebar-ring: #EA580C;
+    --sidebar-ring: var(--info);
   }
 }
 
