@@ -12,21 +12,22 @@ type Props = {
 };
 
 // Mirrors <ExtractionChip> from Task 5: same five-state pattern.
-// Only `review` is interactive.
+// Only `review` is interactive. Task 8 moved processing / review /
+// confirmed to `info` in both files at once — see the note there.
 export function IntakeStatusChip({ status, onReview, className }: Props) {
   if (status === "processing") {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand-muted/30 px-2 py-0.5 text-[10px] font-medium text-brand",
+          "inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info",
           className,
         )}
         aria-label="AI intake processing"
       >
         <span className="flex items-center gap-0.5" aria-hidden="true">
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand" />
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand [animation-delay:150ms]" />
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand [animation-delay:300ms]" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info [animation-delay:150ms]" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info [animation-delay:300ms]" />
         </span>
         Reading…
       </span>
@@ -39,7 +40,7 @@ export function IntakeStatusChip({ status, onReview, className }: Props) {
         type="button"
         onClick={onReview}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-brand bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand transition-colors hover:bg-brand/20",
+          "inline-flex items-center gap-1.5 rounded-full border border-info bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info transition-colors hover:bg-info/20",
           className,
         )}
         aria-label="Review AI intake"
@@ -54,7 +55,7 @@ export function IntakeStatusChip({ status, onReview, className }: Props) {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success",
+          "inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info",
           className,
         )}
       >

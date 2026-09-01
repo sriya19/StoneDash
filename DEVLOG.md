@@ -129,6 +129,22 @@ Grouped by the reason, since the reason is the reusable part:
 
 **One process finding, filed as TASK8-FOLLOWUP-01.** Mid-sub-step the DOM smoke started reporting `0 testid` on both `/orders` targets while `/schedule` passed. It reproduced with the tree stashed, which pointed at a pre-existing failure; the resolved order was verified present, in the right org, with 2 events, which pointed at the renderer. Both wrong. `next dev` and `next build` share `.next`, and the per-commit gate this task runs — typecheck → lint → build → smoke, with dev up throughout — has `build` overwrite the chunks under the live server. Radix-portalled surfaces break first, so the failure looks specific enough to send you hunting. Gate order is now stop dev → build → restart dev → smoke. The durable fix is a separate `distDir` for build, deliberately deferred: that setting belongs to the parallel Vercel track, and changing where build output lands from a UI-color task is how you break someone else's week.
 
+### Sub-step 4 — apply blue: the AI chip pair (complete)
+
+Two files, twelve lines, moved in lockstep per Q4(a). `processing`, `review` and `confirmed` all carry `info`; `declined`/`discarded` and `failed` stay muted-zinc as they were.
+
+Green is now free to mean only "a user action succeeded". Both halves of the AI lifecycle — "Reading…", "Ready for review", "AI extracted", "Confirmed" — are the machine reporting on itself, which is the noun side of the split rule.
+
+**The mirror is now mechanically checkable.** The two files' five state classNames are byte-identical, verified by extracting and diffing them rather than by reading. That is worth more than the code comment that previously asserted the relationship, and it is what would have caught the drift described below.
+
+**A live bug fixed on the way past.** `extraction-chip.tsx:47` carried `[animation-delay:300mS]` — capital S, not a valid CSS time unit, so the third pulse dot has been animating in sync with the first since Task 5 while its mirror in `intake-status-chip.tsx` used a correct `300ms`. Two files that were supposed to be identical had silently diverged in a way no test could see. Fixed because it was the line being edited anyway.
+
+**One consequence of Q4(a) worth flagging rather than papering over.** `processing` and `confirmed` now render identical chrome — same border, fill and text color — where they were previously separated by hue (terracotta vs green). They remain distinguishable by icon (three pulsing dots vs a check) and by label, and `processing` is transient enough that seeing the two side by side is rare. But if scanning a long file list for "which of these are done" turns out to be harder than it was, that is why, and the fix is a weight difference on `confirmed` rather than a hue one. Deliberately not invented here — a barely-perceptible 5%-vs-10% fill distinction nobody asked for is exactly the unrequested design decision this task is meant to avoid. Raised for the sub-step 7 review.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 71 unit checks. `/intake` shot in both themes with `confirmed` and `review` chips visible and clearly distinct — `review` carries a full-weight border and the Sparkles icon, `confirmed` a 30% border and a check.
+
+`<ExtractionChip>` itself was **not** screenshot-verified, and shouldn't be reported as if it were: the seeded `file_extractions` rows are contractor licenses with no order attachment, and the component only renders inside the order detail sheet's Files tab, so no seeded state reaches the screen. It is covered instead by the class-identity check against its visually-verified mirror — which for a pure className change is the stronger of the two, but is not the same claim as "I looked at it".
+
 ---
 
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)

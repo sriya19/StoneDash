@@ -31,20 +31,26 @@ const DOC_LABEL: Record<ExtractionDocumentType, string> = {
 
 // One chip covers all five statuses. Only the `review` variant is
 // interactive; the rest are informational.
+//
+// Task 8 Q4(a): processing / review / confirmed all carry `info`. Both
+// halves of the AI lifecycle are the machine reporting on itself, so
+// green is freed to mean only "a user action succeeded". <IntakeStatusChip>
+// is a deliberate mirror of this file and moved in lockstep — if you
+// change a state here, change it there.
 export function ExtractionChip({ data, onReview, className }: Props) {
   if (data.status === "processing") {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand-muted/30 px-2 py-0.5 text-[10px] font-medium text-brand",
+          "inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info",
           className,
         )}
         aria-label="AI extraction in progress"
       >
         <span className="flex items-center gap-0.5" aria-hidden="true">
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand" />
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand [animation-delay:150ms]" />
-          <span className="h-1 w-1 animate-pulse rounded-full bg-brand [animation-delay:300mS]" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info [animation-delay:150ms]" />
+          <span className="h-1 w-1 animate-pulse rounded-full bg-info [animation-delay:300ms]" />
         </span>
         Reading…
       </span>
@@ -57,7 +63,7 @@ export function ExtractionChip({ data, onReview, className }: Props) {
         type="button"
         onClick={onReview}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-brand bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand transition-colors hover:bg-brand/20",
+          "inline-flex items-center gap-1.5 rounded-full border border-info bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info transition-colors hover:bg-info/20",
           className,
         )}
         aria-label={`Review AI ${DOC_LABEL[data.documentType]} extraction`}
@@ -72,7 +78,7 @@ export function ExtractionChip({ data, onReview, className }: Props) {
     return (
       <span
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success",
+          "inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info",
           className,
         )}
       >
