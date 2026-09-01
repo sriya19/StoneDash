@@ -34,6 +34,7 @@ import {
   toDataUrl,
 } from "@/lib/extraction/pipeline";
 import type { ExtractionResult } from "@/lib/extraction/types";
+import { isMockAi } from "@/lib/env/mock-guard";
 
 // Supported input mimes. Anything else short-circuits to
 // `document_type='other'` without an LLM call.
@@ -61,7 +62,7 @@ function isMockMode(request: NextRequest): boolean {
   // Same env-var name the brief called out. Read on the SERVER —
   // the NEXT_PUBLIC_ prefix is misleading here but keeping the
   // brief's name makes the flag memorable.
-  if (process.env.NEXT_PUBLIC_MOCK_AI === "1") return true;
+  if (isMockAi()) return true;
   return false;
 }
 

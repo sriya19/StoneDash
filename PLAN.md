@@ -1,227 +1,186 @@
-# PLAN — Task 8: Bright blue as secondary accent + calendar contrast bump
+# PLAN — Task 9: Stage-triggered customer notifications + AI note taker
 
 Status: **DRAFT — awaiting "go"**
 
-Task 7 (commits `2950922` → `d9e58cd`) is landed. This file replaces the Task 7 body for Task 8. DEVLOG entries for prior tasks remain.
+Task 8 (commits `971cba2` → `3178916`) is landed and pushed. This file replaces the Task 8 body for Task 9. DEVLOG entries for prior tasks remain.
 
-Two changes, both purely visual. Fix 1 introduces a second semantic color and enforces a split rule across the app. Fix 2 makes calendar events scannable. No new features, no layout work, no schema.
+The brief says both features "leverage existing infrastructure" and "neither is a new subsystem." That is true of Feature B. **It is not true of Feature A**, and the difference is the main thing I need a decision on before starting.
 
 ---
 
 ## Scope acknowledgment — what I found grounding the brief
 
-Five findings that change what the sub-steps actually do.
+### 1. There is no notify-customer modal. There is no customer messaging UI at all. — BLOCKER
 
-**1. There are no hardcoded terracotta hexes in component files. The quality bar is already met.**
+The brief says the prompt "opens the existing notify-customer modal pre-configured with the right template, recipient, and message body." No such modal exists. Neither does anything else that sends a customer a message.
 
-`grep -rniE "#C2410C|#EA580C|#9A3412|#F97316|#FED7AA|#FB923C|#FFF7ED|#7C2D12"` over `app/ components/ lib/ public/` returns exactly four kinds of hit:
+**Task 7 shipped sub-steps 1–4 of 10 and stopped.** Its DEVLOG records exactly four completed sub-steps — migration 0025, system templates + renderer, context builder, ETA backend — and its six commits end at `d9e58cd`. Sub-steps 5 through 10 were the UI: the template picker, the editable message block, the recipient wiring, the send-log write, crew favorites, the notify surface. None of them exist.
 
-| Location | What it is | Disposition |
+What that leaves in the tree today:
+
+| Module | Built in Task 7 | Consumers outside its own tests |
 |---|---|---|
-| `app/globals.css` (31 hits) | The token definitions themselves | **Stays** — this is the one file where hexes belong |
-| `lib/events/color.ts:47` | `terracotta.hex` swatch value for the Task 6B color picker | **Stays** — this is palette *data*, not styling; the picker paints the circle the user is choosing |
-| `public/icon.svg`, `public/favicon.svg` | The logo | **Stays** — brief: wordmark and logo keep terracotta |
-| `app/(marketing)/_components/cta-band.tsx:6` | A code comment mentioning `#FED7AA` | **Stays** — comment, not a class |
+| `lib/messaging/render-template.ts` | ✅ 13 unit tests | **none** |
+| `lib/messaging/build-context.ts` | ✅ 8 integration tests | **none** |
+| `lib/messaging/system-templates.ts` | ✅ 6 templates | **none** |
+| `lib/messaging/phone.ts` (`wa.me`, `sms:`, `mailto:` with recipients) | ✅ | **none** |
+| `message_templates`, `message_send_log` tables | ✅ | **no writes from anywhere** |
 
-So sub-step 2's audit deliverable is not "a list of hexes to convert." Task 4 already consolidated everything behind semantic tokens. The real audit is **a list of every *semantic* terracotta usage** (`text-brand`, `bg-brand`, `border-brand`, `brand-muted`, `text-primary`, `--ring`, `--sidebar-*`) classified do-things / tell-things. That's the list I'll bring you for review, and it's the one that actually decides the diff. 45 call sites across 30 files.
+And the modal that does exist has not moved since Task 3. `components/app/send-to-crew-modal.tsx:164-167`:
 
-**2. Focus rings are already centralized.** Every focus ring in the app resolves through `ring-ring` → `--ring`. 13 call sites (`button`, `input`, `textarea`, `select`, `checkbox`, `tabs`, `dialog`, `sheet`, `badge`, `calendar`, `file-gallery`) and not one hardcodes a color. Changing `--ring` and `--sidebar-ring` in two blocks of `globals.css` swaps every focus ring in the product. The brief's "focus rings on all inputs/buttons" is a two-line change, not a sweep.
+```ts
+const waLink   = `whatsapp://send?text=${encoded}`;
+const smsLink  = `sms:?body=${encoded}`;
+const mailLink = `mailto:?body=${encoded}`;
+```
 
-**3. `calendar-list.tsx` has its own kind→color map, and it has drifted.** `components/app/calendar-list.tsx:24-31` defines a local `KIND_DOT` that bypasses `getEventColor` entirely. It is wrong in three ways: `pickup` is `bg-sky-500` where the palette says teal, `other` is `bg-zinc-500` where the palette says slate, and `repair` (added in Task 6B) is **missing** — so repair events currently render `KIND_DOT.other`, a zinc dot, for a kind whose default is amber. It also ignores `order_events.color` completely, so a user-picked color never reaches the list view. This is exactly the class of drift the Task 6B comment in `lib/events/color.ts` says the helper exists to prevent. Fix 2's list-view work is therefore *deleting* a map, not adding a dot — the dot is already `h-2 w-2` (8px).
+No recipient in any of the three — which is *verbatim the problem Task 7's own plan opened with* ("that's why nothing routes to them from the modal: there is literally no recipient in the URL"). `lib/messaging/phone.ts` was written to fix precisely this and was never wired in. It still uses the `whatsapp://` scheme that Task 7 Q7 decided to replace with `wa.me`.
 
-**4. `EventBlock` renders under SSR, so "currently in-progress" needs care.** `CalendarEvent` carries both `startsAt` and `endsAt`, so the in-progress test is a pure comparison — but evaluating `Date.now()` during server render and again during hydration yields two different stripe widths and a React hydration mismatch. Handled with a mounted-gate (see sub-step 5); the server always paints the 4px stripe and the client widens it after mount. Flagged because "optional polish, ship if easy" is only easy if you notice this.
+**So Feature A as written cannot be built.** Its interaction model — "prompt appears → user clicks Notify customer → existing modal opens pre-populated" — has no modal to open. Building it means building customer messaging: template selection, recipient resolution from the order's customer, an editable rendered body, the three deep links, and the `message_send_log` write. That is most of Task 7's unshipped half, and it is a bigger piece of work than the prompt itself.
 
-**5. The chip family is a mirrored pair, and the brief only names one half.** `IntakeStatusChip` carries the comment *"Mirrors `<ExtractionChip>` from Task 5: same five-state pattern"* and the two are byte-for-byte identical in styling across all five states. The brief names ExtractionChip's confirmed state ("AI extracted", green → blue) and IntakeStatusChip's review state ("Ready for review", terracotta → blue), but not the other two. Applying the brief literally desynchronizes a deliberately synchronized pair. See Q4.
+See **Q1**. This is the decision that sets the size of the task.
+
+### 2. Whisper fits neither the existing OpenAI client nor the existing cost model
+
+`lib/extraction/openai.ts` exposes exactly one function, `callChatCompletions`, which POSTs JSON to `https://api.openai.com/v1/chat/completions`. Whisper is a different endpoint (`/v1/audio/transcriptions`) taking **multipart/form-data with a file part**. There is no shared path; it is a new client function, not a parameter.
+
+`lib/extraction/cost.ts` is harder. Its entire shape is token-based:
+
+```ts
+const PRICING = { "gpt-4o-mini": {input, output}, "gpt-4o": {input, output} };
+export function costCents(model, inputTokens, outputTokens): number
+```
+
+Whisper is priced **per minute of audio** ($0.006/min), not per token. `costCents` cannot express it. This needs either a second function or a discriminated pricing union. The brief's "log Whisper + GPT-4o-mini + GPT-4o costs per note in cost_cents" quietly assumes one number covers all three — it can, but only after the cost module learns a second unit. See **Q4**.
+
+### 3. The good news: three pieces genuinely are reusable
+
+- **Fuzzy matching.** Migration 0023 ships `intake_match_customer_by_name`, `intake_match_order_by_project` and `intake_match_contractor_by_name` as pg_trgm RPCs, wrapped by `lib/intake/match.ts` with a `tierFor(score)` confidence banding. Feature B's Step 2 is close to a re-call, not a rebuild.
+- **Storage provisioning is in migrations.** `0005_storage_policies.sql` does `INSERT INTO storage.buckets` plus four RLS policies, and `0022` extends them. The `ai-notes` bucket follows that shape exactly — no manual dashboard step, no deployment surprise.
+- **Mock mode already exists.** `NEXT_PUBLIC_MOCK_AI` is the established convention across `lib/extraction/mock.ts`, `lib/intake/mock.ts` and both API routes. The brief's mock requirement needs no new mechanism.
+
+### 4. `changeStage` is a single chokepoint — but `bulkChangeStage` is a third path
+
+Both integration points the brief names route through one server action: the order sheet's stage picker and `orders-board.tsx:233`'s drag handler both call `changeStage()` from `lib/actions/orders.ts:296`, which calls the `change_order_stage` RPC.
+
+That is better than the brief assumes — the prompt does not need two separate integrations, it needs one enriched return value from `changeStage`.
+
+But `bulkChangeStage` (`lib/actions/orders.ts:320`) is a third caller, and it does **not** use the RPC — it writes `.update({ stage })` directly. So it bypasses whatever `change_order_stage` does for stage history, and it would bypass the prompt. See **Q3**; there may be a pre-existing bug hiding there.
+
+### 5. Two smaller things
+
+- **The dashboard KPI row is exactly full.** `app/(app)/dashboard/page.tsx:302` is `grid ... lg:grid-cols-5` containing exactly five `<KpiCard>`s. A sixth ("Notes taken this week") wraps one card onto its own row. See **Q6**.
+- **`{{fabrication_days}}` will be a constant.** The brief sources it from an org-level `default_fabrication_days`, so every customer gets "typical fabrication is 10 days" regardless of their order. That is a defensible v1 and the word "typical" carries it, but it is worth naming out loud rather than discovering later.
 
 ---
 
 ## Decisions I'd like you to weigh in on
 
-Eight. **Q1, Q2, Q4 and Q6 change what ships** — I'd like a call on each. The rest have defaults I'll take silently unless you object.
+Ten. **Q1 is a true blocker** — the task's size depends on it. Q3, Q4 and Q7 change what ships. The rest have defaults I'll take silently unless you object.
 
-### Q1. Token name: `info`, not `accent-info` — and it isn't just naming
+### Q1. Feature A has no modal to open — how much do we build? — BLOCKER
 
-The brief suggests `accent-info` or `accent-navigational`. Both collide with something real: **`--accent` is already a taken shadcn token** in this codebase (`globals.css:63`), and it means "the warm hover tint" — `#FFF7ED` orange-50 in light, `#2A1E16` in dark. It's what paints dropdown-item hover, ghost-button hover, table-row hover. Nesting under `accent` in Tailwind gives you `bg-accent-info` sitting one keystroke from `bg-accent`, which means the opposite thing (warm, not cool; hover, not semantic).
+Per finding 1. Three options:
 
-The brief's own CSS-variable spec already answers this — it asks for `--info`, `--info-foreground`, `--info-muted`, `--info-border`, not `--accent-info-*`. I'll match it.
+- **(a) Build the customer notify modal as part of Task 9.** *This is my recommendation.* It is the feature the brief actually describes, it finally connects `lib/messaging/` to a user, and it fixes the recipient-less deep links that have been broken since Task 3. Cost: roughly +3 sub-steps (modal shell + template picker + recipient/body wiring + send-log write). Task 9 grows from ~12 sub-steps to ~15 and from ~1 week to ~1.5.
+- **(b) Descope Feature A to prompt-plus-deep-link.** The prompt card appears and its "Notify customer" button opens the customer's WhatsApp/SMS directly with the rendered template body — no modal, no editing, no send log. Much smaller, ships in the original estimate, but the user cannot review or edit before the message leaves, which for a customer-facing message is a real risk.
+- **(c) Split: Task 9 does Feature B only; Feature A becomes Task 10** after a proper "finish Task 7's UI" task.
 
-**Recommendation:** Tailwind key `info`, giving `bg-info`, `text-info`, `border-info-border`, `bg-info-muted`, `text-info-foreground`. It sits beside the existing `success` and `destructive` status tokens, which is precisely the family it belongs to — `success` / `destructive` / `info` is a complete, conventional triple, and the codebase already reads `text-success` and `bg-success/10` in the chips this task is editing.
+I recommend **(a)**. The shop is deploying and this is one of the two features the boss most needs; shipping the prompt without a way to actually send is the same half-built shape Task 7 left behind, and doing it twice is how `lib/messaging/` ends up with three consumers and no owner. But (a) is a real scope increase and you should say yes to it explicitly.
 
-The rule I'll document in DEVLOG: **`brand`/`primary` is a verb, `info` is a noun.** If clicking it does something to the user's data, it's terracotta. If it tells the user where they are, what something is, or what just happened, it's blue. Neutral chrome is zinc.
+**Whichever you pick, I want to name the underlying risk once:** Task 7's engine has been sitting unused for two tasks, and Task 8 found a *different* two-task-old dead-code bug (the Tailwind content glob). Code with no consumer is not verified by its unit tests. The 21 messaging tests prove the renderer renders; they prove nothing about whether a real customer message can leave the building.
 
-### Q2. The nav active state can't go half-blue — BLOCKER-ish
+### Q2. The prompt hangs off `changeStage`'s return value
 
-The brief says "swap the terracotta strip on the left edge to blue." But the active nav item is a four-part treatment, not a strip (`sidebar-nav.tsx:63-76`):
+Per finding 4. Rather than the frontend calling a separate `get_stage_notification_prompt` RPC after each stage change (two round-trips, and two call sites to keep in sync), `changeStage` returns the prompt payload alongside its existing result. The RPC still exists and does the work; the action calls it server-side.
 
-```
-border-l-brand                    ← the 2px strip     (terracotta)
-bg-sidebar-accent                 ← the row tint      (#FFF7ED orange-50)
-text-sidebar-accent-foreground    ← the label         (#9A3412 orange-800)
-text-brand on the icon            ← the icon          (terracotta)
-```
+**Recommendation:** one hook, both call sites inherit it. The brief's "called by the frontend after a stage change succeeds" becomes "returned by the action that the frontend already awaits." Same RPC, same semantics, one fewer network hop and no chance of the kanban and the sheet drifting.
 
-Swapping only the strip gives you a blue bar against an orange-tinted row with orange text and an orange icon. That reads as a rendering bug, not a design.
+### Q3. `bulkChangeStage` — no prompt, and it may already be buggy
 
-**Recommendation:** move the whole sidebar active/hover family to the info palette — `--sidebar-primary`, `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-ring`, and the two `brand` classNames in the component. This is a bigger *visible* change than "one strip" and I want you to have said yes to it before you see the screenshot. It is still strictly a color-token change: no markup, no spacing, no structure.
+It writes `.update({ stage: toStage })` directly instead of calling `change_order_stage`. I have not yet confirmed what the RPC does beyond setting a GUC for the note and writing `order_stage_history` — but if it writes history, bulk stage changes have been silently skipping it.
 
-Note this also turns the **hover** tint on inactive nav items blue, since `--sidebar-accent` serves both. I think that's correct — the whole sidebar is navigational — but it's a consequence worth naming.
+**Recommendation:** bulk changes do **not** prompt (five prompts from one action is hostile). Separately, I'll confirm during sub-step 1 whether the history skip is real, and if it is, file it rather than silently fixing it inside a notifications task — unless you'd rather I fix it inline.
 
-The alternative, if you want the change smaller: strip + icon go blue, row tint goes neutral (`bg-secondary`) instead of blue. Less committed, doesn't look broken. Say the word.
+### Q4. Whisper needs a second cost unit — extend `cost.ts` or keep it separate?
 
-### Q3. `--accent` (the global warm hover tint) stays terracotta
+Per finding 2.
 
-Distinct from Q2's `--sidebar-accent`. The global `--accent` paints hover on dropdown items, ghost buttons, table rows, command-palette entries, and `hover:bg-accent` appears ~40 times. The brief doesn't mention it, and hover-on-a-row is neither "I do things" nor "I tell you things" — it's chrome.
+**Recommendation:** extend `lib/extraction/cost.ts` with an explicit second entry point (`audioCostCents(seconds)`) beside the existing token-based `costCents`, sharing the same "hard-code the price so a change surfaces in review" comment and the same round-up-to-the-cent rule. One module owns "what did OpenAI cost us", which is what makes the dashboard spend number trustworthy. The alternative — a `lib/notes/cost.ts` — splits that ownership on day one.
 
-**Recommendation:** leave it. Turning every hover in the product blue is a redesign, and the brief puts component redesigns out of scope. Recording the decision so the split rule doesn't get read as "everything warm becomes blue."
+I'll also confirm empirically that `OPENAI_API_KEY` authenticates against `/v1/audio/transcriptions`, per the quality bar, rather than assuming it.
 
-### Q4. The chip pair — swap both confirmed states, or neither
+### Q5. `stage_notification_prefs`: store overrides only, don't seed 5 rows per org
 
-Per finding 5. The brief says ExtractionChip's "AI extracted" (green) → blue. Its mirror is IntakeStatusChip's "Confirmed" (also green, same classes). Three options:
+The brief says seed 5 rows per org, all enabled. That means every new org needs seeding — a trigger, or a line in onboarding — and an org created before the trigger silently gets no prompts.
 
-- **(a) Swap both.** Both chips are the machine reporting on itself; green is freed to mean only "a user action succeeded." The mirror survives. *This is my recommendation.*
-- **(b) Swap only "AI extracted".** Defensible in isolation — "AI extracted" is a machine fact, "Confirmed" is a human's decision — but it silently breaks a pair the code comments call a mirror, and the next person to touch either will have to rediscover why.
-- **(c) Swap neither**, treating green-means-done as load-bearing and taking only the terracotta→blue half of the brief.
+**Recommendation:** invert it. **Row absent = enabled** (which is what "default all on" means), and the table stores only deviations. A new org works correctly with zero rows and no seeding path. `UNIQUE (org_id, from_stage, to_stage)` still holds; "Don't ask for this" inserts a row with `is_enabled=false`; the Settings toggle upserts. The transition list itself lives in TypeScript beside `ORDER_STAGES`, which is where the other stage knowledge already lives.
 
-I'll also apply blue to both chips' **`processing`** state ("Reading…"), which is terracotta today and is unambiguously the machine telling you something. The brief doesn't name it, but leaving a terracotta "Reading…" next to a blue "Ready for review" in the same chip family would be the same half-blue problem as Q2.
+This is strictly less machinery and strictly fewer ways to be wrong. It does mean the Settings table renders from the code-side list joined to whatever rows exist, rather than straight from the table — a small amount of UI code in exchange for deleting a seeding concern.
 
-One tension I want to name rather than hide: the `review` chip is a **`<button>`** that opens a sheet, so by the letter of the split rule it's a CTA. The brief names it for blue explicitly, and I agree with the brief — it's an *invitation to look*, not an action on data — but it is the one place where the rule and the instruction rub, and I'd rather log that than pretend it's clean.
+### Q6. The sixth KPI card breaks the dashboard row
 
-### Q5. Which links go blue — prose yes, table cells no
+**Recommendation:** put "Notes this week" into the existing five rather than adding a sixth — the weakest current card is "AI activity this month", which the note taker's spend naturally subsumes. Merging them keeps `lg:grid-cols-5` intact and avoids a lone card on row two. If you'd rather keep all five and add a sixth, the grid goes to `lg:grid-cols-3` two-up, which is a layout change I'd want you to okay first.
 
-The brief says "body text links (currently muted or terracotta — swap to blue, with hover underline)." There are two populations, and I don't think they should be treated the same.
+### Q7. Voice: what happens when transcription fails
 
-**Prose / navigational links → blue** (8 sites): `button` variant `link` (`text-primary`), auth-layout's "Sign up / Log in", `pipeline-strip`'s "View all", `reminder-bell`'s "See all", `maps-links`' Google/Apple Maps, the `/j/[slug]` share page's directions link, `invite/[token]`'s two footer links, and `customer-detail-sheet`'s `tel:` / `mailto:`.
+The brief specifies the fallback ("audio recorded but not transcribed — please type what was said"). Worth pinning the state machine, because there are four distinct failures and they are not the same: no `MediaRecorder` (hide the button entirely), permission denied (recoverable, re-prompt), upload failed (retry), Whisper failed or key missing (**note still saved**, `status='failed'`, audio retained, user types the text and re-processes).
 
-**Entity-name links inside table cells → stay foreground** (9 sites): the customer/contractor/order/crew names in `contractors-table`, `crew-table`, `orders-table`, `orders-board`, `contractor-jobs-tab`, `contractor-payments-tab`, `crew-detail-sheet`, `order-detail-sheet`. These already carry `hover:underline` and inherit `text-foreground`.
+**Recommendation:** the last one keeps the audio and the row. Losing a recording the shop owner just made because a third-party API 500'd is the worst outcome in this feature.
 
-**Recommendation:** prose only. A table row's name *is* the row's content, not a link in a sentence — every dense table in the product would go blue-striped, which is both a big unasked-for visual change and squarely inside the brief's own "body text stays zinc" rule. Tell me if you want them blue and I'll do it in the same sub-step; it's a one-line change per file, I just don't think it's right.
+### Q8. `ai_notes` RLS — field role creates, manager+ applies
 
-### Q6. Info banner vs. warning banner — only one of the four is "info"
+Per the brief. The wrinkle: "field can create notes but not apply changes" means `INSERT` is `is_org_member`, but the apply path must be manager+ **and** enforced server-side, not just hidden in the UI.
 
-The brief says "Info banner components (Settings warnings about missing shop address, etc.) — light blue tint background, blue border." There are four amber banners in the app:
+**Recommendation:** the apply path is a `SECURITY DEFINER` RPC (`apply_note`) that re-checks `org_role(org_id) IN ('owner','admin','manager')` internally — the `apply_intake` shape from 0024. UI hiding is a convenience, not the control.
 
-| Banner | Says | Verdict |
-|---|---|---|
-| `settings-eta-banner.tsx` | "ETA is manual for your N scheduled installs" | **→ blue.** Named by the brief. It reports a state of the system; nothing is at risk |
-| `csv-import-sheet.tsx:413` | rows will be skipped on import | **stays amber** |
-| `new-order-dialog.tsx:376` | possible duplicate customer detected | **stays amber** |
-| `quick-add-order-sheet.tsx:340` | possible duplicate customer detected | **stays amber** |
+### Q9. Proposed-action scope for v1
 
-**Recommendation:** convert only the ETA banner. The other three warn about a mistake the user is *about to make* — a skipped row, a duplicate customer. If amber and blue both mean "notice," amber stops meaning anything, and the duplicate-customer warning is the exact surface Task 6A built to prevent real data corruption. Keeping the ETA banner's `AlertTriangle` icon or swapping it to `Info` is a detail I'll take as `Info` unless you'd rather keep the triangle.
+The brief gives two worked examples: a scalar field update (`edge_profile`) and an event reschedule with natural-language date resolution ("next Wednesday").
 
-### Q7. Calendar tint: rebuild the `bg` variant, don't layer on top of it
+**Recommendation:** v1 proposes exactly three action kinds — `update_order_field` (whitelisted scalar columns only), `reschedule_event`, and `append_order_note`. Anything else stays a bullet in the summary with no proposal, which the brief already asks for. A whitelist rather than "any column" is the difference between a feature and an arbitrary-write primitive; `balance_due` and `stage` in particular must not be settable by a sentence spoken into a phone.
 
-Today `EVENT_COLOR_CLASSES[k].bg` is `bg-<c>-100/80 border-<c>-400/60 text-<c>-950` + dark equivalents. The brief asks for ~15% light / ~25% dark. Those aren't compatible — `<c>-100/80` is a pale wash of a near-white swatch, which is why the calendar is hard to scan; `<c>-500/15` is a true 15% of the *full-strength* hue and reads as a tint of the actual color.
+### Q10. Sub-step count
 
-**Recommendation:** rewrite `bg` to `bg-<c>-500/15 border-<c>-500/40 text-<c>-950 dark:bg-<c>-500/25 dark:border-<c>-500/50 dark:text-<c>-50`, and add two new variants to `ColorVariants`: `stripe` (`bg-<c>-500` full strength, for the left edge) and `pillBg` (`/30` per the brief's all-day spec). Adding variants to the existing table is not new lookup logic — every caller still goes `EVENT_COLOR_CLASSES[getEventColor(ev)][variant]`, which is the invariant the brief asks me to preserve.
-
-The `brown` key is special-cased today (it uses `amber-200/700/800` because Tailwind has no brown) and stays special-cased.
-
-### Q8. Screenshots — how many PNGs do you want committed?
-
-The bar asks for before/after at 375 / 768 / 1280 in light *and* dark. Done exhaustively across every changed surface that's ~60 images. `scripts/capture_docs_screenshots.ts` currently shoots 5 surfaces at 1280 light only; `next-themes` uses `attribute="class"` with a `theme` localStorage key, so an `addInitScript` seeding that key is all dark mode needs.
-
-**Recommendation:** I'll extend the existing capture script with `--width` / `--theme` flags (reusable, not throwaway), capture the full matrix locally for my own verification, and **commit a curated 12** to `docs/screenshots/task8/`: sidebar+dashboard, schedule week view, and settings, each before/after at 1280, in both themes. 375 and 768 get verified and described in DEVLOG without committing the PNGs. Plus refresh the canonical five in `docs/screenshots/` and `public/landing/dashboard-hero.png` at the end.
-
-If you'd rather keep the repo lean, say "narrative only" and I'll commit zero task-8 PNGs and only refresh the canonical set.
+The brief estimates 8–10 and then proposes 12. With Q1(a) it is 15. I'd rather show you 15 honest ones than compress into 10 that each hide a surprise. See the ordering below.
 
 ---
 
 ## Sub-steps
 
-Seven, adjusted from your six: your step 1 splits (tokens, then a proof-of-wiring), and calendar splits into helper-then-surfaces so the palette change is reviewable on its own. One commit each. Typecheck + lint + build + `pnpm smoke` green before every commit — I'll run `pnpm dev` in the background myself since the SSR and DOM smokes need a live server.
+Assumes Q1(a). Each is one commit. Typecheck + lint + build + `pnpm smoke` green before each; dev server stopped during `build` and restarted before `smoke`, per TASK8-FOLLOWUP-01. Migration commits carry real SQL, per the `commit-msg` hook.
 
-### Sub-step 1 — `info` token, wired end to end
+**Feature A — notifications**
 
-`app/globals.css`: add `--info`, `--info-foreground`, `--info-muted`, `--info-border` to `:root` and `.dark`.
+1. **Migration 0026** — `stage_notification_prefs` (overrides-only per Q5), `organizations.default_fabrication_days`, RLS, audit trigger. Confirm the `bulkChangeStage` history question from Q3 and report.
+2. **Two system templates** — `in_fabrication`, `invoice_sent` — plus `fabrication_days` in the context builder. Extends the existing `smoke:messaging` stage.
+3. **RPC `get_stage_notification_prompt`** + integration test.
+4. **Customer notify modal** (Q1a) — shell, template picker, recipient from the order's customer, editable rendered body. This is Task 7 sub-steps 5–7, finally.
+5. **Send path** — the three deep links via `lib/messaging/phone.ts` (with recipients, `wa.me`), the `message_send_log` write, activity log with `metadata.trigger`.
+6. **The prompt card** — `changeStage` returns the payload (Q2); card renders in the order sheet and on the kanban; the three actions wired.
+7. **Settings → Notifications tab** — transition table, per-row toggle, template override, `default_fabrication_days`.
 
-```
-light   --info: #2563EB   blue-600
-        --info-foreground: #FAFAF7
-        --info-muted: #EFF6FF   blue-50    (banner / chip backgrounds)
-        --info-border: #BFDBFE  blue-200
-dark    --info: #3B82F6   blue-500   ← per the brief's note; blue-600 on #18181B
-                                        measures 3.7:1 against body text and
-                                        sits too heavy. blue-500 clears AA.
-        --info-foreground: #18181B
-        --info-muted: #1E3A5F   a desaturated blue-950, matched to how
-                                --brand-muted is handled in dark
-        --info-border: #1D4ED8  blue-700
-```
+**Feature B — note taker**
 
-`tailwind.config.ts`: `info: { DEFAULT, foreground, muted, border }` under `theme.extend.colors`, beside `success`.
+8. **Migration 0027** — `ai_notes`, the `ai-notes` storage bucket + policies (0005 shape), RLS, audit trigger.
+9. **Text note capture** — dashboard entry point, Sheet with textarea, `processing` row created.
+10. **Pipeline: CLEAN + MATCH** — GPT-4o-mini summarize, then the existing `intake_match_*` RPCs. Mock-mode path first, real second.
+11. **Pipeline: PROPOSE** — the three whitelisted action kinds from Q9, including timezone-aware "next Wednesday" resolution.
+12. **Review sheet** — the `IntakeReviewSheet` pattern: original left, summary/points/proposals right, per-action checkboxes, three footer actions.
+13. **Apply** — `apply_note` SECURITY DEFINER RPC (Q8), activity log per applied action.
+14. **Voice** — `MediaRecorder` with capability detection, upload, `/api/notes/transcribe/[noteId]` with the existing HMAC pattern, Whisper client + `audioCostCents` (Q4), the four-way failure handling from Q7.
+15. **`/notes` list + dashboard KPI + activity feed + `smoke:notes` + README/DEVLOG wrap.**
 
-Also in this commit, because they're the same edit and the brief groups them: `--ring` and `--sidebar-ring` → `var(--info)` in both themes. That's the entire "focus rings on all inputs/buttons" item (finding 2).
-
-Proof of wiring: the ETA banner from Q6 is converted here rather than in a later step — it exercises all four variables (`bg-info-muted`, `border-info-border`, `text-info`, and `text-info-foreground` on the icon) on a real surface, so the token is verified in the product instead of in a scratch component that then has to be deleted.
-
-**Verify:** contrast-check all four values against `--background` / `--card` in both themes and record the ratios in DEVLOG. Tab through a form and a dialog in both themes; confirm every focus ring is blue.
-
-### Sub-step 2 — audit report (**no code changes — I stop here for your review**)
-
-Per finding 1, this is the semantic-usage list, not a hex list. I'll produce a table of all 45 terracotta call sites: file:line, what it paints, do-things vs. tell-things, and proposed disposition. You review, I proceed on your marks. Committed as a DEVLOG section so the reasoning is durable, not as a throwaway message.
-
-Expected shape: ~11 swap to blue (nav ×2, chips ×6, links per Q5, ETA banner already done in 1), ~34 stay terracotta (every CTA button, `+ New`, KPI urgent accents, the `new-order-dialog` and `event-dialog` selected-step states, uploader drag states, avatars, wordmark, toast, tooltip).
-
-### Sub-step 3 — apply blue: nav + links
-
-The Q2 sidebar family and the Q5 prose links. Two visually distinct areas but one conceptual change ("where am I / where can I go"), and both are pure className swaps.
-
-**Verify:** every route's active nav item in both themes; hover on inactive items; collapsed sidebar (the tooltip variant); all 8 link sites clicked.
-
-### Sub-step 4 — apply blue: chips
-
-Q4's chip pair across `processing` and `confirmed` + the `review` states the brief names. Both files, kept identical.
-
-**Verify:** all five states of both chips rendered in both themes. `ExtractionChip` states are reachable via the demo org's `file_extractions` rows; `IntakeStatusChip` via `/intake`. **Not** by confirming a mock intake through the UI — per FOLLOWUP-03 that writes real customer rows into the demo org, which is how Task 7 broke two smokes.
-
-### Sub-step 5 — calendar: palette + event blocks
-
-`lib/events/color.ts`: the Q7 rewrite of `bg`, plus `stripe` and `pillBg`.
-
-`components/app/event-block.tsx`:
-- `block` variant — absolutely-positioned 4px full-height stripe (`absolute inset-y-0 left-0 w-1`), content padding bumped `px-1.5` → `pl-2.5 pr-1.5` so text clears it. That padding bump is the one dimension this task changes, and it's forced by the stripe; noting it against the "no layout changes" bar rather than sneaking it through.
-- `pill` variant — `pillBg` at 30%, 3px stripe (`w-[3px]`), `pl-2` for clearance.
-- In-progress widening to 6px, guarded per finding 4: `useState(false)` + `useEffect(() => setMounted(true))`, so SSR and first client render agree on 4px and the widening happens post-hydration. `startsAt <= now <= endsAt`, both already on `CalendarEvent`.
-
-The `terminal` opacity-60 treatment and the `SendCorner` link are untouched — the stripe lives at `left-0`, the send icon at `right-0.5`, no collision.
-
-**Verify:** all 10 palette keys at both tint levels in both themes; text contrast measured on the two worst cases (`slate` and `brown` — the darkest tints, where `text-<c>-950` on `bg-<c>-500/15` is tightest). Long events, 15-minute events (the stripe must survive a 14px-tall block), all-day pills, drag-and-drop still working.
-
-### Sub-step 6 — calendar: list view + in-progress polish
-
-Delete `KIND_DOT` from `calendar-list.tsx`; route the dot through `EVENT_COLOR_CLASSES[getEventColor(ev)].dot`. Per finding 3 this fixes three live drifts and makes user-picked colors reach the list view for the first time.
-
-New `scripts/test_event_colors.ts`, chained into `pnpm smoke` as `smoke:events`. Four assertions, which are exactly the brief's four "Verify" bullets made executable:
-1. `color IS NULL` → kind default, for all 7 kinds including `repair`.
-2. A user-picked key overrides the kind default, for all 10 keys.
-3. An unknown/invalid stored color falls back to the kind default rather than crashing.
-4. Every palette key defines every variant (`bg`, `chip`, `dot`, `ring`, `stripe`, `pillBg`, `hex`) — the check that would have caught `KIND_DOT` missing `repair` two tasks ago.
-
-Pure unit test, no DB, no network. Runs in milliseconds and is the standing gate against the next drift.
-
-### Sub-step 7 — verification pass + docs
-
-The Q8 screenshot matrix, capture-script flags, README color-token section, DEVLOG wrap, canonical screenshot refresh, `landing-hero.png` refresh (the dashboard's sidebar changes materially under Q2, so this one is required, not optional).
-
----
-
-## Out of scope — confirming your list, plus two of mine
-
-Yours, unchanged: layout/typography/structure, new features, component redesigns, the kind→color defaults (`measurement=purple` etc. stay), user-picked-color render bugs (→ Task 8.5), deployment.
-
-Two additions I want on the record:
-- **`--accent` global hover tint stays warm** (Q3).
-- **Table-cell entity links stay foreground** (Q5) — pending your call.
-
-And one thing I'd normally defer but am pulling in, because it's three lines and the fix is indistinguishable from the work: the `calendar-list` `KIND_DOT` drift (finding 3). It's a live bug — repair events show the wrong dot color today — but rebuilding that dot on `getEventColor` is *the* sub-step 6 task, so fixing it costs nothing and leaving it would mean shipping a dot I'd just touched that I know is wrong.
+`smoke:notes` covers the brief's three scenarios (proposes an order update; proposes an event reschedule; matches nothing and stores summary only) plus two I want: an unmatched *entity* with a confident-sounding sentence, and a proposal targeting a non-whitelisted column, which must be refused.
 
 ---
 
 ## Risks
 
-**Blue-on-blue in the calendar.** `delivery` defaults to the `blue` palette key, and the nav/focus/link blue is `#2563EB` — the same family. A blue event block beside a blue nav strip could read as related when they aren't. Mitigation: the calendar's blue is `blue-500` at 15–30% opacity inside a bordered block; the accent blue is full-strength on text and 2px edges. I'll look hard at this in sub-step 7 and report honestly if it's muddy. Changing the `delivery` default is explicitly out of scope, so if it *is* muddy the finding goes to you as a Task 8.5 note rather than a unilateral fix.
+**The messaging engine has never run in production.** Two tasks of unit tests prove the parts work in isolation. Sub-step 5 is the first time a rendered template reaches a real phone, and that is where template/context/recipient bugs will surface — not in sub-step 2. I'll treat it as integration work, not wiring.
 
-**`--ring` is load-bearing in 13 components.** Swapping it is one line but touches every interactive surface. Covered by tabbing both themes in sub-step 1, before anything else lands on top of it.
+**"Next Wednesday" is a trap.** Resolving relative dates against the org timezone, at a 9am default, inheriting the existing event duration, near a DST boundary, is genuinely fiddly. `lib/tz.ts` exists and Task 6 already fought this. Unit-tested in isolation before it goes anywhere near a proposal.
 
-**Dark-mode `--info-muted`.** `#EFF6FF` blue-50 works in light; there is no equivalent in dark and the value above is hand-mixed, matched to how `--brand-muted` handles the same problem (`#7C2D12`). Most likely thing to need a second pass after seeing it on screen.
+**Whisper cost is per-minute and users control the minutes.** A 5-minute note is 3 cents; that is fine. But the soft limit needs to actually stop the recorder, not just warn, or the cost line is unbounded.
+
+**Scope.** With Q1(a) this is two features plus the unshipped half of a third. If it needs to be smaller, the honest cut is Q1(c) — Feature B alone this week, Feature A next — not compressing Feature A into something that prompts but cannot send.

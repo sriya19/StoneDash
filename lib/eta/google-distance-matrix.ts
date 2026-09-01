@@ -54,10 +54,17 @@ function warnMissingKeyOnce(): void {
   );
 }
 
-/** True when the mock short-circuit is active (used by the smoke). */
-export function isMockEta(): boolean {
-  return process.env.MOCK_ETA === "1";
-}
+/**
+ * True when the mock short-circuit is active (used by the smoke).
+ *
+ * Re-exported from lib/env/mock-guard.ts, which throws rather than
+ * returning true in a production runtime. computeTravelTime checks this
+ * ABOVE the real-key read, so without the guard MOCK_ETA=1 would beat a
+ * correctly-configured GOOGLE_MAPS_SERVER_KEY.
+ */
+import { isMockEta } from "@/lib/env/mock-guard";
+
+export { isMockEta };
 
 /** True when a real lookup is possible. */
 export function hasServerKey(): boolean {

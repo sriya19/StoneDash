@@ -28,6 +28,7 @@ import { verifyInternalToken } from "@/lib/extraction/internal-token";
 import { runStepA } from "@/lib/intake/pipeline";
 import { isMockKey, mockIntakeExtraction } from "@/lib/intake/mock";
 import type { IntakeExtraction } from "@/lib/intake/types";
+import { isMockAi } from "@/lib/env/mock-guard";
 
 // Supported mime types for screenshots. Anything else → 'failed'.
 const IMAGE_MIMES = new Set([
@@ -52,7 +53,7 @@ function isMockMode(request: NextRequest): boolean {
   const url = new URL(request.url);
   if (url.searchParams.get("mode") === "mock") return true;
   if (url.searchParams.get("fixture")) return true;
-  if (process.env.NEXT_PUBLIC_MOCK_AI === "1") return true;
+  if (isMockAi()) return true;
   return false;
 }
 
