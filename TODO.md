@@ -30,6 +30,8 @@ Fixed by giving the smoke a unique identity per run (`__SMOKE__Amelia_${stamp}` 
 
 **Cheaper interim option:** have `smoke_send_to_crew_dom.ts` fail with "0 of N expected — is your dev server stale after a build?" instead of a bare `0 testid`. The script knows how many events the order has; it could say so.
 
+**Effort:** ~30 min for the `distDir` change plus a Vercel build verification; ~15 min for the interim error-message option alone. Blocked on coordinating with the deployment track, not on difficulty.
+
 ---
 
 ## TASK8-FOLLOWUP-02 — blue-on-blue: `delivery` events sit close to the new nav blue
@@ -47,6 +49,8 @@ Mitigating factors, for whoever picks this up: the two live in different regions
 
 If it does read badly, the fix is **not** to re-tune `--info` — that would unpick the whole split rule. Change `KIND_DEFAULT_COLOR.delivery` to `indigo` or `teal`, which is a one-line change in `lib/events/color.ts` and gated by `pnpm smoke:events`. Task 8 explicitly ruled the default kind→color mapping out of scope, which is why this is a ticket rather than a commit.
 
+**Effort:** ~10 min to change and verify, once someone has a calendar with delivery events to look at. The judgement call is the whole cost; the edit is one line.
+
 ## TASK8-FOLLOWUP-03 — no mobile layout at 375px (pre-existing)
 
 At 375px the sidebar renders expanded at ~240px, leaving ~135px of content, and the schedule week grid (`64px repeat(7, minmax(0,1fr))`) collapses to unreadable slivers. Every authenticated route is affected, not just the calendar.
@@ -54,6 +58,8 @@ At 375px the sidebar renders expanded at ~240px, leaving ~135px of content, and 
 **Predates Task 8** — verified against the pre-task commit `d9e58cd` in a scratch worktree, where `/dashboard` at 375px shows the identical overflow. Task 8 changed colors and 4px of padding on event blocks; it did not touch a grid template or a breakpoint. Recorded because the task's quality bar asked for verification at 375 / 768 / 1280 and 768 is fine while 375 is not, so "verified at three widths" would be a misleading thing to write down without this.
 
 Real fix is a mobile layout pass: collapse the sidebar to icons or a sheet below `md`, and give the week grid a horizontal scroll container or a day-at-a-time fallback on small screens. That is a layout task, explicitly out of Task 8's scope.
+
+**Effort:** ~1–2 days. Touches the app shell, every table, and the calendar grid, and needs its own design decisions (does the week view become a day view on mobile, or scroll?). Not a tidy-up — a real piece of work.
 
 ---
 
