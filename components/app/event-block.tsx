@@ -38,7 +38,7 @@ export function EventBlock({
   sendHref,
 }: Props) {
   const colorKey = getEventColor(event);
-  const kindClass = EVENT_COLOR_CLASSES[colorKey].bg;
+  const palette = EVENT_COLOR_CLASSES[colorKey];
   const terminal = isTerminal(event.status);
 
   // Standalone events have no order_number / project_name — their title
@@ -58,12 +58,14 @@ export function EventBlock({
     return (
       <div
         className={cn(
-          "relative flex items-center gap-1.5 overflow-hidden rounded-md border px-1.5 py-0.5 pr-5 text-left text-[10px] leading-tight",
-          kindClass,
+          // pl-2 clears the 3px stripe below; everything else is unchanged.
+          "relative flex items-center gap-1.5 overflow-hidden rounded-md border py-0.5 pl-2 pr-5 text-left text-[10px] leading-tight",
+          palette.pillBg,
           terminal && "opacity-60",
         )}
         title={tooltip}
       >
+        <Stripe className={palette.stripe} width="w-[3px]" />
         <span
           className={cn(
             "shrink-0",
@@ -91,12 +93,16 @@ export function EventBlock({
   return (
     <div
       className={cn(
-        "relative h-full overflow-hidden rounded-md border px-1.5 py-1 text-left",
-        kindClass,
+        // pl-2.5 clears the 4px stripe below. That padding bump is the one
+        // dimension Task 8 changes, and it is forced by the stripe rather
+        // than a layout opinion.
+        "relative h-full overflow-hidden rounded-md border py-1 pl-2.5 pr-1.5 text-left",
+        palette.bg,
         terminal && "opacity-60",
       )}
       title={tooltip}
     >
+      <Stripe className={palette.stripe} width="w-1" />
       {sendHref ? <SendCorner href={sendHref} /> : null}
       <div className="flex items-center justify-between gap-1 pr-5 text-[10px] leading-tight">
         <span
@@ -141,6 +147,24 @@ export function EventBlock({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Left-edge colored stripe (Task 8 Fix 2). The event's color at full
+// strength against the block's ~15%/25% tint of the same hue — the tint
+// tells you which kind at a glance across a whole week, the stripe gives
+// the eye a hard edge to land on. Purely decorative: the color is never
+// the only carrier of meaning (the kind is also written in the list view
+// and the dialog), so it takes aria-hidden and no label.
+//
+// Sits inside the parent's `overflow-hidden rounded-md`, so it inherits
+// the rounded corners rather than needing its own.
+function Stripe({ className, width }: { className: string; width: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("absolute inset-y-0 left-0", width, className)}
+    />
   );
 }
 

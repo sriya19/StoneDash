@@ -145,6 +145,47 @@ Green is now free to mean only "a user action succeeded". Both halves of the AI 
 
 `<ExtractionChip>` itself was **not** screenshot-verified, and shouldn't be reported as if it were: the seeded `file_extractions` rows are contractor licenses with no order attachment, and the component only renders inside the order detail sheet's Files tab, so no seeded state reaches the screen. It is covered instead by the class-identity check against its visually-verified mirror — which for a pure className change is the stronger of the two, but is not the same claim as "I looked at it".
 
+### Sub-step 5a — `lib/` was never in Tailwind's content globs (complete)
+
+**The calendar's per-kind colors have not been subtle. They have been absent.**
+
+The brief opens Fix 2 with "current per-kind default colors from Task 6B are semantically correct but visually too subtle to scan quickly". Building the stripe on top of them and measuring the result found something else: `getComputedStyle` on a rendered event block returned `background-color: rgba(0, 0, 0, 0)`, a default zinc border and default foreground text. No tint, no colored border, no colored text — not a faint version of them.
+
+`tailwind.config.ts` scanned `./pages`, `./components` and `./app`. **It did not scan `./lib`**, and `lib/events/color.ts` is where every event color class string lives. Since Task 6B landed, not one of them has been compiled into the CSS.
+
+What made this survive two tasks undetected is that it fails *partially*, and the part that works is a coincidence:
+
+| Variant | Rendered before this fix | Why |
+|---|---|---|
+| `bg` (week/day event blocks) | **0 of 10 keys** | Nothing else in the app declares `bg-purple-100/80` |
+| `ring` (color-picker selection) | **0 of 10 keys** | Nothing else declares `ring-*-500` |
+| `chip` (order events tab, `/j/[slug]`) | 5 of 10, partially | `bg-amber-100` etc. exist because unrelated components use them |
+| `dot` (crew history) | 5 of 10 | `bg-purple-500`, `bg-emerald-500`, `bg-blue-500`, `bg-slate-500` come from `calendar-list.tsx`'s private `KIND_DOT`; `bg-indigo-500` from `pipeline-strip.tsx` |
+
+So the surfaces that looked right were being colored by strings that happen to be declared somewhere Tailwind *does* scan. **And the map that was accidentally propping up four of the five working dots is the one sub-step 6 deletes** — removing `KIND_DOT` without this fix would have silently turned `crew-detail-sheet`'s history dots colorless, in a commit whose stated purpose was removing colour drift. Two bugs cancelling out, and the fix for one would have exposed the other.
+
+**One line: `"./lib/**/*.{js,ts,jsx,tsx,mdx}"`.** After it, all 10 keys compile for every variant, including the picker rings that have never once rendered.
+
+**This is the Task 8.5 the brief anticipated** — "any bug where user-picked colors don't render on calendar events" — and it is deliberately being fixed here rather than deferred, because it is the enabling condition for the work that was approved. A left-edge stripe "in the event's color" and a "subtle tint of the same color" cannot ship against a palette that does not compile; sub-step 5b would have been dead code. Splitting it into its own commit so it can be reverted independently of the visual change.
+
+**Consequence worth stating plainly: the calendar's visual delta is much larger than "a contrast bump".** The before state is colorless blocks, not low-contrast ones. Reviewing the before/after expecting a subtle change will be misleading — the honest comparison is "no color at all" against "tinted, striped and legible".
+
+### Sub-step 5b — calendar palette + event-block stripes (complete)
+
+**`bg` was rebuilt rather than tweaked** (Q7). The old value was `<c>-100/80` — a pale wash of an already near-white swatch. The brief asks for ~15% light / ~25% dark, and those are percentages of the *full-strength* hue, so the family moves `-100` → `-500`: `bg-<c>-500/15 border-<c>-500/40 text-<c>-950`, and `/25` + `/50` in dark. `brown` stays special-cased on the amber-700/800 end, since Tailwind has no brown and `amber` now owns the 500.
+
+**Two variants added to `ColorVariants`**, not a second lookup path: `stripe` (full-strength solid) and `pillBg` (the all-day pill's 30% wash, heavier than `bg` because a one-line pill has less area to carry the color). Every caller still goes `EVENT_COLOR_CLASSES[getEventColor(ev)][variant]`, which is the invariant the brief asked to preserve.
+
+**Contrast measured across all 40 combinations** — 10 keys × {block, pill} × {light, dark} — by alpha-blending each tint over its actual surface (`#FFFFFF` card light, `#1F1F23` dark) and measuring the event text against the result. Every one clears WCAG AA for normal text; the worst is `amber` pill in dark at **8.60:1**, which is comfortably AAA. Range 8.60 – 16.75.
+
+**The `Stripe` primitive** is one absolutely-positioned span at `inset-y-0 left-0`, sitting inside the parent's existing `overflow-hidden rounded-md` so it inherits the corner radius rather than needing its own. 4px on blocks, 3px on pills. It takes `aria-hidden` — the color is decorative, never the only carrier of the kind, which is also spelled out in the list view and the dialog.
+
+**The one dimension this task changes:** block padding `px-1.5` → `pl-2.5 pr-1.5`, and pill `px-1.5` → `pl-2 pr-5`, so text clears the stripe. Forced by the stripe rather than a layout opinion, and noted here against the "no layout changes" bar rather than slipped through.
+
+**The in-progress treatment was dropped**, per the approved scope. Worth recording that dropping it also removed the need for the mounted-gate that PLAN.md sub-step 5 specified: the gate existed *only* to keep `Date.now()` from differing between server render and hydration. With no time-dependent branch left, there is nothing to guard, and adding the gate anyway would have been dead state. The finding that motivated it still stands for whoever picks the polish up later.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 71 unit checks. Week and day views shot in both themes; computed styles read back off the live DOM to confirm the tint, border, text color and stripe width are what the palette says rather than trusting a screenshot — which is what caught 5a.
+
 ---
 
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)

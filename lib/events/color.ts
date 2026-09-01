@@ -27,12 +27,17 @@ import type { EventColorKey } from "@/lib/validators/events";
 //             pipeline-strip stage dots by extension pattern)
 //   ring    — an outline ring used by the picker to mark the active
 //             selection
-
+//   stripe  — full-strength solid, for the left edge of an event block
+//             or all-day pill (Task 8 Fix 2)
+//   pillBg  — the all-day pill's ~30% wash, heavier than `bg` because a
+//             one-line pill has less area to carry the color
 type ColorVariants = {
   bg: string;
   chip: string;
   dot: string;
   ring: string;
+  stripe: string;
+  pillBg: string;
   // Raw hex — used by the picker's swatch circles so the color the
   // user sees IS the color that stores.
   hex: string;
@@ -40,73 +45,93 @@ type ColorVariants = {
 
 export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
   terracotta: {
-    bg: "bg-orange-100/80 border-orange-400/60 text-orange-950 dark:bg-orange-900/40 dark:border-orange-500/60 dark:text-orange-50",
+    bg: "bg-orange-500/15 border-orange-500/40 text-orange-950 dark:bg-orange-500/25 dark:border-orange-500/50 dark:text-orange-50",
+    stripe: "bg-orange-500",
+    pillBg: "bg-orange-500/30 border-orange-500/50 text-orange-950 dark:bg-orange-500/30 dark:border-orange-500/60 dark:text-orange-50",
     chip: "bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-900/50 dark:text-orange-100 dark:border-orange-700",
     dot: "bg-orange-500",
     ring: "ring-orange-500",
     hex: "#C2410C",
   },
   green: {
-    bg: "bg-emerald-100/80 border-emerald-400/60 text-emerald-950 dark:bg-emerald-900/40 dark:border-emerald-500/60 dark:text-emerald-50",
+    bg: "bg-emerald-500/15 border-emerald-500/40 text-emerald-950 dark:bg-emerald-500/25 dark:border-emerald-500/50 dark:text-emerald-50",
+    stripe: "bg-emerald-500",
+    pillBg: "bg-emerald-500/30 border-emerald-500/50 text-emerald-950 dark:bg-emerald-500/30 dark:border-emerald-500/60 dark:text-emerald-50",
     chip: "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-100 dark:border-emerald-700",
     dot: "bg-emerald-500",
     ring: "ring-emerald-500",
     hex: "#16A34A",
   },
   blue: {
-    bg: "bg-blue-100/80 border-blue-400/60 text-blue-950 dark:bg-blue-900/40 dark:border-blue-500/60 dark:text-blue-50",
+    bg: "bg-blue-500/15 border-blue-500/40 text-blue-950 dark:bg-blue-500/25 dark:border-blue-500/50 dark:text-blue-50",
+    stripe: "bg-blue-500",
+    pillBg: "bg-blue-500/30 border-blue-500/50 text-blue-950 dark:bg-blue-500/30 dark:border-blue-500/60 dark:text-blue-50",
     chip: "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/50 dark:text-blue-100 dark:border-blue-700",
     dot: "bg-blue-500",
     ring: "ring-blue-500",
     hex: "#2563EB",
   },
   purple: {
-    bg: "bg-purple-100/80 border-purple-400/60 text-purple-950 dark:bg-purple-900/40 dark:border-purple-500/60 dark:text-purple-50",
+    bg: "bg-purple-500/15 border-purple-500/40 text-purple-950 dark:bg-purple-500/25 dark:border-purple-500/50 dark:text-purple-50",
+    stripe: "bg-purple-500",
+    pillBg: "bg-purple-500/30 border-purple-500/50 text-purple-950 dark:bg-purple-500/30 dark:border-purple-500/60 dark:text-purple-50",
     chip: "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/50 dark:text-purple-100 dark:border-purple-700",
     dot: "bg-purple-500",
     ring: "ring-purple-500",
     hex: "#9333EA",
   },
   amber: {
-    bg: "bg-amber-100/80 border-amber-400/60 text-amber-950 dark:bg-amber-900/40 dark:border-amber-500/60 dark:text-amber-50",
+    bg: "bg-amber-500/15 border-amber-500/40 text-amber-950 dark:bg-amber-500/25 dark:border-amber-500/50 dark:text-amber-50",
+    stripe: "bg-amber-500",
+    pillBg: "bg-amber-500/30 border-amber-500/50 text-amber-950 dark:bg-amber-500/30 dark:border-amber-500/60 dark:text-amber-50",
     chip: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/50 dark:text-amber-100 dark:border-amber-700",
     dot: "bg-amber-500",
     ring: "ring-amber-500",
     hex: "#D97706",
   },
   rose: {
-    bg: "bg-rose-100/80 border-rose-400/60 text-rose-950 dark:bg-rose-900/40 dark:border-rose-500/60 dark:text-rose-50",
+    bg: "bg-rose-500/15 border-rose-500/40 text-rose-950 dark:bg-rose-500/25 dark:border-rose-500/50 dark:text-rose-50",
+    stripe: "bg-rose-500",
+    pillBg: "bg-rose-500/30 border-rose-500/50 text-rose-950 dark:bg-rose-500/30 dark:border-rose-500/60 dark:text-rose-50",
     chip: "bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-900/50 dark:text-rose-100 dark:border-rose-700",
     dot: "bg-rose-500",
     ring: "ring-rose-500",
     hex: "#E11D48",
   },
   teal: {
-    bg: "bg-teal-100/80 border-teal-400/60 text-teal-950 dark:bg-teal-900/40 dark:border-teal-500/60 dark:text-teal-50",
+    bg: "bg-teal-500/15 border-teal-500/40 text-teal-950 dark:bg-teal-500/25 dark:border-teal-500/50 dark:text-teal-50",
+    stripe: "bg-teal-500",
+    pillBg: "bg-teal-500/30 border-teal-500/50 text-teal-950 dark:bg-teal-500/30 dark:border-teal-500/60 dark:text-teal-50",
     chip: "bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-900/50 dark:text-teal-100 dark:border-teal-700",
     dot: "bg-teal-500",
     ring: "ring-teal-500",
     hex: "#0D9488",
   },
   indigo: {
-    bg: "bg-indigo-100/80 border-indigo-400/60 text-indigo-950 dark:bg-indigo-900/40 dark:border-indigo-500/60 dark:text-indigo-50",
+    bg: "bg-indigo-500/15 border-indigo-500/40 text-indigo-950 dark:bg-indigo-500/25 dark:border-indigo-500/50 dark:text-indigo-50",
+    stripe: "bg-indigo-500",
+    pillBg: "bg-indigo-500/30 border-indigo-500/50 text-indigo-950 dark:bg-indigo-500/30 dark:border-indigo-500/60 dark:text-indigo-50",
     chip: "bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-900/50 dark:text-indigo-100 dark:border-indigo-700",
     dot: "bg-indigo-500",
     ring: "ring-indigo-500",
     hex: "#4F46E5",
   },
   slate: {
-    bg: "bg-slate-100/80 border-slate-400/60 text-slate-950 dark:bg-slate-900/40 dark:border-slate-500/60 dark:text-slate-50",
+    bg: "bg-slate-500/15 border-slate-500/40 text-slate-950 dark:bg-slate-500/25 dark:border-slate-500/50 dark:text-slate-50",
+    stripe: "bg-slate-500",
+    pillBg: "bg-slate-500/30 border-slate-500/50 text-slate-950 dark:bg-slate-500/30 dark:border-slate-500/60 dark:text-slate-50",
     chip: "bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-900/50 dark:text-slate-100 dark:border-slate-700",
     dot: "bg-slate-500",
     ring: "ring-slate-500",
     hex: "#475569",
   },
   brown: {
-    // Tailwind doesn't have a "brown" palette; amber-800/900 is the
-    // right family. Distinct enough from `amber` (which uses 100/500)
-    // to read as separate side-by-side.
-    bg: "bg-amber-200/70 border-amber-700/60 text-amber-950 dark:bg-amber-950/40 dark:border-amber-800/60 dark:text-amber-50",
+    // Tailwind doesn't have a "brown" palette; the amber-700/800 end is
+    // the right family. Distinct enough from `amber` (which uses 500) to
+    // read as separate side-by-side.
+    bg: "bg-amber-700/15 border-amber-700/40 text-amber-950 dark:bg-amber-700/25 dark:border-amber-700/50 dark:text-amber-50",
+    stripe: "bg-amber-800",
+    pillBg: "bg-amber-700/30 border-amber-700/50 text-amber-950 dark:bg-amber-700/30 dark:border-amber-700/60 dark:text-amber-50",
     chip: "bg-amber-200 text-amber-950 border-amber-800/40 dark:bg-amber-950/60 dark:text-amber-100 dark:border-amber-800",
     dot: "bg-amber-800",
     ring: "ring-amber-800",
