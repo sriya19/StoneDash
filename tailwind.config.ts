@@ -6,6 +6,15 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    // Task 8: `lib/` was missing, and `lib/events/color.ts` is where every
+    // event color class lives. Since Task 6B those strings have never been
+    // compiled — the calendar's per-kind colors have been absent, not
+    // subtle. The handful that did render (5 of 10 `dot` keys) came from
+    // unrelated components that happen to declare the same class, which is
+    // also why deleting calendar-list's private KIND_DOT map would have
+    // silently broken crew-detail-sheet's dots. Any module that builds
+    // class strings belongs in this list.
+    "./lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
