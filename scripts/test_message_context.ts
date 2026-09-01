@@ -183,6 +183,20 @@ async function main() {
       }),
     );
 
+    // Task 9: {{fabrication_days}} resolves from the org column, not a
+    // per-order value, and is always a bare number — the renderer's
+    // empty-placeholder tidy cannot rescue "typical fabrication is  days",
+    // so an empty string here would ship a broken sentence.
+    check(
+      "1c. fabrication_days resolves from the org and is a positive integer",
+      // TemplateContext values are `string | null | undefined` by type, so
+      // the ?? "" is not defensive noise — it is what makes an absent key
+      // FAIL the digits check rather than throw.
+      /^\d+$/.test(c1.fabrication_days ?? "") &&
+        Number(c1.fabrication_days ?? 0) > 0,
+      JSON.stringify({ fabrication_days: c1.fabrication_days }),
+    );
+
     // With no site contact set, the customer is the fallback.
     check(
       "1b. site_contact falls back to the customer when unset",

@@ -53,6 +53,7 @@ const FULL = {
   cutout_summary: "1 sink, 1 cooktop",
   notes: "Gate code 4417",
   balance_due: "$2,480.00",
+  fabrication_days: "10",
 };
 
 // 1. Happy path.
@@ -68,7 +69,7 @@ const FULL = {
   );
 }
 
-// 2. All six shipped templates render cleanly against a full context.
+// 2. All shipped templates render cleanly against a full context.
 {
   const leftovers: string[] = [];
   for (const t of SYSTEM_TEMPLATES) {
@@ -79,7 +80,7 @@ const FULL = {
     }
   }
   check(
-    "2. all six system templates render with no leftover tokens",
+    `2. all ${SYSTEM_TEMPLATES.length} system templates render with no leftover tokens`,
     leftovers.length === 0,
     leftovers.join(" | ") || "clean",
   );
@@ -230,6 +231,36 @@ const FULL = {
     "13. deep links encode the body and return null with no recipient",
     ok,
     JSON.stringify({ wa, sms, mail }),
+  );
+}
+
+// 14. The two Task 9 stage-triggered templates exist, are customer-facing,
+//     and say what the stage transition means. Pinned by slug because the
+//     RPC in sub-step 3 looks them up by slug — a rename here would silently
+//     stop the fabrication and invoice prompts from resolving a template.
+{
+  const problems: string[] = [];
+  for (const [slug, needles] of [
+    ["in_fabrication", ["{{stone_type}}", "{{fabrication_days}}"]],
+    ["invoice_sent", ["{{project_name}}", "{{balance_due}}", "{{shop_phone}}"]],
+  ] as const) {
+    const t = SYSTEM_TEMPLATES.find((x) => x.slug === slug);
+    if (!t) {
+      problems.push(`${slug} missing`);
+      continue;
+    }
+    if (t.audience !== "customer") problems.push(`${slug} audience=${t.audience}`);
+    for (const n of needles) {
+      if (!t.body.includes(n)) problems.push(`${slug} lacks ${n}`);
+    }
+    const { text, missing } = renderTemplate(t.body, FULL);
+    if (missing.length > 0) problems.push(`${slug} unresolved ${missing.join(",")}`);
+    if (/\{\{|\}\}/.test(text)) problems.push(`${slug} leftover token`);
+  }
+  check(
+    "14. in_fabrication and invoice_sent render for a customer audience",
+    problems.length === 0,
+    problems.join(" | ") || "both clean",
   );
 }
 

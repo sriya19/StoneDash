@@ -34,6 +34,27 @@ Terminal stages are enforced in the schema rather than in code: `CHECK (to_stage
 
 `supabase migration list` shows `0026 | 0026`. typecheck / lint / build green (22/22). `pnpm smoke` green, exit 0: 33/33 SSR, 3/3 DOM, 78 unit checks.
 
+### Sub-step 2 — in_fabrication + invoice_sent templates, fabrication_days (complete)
+
+Both bodies verbatim from the brief. Eight system templates now, up from six.
+
+**`{{fabrication_days}}` is org-wide, not per-order**, sourced from `organizations.default_fabrication_days`. That is why the sentence says *"typical fabrication is N days"* rather than promising this job's date — the word carries the constant. Named in PLAN.md finding 5 rather than discovered later.
+
+It renders as a bare number, which makes it the one placeholder the renderer's empty-placeholder tidy cannot rescue: "typical fabrication is  days" has nothing danging to collapse. So the context falls back to `10` rather than `""` when there is no org — the same value as the column default, and the no-org case already empties every other org-derived key.
+
+**The existing test caught the change before I did.** Adding `in_fabrication` immediately turned check 2 red — `[FAIL] 2. all six system templates render with no leftover tokens` — because the `FULL` fixture had no `fabrication_days`. That is the check working exactly as intended: a template shipped with a placeholder nothing supplies is a broken customer message, and it was caught in the same minute it was introduced. Fixture updated; the label is now generated from `SYSTEM_TEMPLATES.length` so it cannot go stale again the way "six" did.
+
+**Two new assertions, both pinned to slugs on purpose:**
+
+- **Check 14** (`smoke:messaging`) asserts both new templates exist, are `audience: "customer"`, contain the placeholders the transitions depend on, and render clean against a full context. Slug-pinned because sub-step 3's RPC resolves templates *by slug* — a rename here would silently stop the fabrication and invoice prompts from finding anything, with no type error anywhere. Mutation-tested: renaming `in_fabrication` to `fabricating` fails the check.
+- **Check 1c** (`smoke:messaging` context stage) asserts `fabrication_days` resolves from the org as a positive integer.
+
+**A type error worth keeping the shape of.** Check 1c first passed `c1.fabrication_days` straight to `RegExp.test`, which `tsc` rejected: `TemplateContext` is `Record<string, string | null | undefined>`, so every key is possibly absent *by type* even when it is always present at runtime. The fix is `?? ""` — and it is not defensive noise: it is what makes an absent key **fail** the digits assertion instead of throwing. The generic type is correct and the test was the sloppy party.
+
+**Templates upserted without a destructive re-seed**, through the same `onConflict: "org_id,slug"` path `supabase/seed.ts` uses. `pnpm db:seed` rebuilds the org and would destroy the manual `/intake` data recorded as TASK7-FOLLOWUP-03 — the same reasoning Task 7 applied when it seeded these six. All eight now present in the demo org.
+
+typecheck / lint / build green (22/22). `pnpm smoke` green, exit 0: 33/33 SSR, 3/3 DOM, **83** unit checks (up from 78).
+
 ---
 
 ## Pre-deploy hardening (2026-09-01)

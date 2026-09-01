@@ -27,6 +27,7 @@ type OrgRow = {
   timezone: string;
   currency: string;
   phone: string | null;
+  default_fabrication_days: number;
 };
 
 type EventRow = {
@@ -175,7 +176,7 @@ export async function buildMessageContext(
   if (orgId) {
     const { data, error } = await supabase
       .from("organizations")
-      .select("id, timezone, currency, phone")
+      .select("id, timezone, currency, phone, default_fabrication_days")
       .eq("id", orgId)
       .maybeSingle<OrgRow>();
     assertNoQueryError("buildMessageContext:org", error);
@@ -259,6 +260,12 @@ export async function buildMessageContext(
 
     // Shop
     shop_phone: org?.phone ?? "",
+    // Org-wide typical fabrication turnaround (Task 9). NOT NULL DEFAULT 10
+    // in the schema, so the `?? 10` only covers the no-org case that already
+    // makes every other org-derived key empty. Deliberately not "" there:
+    // "typical fabrication is  days" reads worse than a sane default, and
+    // the renderer's empty-placeholder tidy cannot rescue a bare number.
+    fabrication_days: String(org?.default_fabrication_days ?? 10),
 
     // Notes: this visit first, the job second
     notes: event?.notes ?? order?.notes ?? "",

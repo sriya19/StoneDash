@@ -1,4 +1,4 @@
-// The six templates that ship with the app.
+// The eight templates that ship with the app.
 //
 // Seeded per-org with is_system_default=true. An org edit inserts nothing
 // new at the slug level — it replaces the row for that org (message_templates
@@ -57,6 +57,29 @@ export const SYSTEM_TEMPLATES: SystemTemplate[] = [
     body:
       "Hi {{customer_name}}, your counters are fabricated and ready. When " +
       "would you like us to install?",
+  },
+  {
+    // Task 9. Fires on measurement -> fabrication. {{fabrication_days}}
+    // resolves from organizations.default_fabrication_days, so it is an
+    // org-wide typical rather than a per-order estimate — which is why the
+    // sentence says "typical" rather than promising this job's date.
+    slug: "in_fabrication",
+    audience: "customer",
+    title: "In Fabrication",
+    body:
+      "Hi {{customer_name}}, your {{stone_type}} counters are now being " +
+      "fabricated. We'll let you know once they're ready for install — " +
+      "typical fabrication is {{fabrication_days}} days.",
+  },
+  {
+    // Task 9. Fires on installation -> invoiced.
+    slug: "invoice_sent",
+    audience: "customer",
+    title: "Invoice Sent",
+    body:
+      "Hi {{customer_name}}, your invoice for {{project_name}} " +
+      "({{balance_due}}) is on its way. Payment methods and details " +
+      "inside. Call {{shop_phone}} if anything looks off.",
   },
   {
     slug: "crew_dispatch",
