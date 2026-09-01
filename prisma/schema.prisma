@@ -70,22 +70,23 @@ enum AttachmentKind {
 // ===========================================================================
 
 model Organization {
-  id               String   @id @default(uuid()) @db.Uuid
-  name             String
-  slug             String   @unique
-  logoUrl          String?  @map("logo_url")
-  timezone         String   @default("America/New_York")
-  currency         String   @default("USD")
-  orderPrefix      String   @map("order_prefix")
-  orderSeqStart    Int      @default(1000) @map("order_seq_start")
-  ownerId          String   @map("owner_id") @db.Uuid
-  phone            String?
-  shopAddressLine1 String?  @map("shop_address_line1")
-  shopCity         String?  @map("shop_city")
-  shopState        String?  @map("shop_state")
-  shopPostalCode   String?  @map("shop_postal_code")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  id                     String   @id @default(uuid()) @db.Uuid
+  name                   String
+  slug                   String   @unique
+  logoUrl                String?  @map("logo_url")
+  timezone               String   @default("America/New_York")
+  currency               String   @default("USD")
+  orderPrefix            String   @map("order_prefix")
+  orderSeqStart          Int      @default(1000) @map("order_seq_start")
+  ownerId                String   @map("owner_id") @db.Uuid
+  phone                  String?
+  shopAddressLine1       String?  @map("shop_address_line1")
+  shopCity               String?  @map("shop_city")
+  shopState              String?  @map("shop_state")
+  shopPostalCode         String?  @map("shop_postal_code")
+  defaultFabricationDays Int      @default(10) @map("default_fabrication_days")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime @default(now()) @map("updated_at") @db.Timestamptz
 
   members     OrgMember[]
   customers   Customer[]
@@ -100,6 +101,7 @@ model Organization {
   sequence    OrgOrderSeq?
   templates   MessageTemplate[]
   sendLog     MessageSendLog[]
+  stagePrefs  StageNotificationPref[]
 
   @@map("organizations")
 }
@@ -467,4 +469,29 @@ model MessageSendLog {
   @@index([eventId])
   @@index([orderId])
   @@map("message_send_log")
+}
+
+/// Task 9 Feature A. OVERRIDES ONLY — an absent row means the transition
+/// prompts. The canonical transition list lives in lib/validators/orders.ts,
+/// not here, so a new org needs no seeding.
+///
+/// The two partial unique indexes in migration 0026 cannot be expressed in
+/// Prisma schema syntax (it has no partial-index support), so they are
+/// intentionally absent below. They exist in the database and are what stops
+/// a second `from_stage IS NULL` row for the same target — Postgres treats
+/// NULLs as distinct in a plain UNIQUE, so the constraint you would write
+/// here would not do the job anyway.
+model StageNotificationPref {
+  id           String      @id @default(uuid()) @db.Uuid
+  orgId        String      @map("org_id") @db.Uuid
+  fromStage    OrderStage? @map("from_stage")
+  toStage      OrderStage  @map("to_stage")
+  isEnabled    Boolean     @default(true) @map("is_enabled")
+  templateSlug String?     @map("template_slug")
+  updatedAt    DateTime    @default(now()) @map("updated_at") @db.Timestamptz
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("stage_notification_prefs")
 }

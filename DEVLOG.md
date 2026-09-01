@@ -4,6 +4,38 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Task 9 — Stage-triggered customer notifications + AI note taker (2026-09-01)
+
+See `PLAN.md` for ten Q-locks. **Q1 is still open** and is a genuine blocker for the notify surface — Feature A's brief assumes an existing notify-customer modal, and there is none; Task 7 shipped sub-steps 1–4 of 10 and every UI sub-step was among the missing six. Sub-steps 1–3 are identical under all three Q1 options, so they proceed while that decision is outstanding.
+
+### Sub-step 0 — the migration-drift hook is now actually installed
+
+Task 7 drafted `scripts/hooks/commit-msg` and its DEVLOG recorded it as "drafted, **NOT** installed". It was still not installed. Since sub-step 1 is a migration commit and the brief says the hook applies, it is copied into `.git/hooks/` and verified in all three modes: a migration-claiming message with no staged SQL is rejected, a non-migration message passes, and `[skip-migration-check]` bypasses.
+
+Worth noting the shape of that miss — a guard written in response to a real incident, committed, described in the DEVLOG, and then never armed. The file existing is not the control; the file being executable in `.git/hooks/` is.
+
+### Sub-step 1 — Migration 0026: stage_notification_prefs + fabrication days (complete)
+
+**PLAN Q3 is resolved, and my suspicion in the plan was wrong.** I flagged that `bulkChangeStage` writes `.update({ stage })` directly rather than calling `change_order_stage`, and might therefore be skipping stage history. It is not. History and `activity_log` are written by the `tg_orders_after_update` AFTER UPDATE trigger from migration 0009, which fires on *any* `UPDATE orders SET stage`, RPC or not — the RPC's only extra job is validating the note and setting a transaction-local GUC the trigger reads. 0009's own header comment says exactly this. The live table confirms it: **14 of 17 `order_stage_history` rows have `note IS NULL`**, which are the non-RPC paths. No bug, nothing to fix, and bulk changes will bypass only the prompt — which is the desired behaviour per Q3.
+
+**The table stores overrides only (Q5).** The brief asked for five seeded rows per org. That needs a seeding path for every new org, and any org created before that path exists silently gets no prompts. Inverting it — **absent row means enabled** — makes a brand-new org correct with zero rows and deletes the whole concern. The canonical transition list lives in TypeScript beside `ORDER_STAGES`, where the rest of the app's stage knowledge already is.
+
+**Three schema decisions worth recording:**
+
+- **Two partial unique indexes, not one `UNIQUE`.** `from_stage IS NULL` means "from any stage", and Postgres treats NULLs as *distinct* in a unique constraint — so the brief's `UNIQUE (org_id, from_stage, to_stage)` would have cheerfully accepted ten "from any → measurement" rows. `... WHERE from_stage IS NOT NULL` plus `UNIQUE (org_id, to_stage) WHERE from_stage IS NULL` expresses the real rule and works on every PG version, unlike `NULLS NOT DISTINCT` (PG15+).
+- **`order_stage` enum columns, not the brief's `text`.** A typo'd stage is now rejected by the database instead of silently never matching a transition. Same type `change_order_stage` already takes.
+- **`template_slug` is deliberately not a FK.** A dangling override should degrade to the transition's default template, not block a stage change or cascade a delete into notification config. The RPC resolves and falls back.
+
+Terminal stages are enforced in the schema rather than in code: `CHECK (to_stage NOT IN ('paid','cancelled'))` encodes the brief's "no prompt" rule once, instead of filtering it at three call sites.
+
+**Verified against the live database, not just applied** — seven behaviours, each exercised with a real insert: terminal target rejected, `from_stage = to_stage` rejected, blank `template_slug` rejected, valid specific transition accepted, duplicate specific transition rejected, a `NULL`-from row for the *same* target accepted, and a second `NULL`-from row for that target rejected. The last two are the pair the partial indexes exist for, and they are the ones a plain `UNIQUE` would have got wrong. Audit trigger confirmed writing `activity_log` rows with the expected metadata. Test rows cleaned up.
+
+**Prisma hand-edited, not `db:pull`** — the same call Task 7 made, for the same reason: the schema is still drifted (`file_extractions`, `ai_intake_events`, `reminders` are all absent), so an introspection would sweep three tasks' worth of unrelated tables into this commit. The two partial indexes cannot be expressed in Prisma schema syntax and are documented as intentionally absent from the model rather than left to look like an oversight.
+
+`supabase migration list` shows `0026 | 0026`. typecheck / lint / build green (22/22). `pnpm smoke` green, exit 0: 33/33 SSR, 3/3 DOM, 78 unit checks.
+
+---
+
 ## Pre-deploy hardening (2026-09-01)
 
 Four fixes ahead of the first Vercel import. None are feature work; all four are things that would have been discovered in production.
