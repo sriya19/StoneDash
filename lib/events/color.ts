@@ -40,6 +40,14 @@ type ColorVariants = {
   pillBg: string;
   // Raw hex for the picker's swatch circles. MUST equal the literal
   // color of `stripe` — the circle you click is the color you get.
+  //
+  // NOTE for anyone tempted to consolidate: `blue.hex` (#3B82F6) is one
+  // ramp step from the design system's --info-600 (#2563EB) and they are
+  // deliberately NOT the same value. --info-600 is the system's
+  // informational accent (nav, links, focus) and is theme-aware; this is
+  // per-event decoration the user picks, pinned to a DB CHECK constraint.
+  // Merging them would let a nav-color tweak repaint every event a shop
+  // has hand-colored. See DEVLOG "Task 8 sub-step 9".
   // It did not until Task 8 sub-step 9: 9 of 10 swatches painted the
   // Task-4-era brand hex (blue #2563EB) while the calendar rendered the
   // -500 ramp (#3B82F6), so the picker had been quietly lying. Pinned by

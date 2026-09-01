@@ -264,6 +264,17 @@ Sub-step 5b's Q7 rebuild is what made it visible: moving the classes from the `-
 
 The 11th key remains available if a genuinely distinct hue is wanted later — it needs migration `0026` to widen the `CHECK` on `order_events.color` plus the two RPC guards in `0020`, which is why it was worth asking rather than assuming.
 
+**The two blues are deliberately different, and must stay that way.**
+
+| | Value | What it is |
+|---|---|---|
+| `--info-600` (light `--info`) | `#2563EB` blue-600 | **System accent.** Nav, links, focus rings, tooltips, AI chips, info banners. Theme-aware — flips to `--info-500` in dark. Semantic: it means "this is telling you something" |
+| picker `blue.hex` | `#3B82F6` blue-500 | **Per-event decoration.** One of ten user-selectable palette keys on `order_events.color`. Fixed literal, not theme-aware, carries no meaning beyond "the user picked this one" |
+
+They are one ramp step apart and it would be very easy for someone to "notice the duplication" and consolidate them. **Don't.** They answer to different owners: `--info-600` changes when the design system's informational accent changes, and picker `blue` changes only if the event palette is re-curated — and it is additionally pinned to a DB `CHECK` constraint, so its key cannot move without a migration. Collapsing them would mean a future tweak to the nav color silently repaints every event a shop has hand-colored blue, which is user data being changed by a design decision.
+
+The near-collision is also why check 7 asserts `hex === stripe` rather than `hex === some token`: the swatch's contract is with what the calendar renders, not with the design system.
+
 **Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 78 unit checks.
 
 ---
