@@ -207,6 +207,34 @@ The dot is now `EVENT_COLOR_CLASSES[getEventColor(ev)].dot`. It was already `h-2
 
 **Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green across all nine stages: 33/33 SSR, 3/3 DOM, 77 unit checks. List view shot in both themes.
 
+### Sub-step 7 — verification pass + docs (complete)
+
+**Before/after was captured from a scratch worktree at `d9e58cd`**, the pre-task commit, served on port 3001 against the same database — not from memory and not from a mid-task state. That matters more than usual here, because the honest before for the calendar is *colorless blocks*, and any comparison built from a half-finished working tree would have quietly understated it. 12 curated PNGs in `docs/screenshots/task8/`.
+
+**`scripts/capture_docs_screenshots.ts` gained `WIDTHS` / `THEMES` / `OUT`** rather than a throwaway script beside it (Q8). Defaults are unchanged — a bare run still writes the canonical five at 1280 light — and **any run that is not a single light-1280 pass suffixes filenames**, so a verification sweep cannot silently overwrite the committed set. Both env vars are validated (`WIDTHS=99` and `THEMES=sepia` fail with a readable message rather than producing a 99px screenshot or a silently-light "sepia" one). `next-themes` stores its preference in `localStorage` and stamps a class, so `colorScheme` alone would not have worked; the script seeds the key via `addInitScript`.
+
+**Canonical screenshots and `public/landing/dashboard-hero.png` refreshed.** Four of the five changed; `landing.png` came back **byte-identical**, which is a useful accidental check on the audit — marketing was classified "stays terracotta wholesale" in sub-step 2, and the unchanged file is that decision holding.
+
+**Responsive.** 1280 and 768 verified in both themes across dashboard, schedule (week / day / list), settings, orders and intake. **375 is broken, and it was broken before this task** — the sidebar renders expanded at ~240px of a 375px viewport and the week grid collapses to slivers. Confirmed against `d9e58cd` in the worktree, where `/dashboard` at 375px overflows identically. Filed as TASK8-FOLLOWUP-03 rather than written up as "verified at three widths", which would have been false.
+
+**Blue-on-blue, the risk flagged in PLAN.md: measured, unresolved, filed.** The nav's active row tint and a `delivery` block's tint are 16.6 RGB units apart in light. But the demo org has only `measurement`, `install` and `task` events, so **no screenshot in this task actually shows a blue event beside the blue nav** — the numbers say "close" and nothing here says "confusing". Recorded as TASK8-FOLLOWUP-02 with the numbers, the mitigating factors, and the fix if it does read badly (change `KIND_DEFAULT_COLOR.delivery`, one line, gated by `smoke:events` — *not* re-tuning `--info`, which would unpick the split rule). Reporting it as verified would have been the easy and wrong thing to do.
+
+**README** gained the two-accent table, the verb/noun rule, the route-changing-link vs. in-place-filter distinction, the calendar treatment, and a standing note that `lib/` must stay in Tailwind's content globs.
+
+---
+
+## Task 8 — what shipped, and what I'd flag
+
+**Fix 1** — `info` blue added as a second semantic accent across 28 lines in 15 files: sidebar active family, prose links, tooltips, both AI chip lifecycles, the ETA info banner, and every focus ring in the product from a single `--ring` declaration. 62 terracotta sites deliberately left alone, classified and recorded.
+
+**Fix 2** — event blocks gained a 4px full-strength left stripe over a 15%/25% tint, all-day pills a 3px stripe over 30%, and the list view now resolves its dot through `getEventColor` like every other surface. Contrast measured, not eyeballed: all 40 key×variant×theme combinations clear WCAG AA, worst 8.58:1.
+
+**Three things worth the reader's attention:**
+
+1. **The calendar had no colors at all.** `lib/` was missing from Tailwind's content globs, so nothing in `lib/events/color.ts` had compiled since Task 6B. The brief's premise — "semantically correct but visually too subtle" — was wrong in a way only a computed-style read could show, and the screenshot that looked plausible was the thing hiding it. Two bugs were cancelling out: four of the five event-color dots that *did* render were being propped up by the private `KIND_DOT` map that sub-step 6 deletes.
+2. **Two tests now exist that would have caught it earlier**, and both were mutation-tested before being trusted: `smoke:events` check 4 (every key defines every variant) and check 6 (WCAG floor parsed from the palette strings themselves).
+3. **What I did not verify**, stated plainly: `<ExtractionChip>` was covered by class-identity against its visually-verified mirror rather than by screenshot, because no seeded extraction reaches a surface that renders it; blue-on-blue has no delivery events to observe; 375px is broken and was already.
+
 ---
 
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)

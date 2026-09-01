@@ -814,11 +814,29 @@ Migrations don't run on deploy — apply them from your machine
 
 ## Design language
 
-- Warm cream base (`#FAFAF7`), single accent **terracotta (`#C2410C`)**
-  bound to `--brand` and used for primary actions, active-sidebar
-  strip, focus rings, urgent-KPI tint, and the toast shadow. Dark mode
-  flips the brand to `#EA580C` (orange-600) for contrast against the
-  zinc surface.
+- Warm cream base (`#FAFAF7`) and **two** semantic accents, split by
+  what they mean rather than where they appear:
+
+  | Token | Light | Dark | Means |
+  |---|---|---|---|
+  | `--brand` / `--primary` | `#C2410C` terracotta | `#EA580C` orange-600 | **"I do things."** CTAs, `+ New`, urgent-KPI tint, a choice the user made, progress, brand identity |
+  | `--info` | `#2563EB` blue-600 | `#60A5FA` blue-400 | **"I tell you things."** Nav, links, focus rings, tooltips, AI status chips, info banners |
+  | zinc / `--muted` | — | — | Everything else: body text, borders, dividers, disabled states, loading placeholders |
+
+  The one-line rule: **`brand` is a verb, `info` is a noun.** If clicking
+  it changes the user's data it is terracotta; if it tells them where they
+  are, what something is, or what just happened, it is blue. A
+  route-changing link is navigation (blue); an in-place filter is a choice
+  (terracotta).
+
+  `--info` also carries `--info-foreground`, `--info-muted` and
+  `--info-border` for tinted surfaces, and `--ring` / `--sidebar-ring`
+  resolve to it — so every focus ring in the app is blue from one
+  declaration. Dark mode uses blue-400 rather than blue-500 because
+  `--info` is used as text as often as it is a surface, and blue-500 does not
+  clear WCAG AA on this theme's tinted surfaces (4.47:1 on `--card`).
+  Added in Task 8; see `DEVLOG.md` for the full audit of which of the 86
+  terracotta sites moved and why.
 - **Geist** (Vercel's typeface, via the `geist` npm package) for
   headings + KPI numbers + the wordmark. **Inter** for body text at
   15px. **JetBrains Mono** for IDs and tabular numerics where alignment
@@ -830,6 +848,18 @@ Migrations don't run on deploy — apply them from your machine
   scannability for the shop owner's daily-driver workflow.
 - shadcn/ui **pinned to 2.10.0** (npm `@latest` is 4.x, which swaps
   Radix UI for `@base-ui/react` — not compatible with this codebase).
+- **Calendar events** carry a 4px left-edge stripe at full strength over a
+  15% (light) / 25% (dark) tint of the same hue; all-day pills use 30% with
+  a 3px stripe; list rows use an 8px dot. Every surface resolves through
+  `getEventColor(event)` + `EVENT_COLOR_CLASSES[key][variant]` in
+  `lib/events/color.ts` — the single source of truth, gated by
+  `pnpm smoke:events`, which also pins the WCAG AA floor for every
+  key × variant × theme.
+- **`lib/` is in Tailwind's `content` globs.** It was not until Task 8, and
+  because `lib/events/color.ts` is where the event palette lives, none of
+  those classes compiled — the calendar rendered with no colors at all for
+  two tasks. Any module that builds class-name strings has to be in that
+  list.
 
 ---
 

@@ -32,6 +32,31 @@ Fixed by giving the smoke a unique identity per run (`__SMOKE__Amelia_${stamp}` 
 
 ---
 
+## TASK8-FOLLOWUP-02 — blue-on-blue: `delivery` events sit close to the new nav blue
+
+`delivery` defaults to the `blue` palette key, and Task 8 made nav/links/focus blue. Measured, the two are close enough to note:
+
+| | light | dark |
+|---|---|---|
+| Nav active row tint vs. a delivery block's tint | `#EFF6FF` vs `#E2ECFE` — **16.6** RGB units apart | `#172554` vs `#263858` — 24.3 apart |
+| Nav strip (blue-600) vs. event stripe (blue-500) | `#2563EB` vs `#3B82F6` — 39.6 apart | — |
+
+**Not observed in practice, and that is the point of this ticket.** The demo org has only `measurement`, `install` and `task` events — no `delivery`, `pickup` or `repair` — so no screenshot in this task shows a blue event next to the blue nav. The numbers say "close"; whether it actually reads as confusing needs an org with delivery events on the calendar.
+
+Mitigating factors, for whoever picks this up: the two live in different regions (sidebar vs. grid), a delivery block carries a full-strength stripe, a 40%-alpha border and near-black blue text that a nav row does not, and the calendar's "today" highlight and drag affordances were deliberately kept terracotta in Task 8 partly to stop the grid drifting entirely blue.
+
+If it does read badly, the fix is **not** to re-tune `--info` — that would unpick the whole split rule. Change `KIND_DEFAULT_COLOR.delivery` to `indigo` or `teal`, which is a one-line change in `lib/events/color.ts` and gated by `pnpm smoke:events`. Task 8 explicitly ruled the default kind→color mapping out of scope, which is why this is a ticket rather than a commit.
+
+## TASK8-FOLLOWUP-03 — no mobile layout at 375px (pre-existing)
+
+At 375px the sidebar renders expanded at ~240px, leaving ~135px of content, and the schedule week grid (`64px repeat(7, minmax(0,1fr))`) collapses to unreadable slivers. Every authenticated route is affected, not just the calendar.
+
+**Predates Task 8** — verified against the pre-task commit `d9e58cd` in a scratch worktree, where `/dashboard` at 375px shows the identical overflow. Task 8 changed colors and 4px of padding on event blocks; it did not touch a grid template or a breakpoint. Recorded because the task's quality bar asked for verification at 375 / 768 / 1280 and 768 is fine while 375 is not, so "verified at three widths" would be a misleading thing to write down without this.
+
+Real fix is a mobile layout pass: collapse the sidebar to icons or a sheet below `md`, and give the week grid a horizontal scroll container or a day-at-a-time fallback on small screens. That is a layout task, explicitly out of Task 8's scope.
+
+---
+
 ## TASK7-FOLLOWUP-03 — Mock-intake personas exist as real customers in the demo org
 
 The seeded demo org's `customers` table now contains mock-intake personas as real rows, because they were confirmed through `/intake` during first-use testing on 2026-08-22: **Amelia Ross** `(555) 411-8823`, **Dee Mourateedes**, **Maria Gocso**. All three were created by the Demo Owner account via `apply_intake`, alongside four `confirmed` `ai_intake_events` (the seed ships one).
