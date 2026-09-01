@@ -127,12 +127,12 @@ export function CustomerDetailSheet({ customer, orders, role, currency }: Props)
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             {customer.company ? <span>{customer.company}</span> : null}
             {customer.phone ? (
-              <a href={`tel:${customer.phone}`} className="underline underline-offset-4">
+              <a href={`tel:${customer.phone}`} className="text-info underline underline-offset-4">
                 {customer.phone}
               </a>
             ) : null}
             {customer.email ? (
-              <a href={`mailto:${customer.email}`} className="underline underline-offset-4">
+              <a href={`mailto:${customer.email}`} className="text-info underline underline-offset-4">
                 {customer.email}
               </a>
             ) : null}

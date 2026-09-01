@@ -100,7 +100,7 @@ export function PipelineStrip({ currency, summaries }: Props) {
         </div>
         <Link
           href="/orders?view=board"
-          className="text-xs text-brand underline-offset-4 hover:underline"
+          className="text-xs text-info underline-offset-4 hover:underline"
         >
           Open board →
         </Link>

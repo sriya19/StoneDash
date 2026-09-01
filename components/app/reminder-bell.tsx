@@ -117,7 +117,7 @@ export function ReminderBell({ initialCount, initialReminders }: Props) {
           <Link
             href="/reminders"
             onClick={() => setOpen(false)}
-            className="text-xs text-brand underline-offset-4 hover:underline"
+            className="text-xs text-info underline-offset-4 hover:underline"
           >
             See all
           </Link>

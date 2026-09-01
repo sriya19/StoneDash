@@ -53,7 +53,7 @@ export function MapsLinks({ location, className, variant = "inline" }: Props) {
         href={google}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-brand hover:underline"
+        className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-info hover:underline"
       >
         <MapPin className="h-3 w-3" /> Google
       </a>
@@ -62,7 +62,7 @@ export function MapsLinks({ location, className, variant = "inline" }: Props) {
         href={apple}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-brand hover:underline"
+        className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-info hover:underline"
       >
         <MapPin className="h-3 w-3" /> Apple
       </a>

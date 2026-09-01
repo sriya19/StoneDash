@@ -210,7 +210,7 @@ export default async function PublicSharePage({ params }: { params: Params }) {
               {customer.phone ? (
                 <a
                   href={`tel:${customer.phone}`}
-                  className="text-xs text-brand underline-offset-2 hover:underline"
+                  className="text-xs text-info underline-offset-2 hover:underline"
                 >
                   {customer.phone}
                 </a>

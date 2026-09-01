@@ -108,6 +108,27 @@ Grouped by the reason, since the reason is the reusable part:
 
 **Marketing pages stay terracotta wholesale**, including `built-inside.tsx:61`, which is structurally a prose link. The split rule is an in-app navigational discipline; the landing page is the brand's face and has no app chrome to be consistent with.
 
+### Sub-step 3 — apply blue: nav, links, tooltip (complete)
+
+13 files, 28 lines, exactly the audit's list. Nothing here is more than a className swap.
+
+**The sidebar now reads as one treatment.** With the variables changed in sub-step 1 and the component's `border-l-brand` / `text-brand` not yet touched, the active nav item spent two commits rendering a terracotta strip and terracotta icon on a blue-tinted row with a blue label. That intermediate state is the best argument for Q2 that exists — it is what shipping "just the strip" would have looked like permanently.
+
+**Two sites the brief didn't name, both flagged and approved in sub-step 2:**
+
+- `ui/tooltip.tsx` was solid `bg-primary` — a terracotta tooltip, which is a pure "I tell you things" surface wearing the do-things color. Now `bg-info text-info-foreground`, which also gives `--info-foreground` the real use it lacked in sub-step 1.
+- `reminders/page.tsx` active filter-tab underline is structurally the sidebar strip one level down, and it is a route-changing `<Link>`. **The line that keeps this from swallowing the filter chips: a route-changing link is navigation, an in-place filter is a choice the user made.** Filter chips in `orders-filter-bar` and `schedule-filter-bar` stay terracotta on that basis.
+
+**House link idiom is now `text-info underline-offset-4 hover:underline`**, which is what `ui/button.tsx`'s `link` variant already used — the swap adopted the existing idiom rather than inventing one.
+
+**One deliberate non-change.** The `tel:` / `mailto:` links in `customer-detail-sheet.tsx` carry an always-on `underline` today. The obvious swap was to normalize them to the hover-only idiom; that would have left color as the sole cue that they are links (WCAG 1.4.1). They keep the underline and gain the color. Adding blue is the task; removing an affordance is not.
+
+**`ui/skeleton.tsx` went `bg-primary/10` → `bg-muted`** — the audit's one neutral consolidation. Stock shadcn default, not a decision anyone made here, and a loading placeholder is chrome.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 71 unit checks. `/dashboard` and `/reminders` shot in both themes; terracotta confirmed still on the wordmark dot, "+ New", "AI Intake", the FAB pipeline dot and the user avatar, with blue on the nav, "Open board →" and the ACTIVE tab underline.
+
+**One process finding, filed as TASK8-FOLLOWUP-01.** Mid-sub-step the DOM smoke started reporting `0 testid` on both `/orders` targets while `/schedule` passed. It reproduced with the tree stashed, which pointed at a pre-existing failure; the resolved order was verified present, in the right org, with 2 events, which pointed at the renderer. Both wrong. `next dev` and `next build` share `.next`, and the per-commit gate this task runs — typecheck → lint → build → smoke, with dev up throughout — has `build` overwrite the chunks under the live server. Radix-portalled surfaces break first, so the failure looks specific enough to send you hunting. Gate order is now stop dev → build → restart dev → smoke. The durable fix is a separate `distDir` for build, deliberately deferred: that setting belongs to the parallel Vercel track, and changing where build output lands from a UI-color task is how you break someone else's week.
+
 ---
 
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)

@@ -52,7 +52,7 @@ export default async function InvitePage({
               </p>
               <Link
                 href="/"
-                className="inline-block text-xs underline underline-offset-4 text-muted-foreground"
+                className="inline-block text-xs text-info underline underline-offset-4"
               >
                 Back to home
               </Link>
@@ -65,7 +65,7 @@ export default async function InvitePage({
               </p>
               <Link
                 href="/login"
-                className="inline-block text-xs underline underline-offset-4"
+                className="inline-block text-xs text-info underline underline-offset-4"
               >
                 Go to login
               </Link>

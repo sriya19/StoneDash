@@ -56,13 +56,15 @@ export function SidebarNav({ collapsed }: Props) {
                 key={entry.label}
                 href={entry.href}
                 className={cn(
-                  // 2px left-edge terracotta strip on active; reserved
-                  // gutter (border-l-transparent) keeps inactive items
-                  // aligned with active ones so nothing reflows on hover
-                  // or route change.
+                  // 2px left-edge strip on active; reserved gutter
+                  // (border-l-transparent) keeps inactive items aligned with
+                  // active ones so nothing reflows on hover or route change.
+                  // Task 8: the strip, row tint, label and icon are one
+                  // treatment and moved to `info` together — a blue strip on
+                  // an orange row reads as a bug, not a design.
                   "relative flex h-9 items-center gap-3 rounded-md border-l-2 border-l-transparent px-2.5 text-sm transition-colors",
                   active
-                    ? "border-l-brand bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    ? "border-l-info bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                   collapsed && "justify-center px-0",
                 )}
@@ -71,7 +73,7 @@ export function SidebarNav({ collapsed }: Props) {
                 <entry.icon
                   className={cn(
                     "h-4 w-4 shrink-0",
-                    active && "text-brand",
+                    active && "text-info",
                   )}
                 />
                 {!collapsed ? <span className="truncate">{entry.label}</span> : null}

@@ -69,7 +69,7 @@ export default async function RemindersPage({
               className={cn(
                 "-mb-px border-b-2 px-3 py-2 text-xs font-medium tracking-wider uppercase transition-colors",
                 active
-                  ? "border-brand text-foreground"
+                  ? "border-info text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >

@@ -73,7 +73,7 @@ export function AuthLayout({
                 {switcher.text}{" "}
                 <Link
                   href={switcher.href}
-                  className="font-medium text-brand hover:text-brand-hover hover:underline"
+                  className="font-medium text-info underline-offset-4 hover:underline"
                 >
                   {switcher.linkText}
                 </Link>
