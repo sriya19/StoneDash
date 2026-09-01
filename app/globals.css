@@ -37,8 +37,8 @@
  *   #DC2626  destructive (red-600, deliberately neutral / not warm)
  *
  * Secondary accent (Task 8) — bright blue, the "info" family:
- *   #2563EB  blue-600 (light)
- *   #60A5FA  blue-400 (dark)
+ *   #2563EB  blue-600 (light, --info-600)
+ *   #3B82F6  blue-500 (dark,  --info-500)
  *
  * The split rule, in one line: `brand`/`primary` is a verb, `info` is a
  * noun. If clicking it does something to the user's data it is terracotta;
@@ -86,8 +86,17 @@
     --success-foreground: #FAFAF7;
 
     /* Secondary accent — "I tell you things". Nav, links, focus, info
-     * badges, info banners. See the split rule in the header comment. */
-    --info: #2563EB;                  /* blue-600 */
+     * badges, info banners. See the split rule in the header comment.
+     *
+     * The two numeric steps are a real scale: fixed literal values that do
+     * NOT flip per theme, because a scale step names a specific color. Use
+     * them when you want *that* blue regardless of theme (a stripe, a
+     * swatch, a chart series). --info is the semantic token that selects
+     * between them per theme — reach for --info by default. */
+    --info-500: #3B82F6;              /* blue-500 */
+    --info-600: #2563EB;              /* blue-600 */
+
+    --info: var(--info-600);
     --info-foreground: #FAFAF7;       /* text ON a solid --info surface */
     --info-muted: #EFF6FF;            /* blue-50 — banner / chip backgrounds */
     --info-border: #BFDBFE;           /* blue-200 */
@@ -161,14 +170,18 @@
     --success: #22C55E;
     --success-foreground: #18181B;
 
-    /* blue-400, not the brief's suggested blue-500. --info is used as TEXT
-     * (links, chip labels, banner copy, icons) as often as it is used as a
-     * surface, and blue-500 does not clear WCAG AA as text on this theme's
-     * tinted surfaces: 4.47:1 on --card #1F1F23 and 3.99:1 on --info-muted
-     * below, both under the 4.5 threshold. blue-400 measures 6.46:1 and
-     * 5.78:1 on the same two. blue-600 is worse still at 3.43:1 on the page
-     * background, which is what the brief anticipated. */
-    --info: #60A5FA;                  /* blue-400 */
+    /* blue-500 in dark, per the approved spec. The scale steps above are
+     * theme-independent, so dark only re-points the semantic token.
+     *
+     * Recorded because it is measurable and someone will re-derive it
+     * otherwise: as TEXT, blue-500 clears AA on the page background
+     * (4.82:1) but not on tinted surfaces — 4.47:1 on --card, 4.05:1 on
+     * --muted, 4.00:1 on --info-muted. Darkening --info-muted until it
+     * passes is not a fix: it needs to reach ~#111A3A, which sits at 1.04
+     * contrast against the page background and stops reading as a panel at
+     * all. blue-400 cleared all four (6.97 / 6.46 / 5.86 / 5.78) and is the
+     * fallback if the chip and banner text turn out to read poorly. */
+    --info: var(--info-500);
     --info-foreground: #18181B;
     --info-muted: #172554;            /* blue-950 */
     --info-border: #1D4ED8;           /* blue-700 */

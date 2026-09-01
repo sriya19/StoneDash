@@ -76,6 +76,12 @@ const config: Config = {
           foreground: "var(--info-foreground)",
           muted: "var(--info-muted)",
           border: "var(--info-border)",
+          // Scale steps. Theme-independent by design — reach for these
+          // only when you want that exact blue in both themes (a swatch,
+          // a stripe, a chart series). `bg-info` / `text-info` remain the
+          // default, and flip per theme.
+          500: "var(--info-500)",
+          600: "var(--info-600)",
         },
         border: "var(--border)",
         input: "var(--input)",

@@ -26,6 +26,8 @@ blue-500 clears AA against the bare page background and only fails once it sits 
 
 Light mode keeps blue-600 `#2563EB` as specified: 4.94:1 on `--background`, 5.17:1 on `--card`, 4.75:1 on `--info-muted`. Every value clears AA in both themes.
 
+> **Superseded in sub-step 8 (2026-08-31).** Dark `--info` is now blue-500 per an explicit later instruction. The measurements above stand — they are why this section originally chose blue-400 — but the call is the product owner's, and the trade is recorded rather than buried: dark-mode blue text clears AA on the page background and misses it on tinted surfaces. See sub-step 8.
+
 **`--ring` and `--sidebar-ring` became `var(--info)` in this same commit.** That is the entire "focus rings on all inputs/buttons" item from the brief. Grounding the brief turned up that every focus ring in the product already resolves through `ring-ring` — 13 call sites across `button`, `input`, `textarea`, `select`, `checkbox`, `tabs`, `dialog`, `sheet`, `badge`, `calendar` and `file-gallery`, not one of them hardcoding a color. Task 4's consolidation is what made this two lines instead of a sweep. Verified by reading `--tw-ring-color` off a focused input at three widths in both themes: `#2563EB` light, `#60A5FA` dark, six for six.
 
 **The sidebar family moved as a unit** (Q2), in the variables here and in the component in sub-step 3. `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-primary` and `--sidebar-ring` all go to the info palette. The mid-commit screenshot is the argument for why: with the variables changed and the component's `border-l-brand` / `text-brand` not yet touched, the active nav item renders a terracotta strip and a terracotta icon on a blue-tinted row with a blue label. It reads as a rendering bug, which is exactly what shipping "just the strip" would have looked like permanently. Note this also moves the *hover* tint on inactive items, since `--sidebar-accent` serves both states — correct, since the whole sidebar is navigational.
@@ -220,6 +222,29 @@ The dot is now `EVENT_COLOR_CLASSES[getEventColor(ev)].dot`. It was already `h-2
 **Blue-on-blue, the risk flagged in PLAN.md: measured, unresolved, filed.** The nav's active row tint and a `delivery` block's tint are 16.6 RGB units apart in light. But the demo org has only `measurement`, `install` and `task` events, so **no screenshot in this task actually shows a blue event beside the blue nav** — the numbers say "close" and nothing here says "confusing". Recorded as TASK8-FOLLOWUP-02 with the numbers, the mitigating factors, and the fix if it does read badly (change `KIND_DEFAULT_COLOR.delivery`, one line, gated by `smoke:events` — *not* re-tuning `--info`, which would unpick the split rule). Reporting it as verified would have been the easy and wrong thing to do.
 
 **README** gained the two-accent table, the verb/noun rule, the route-changing-link vs. in-place-filter distinction, the calendar treatment, and a standing note that `lib/` must stay in Tailwind's content globs.
+
+### Sub-step 8 — `info` scale steps + dark mode to blue-500 (complete)
+
+Two token changes requested after the main task landed.
+
+**`--info-500` and `--info-600` added as a real scale.** They are fixed literal values that do **not** flip per theme, because a scale step names a specific color — a theme-flipping "500" would be a semantic token wearing a scale's name. `--info` is now the semantic selector on top of them (`var(--info-600)` light, `var(--info-500)` dark), which makes the theme relationship readable in one place instead of two hex literals that happen to be related. Exposed as `bg-info-500` / `text-info-600` / `border-info-500`; verified they actually generate by temporarily using them in a component and grepping the built CSS, since numeric keys in a nested Tailwind color object are the kind of thing that quietly does not work.
+
+Nothing consumes them yet. That is deliberate — they exist for the cases where you want *that* blue in both themes (a swatch, a chart series, a stripe), and `--info` stays the default reach.
+
+**Dark `--info` moved blue-400 → blue-500**, per explicit instruction. Sub-step 1 chose blue-400 on measurement; this supersedes it, and the sub-step 1 entry is annotated rather than edited so the reasoning trail stays intact.
+
+The trade, stated once and precisely, because it is real and someone will otherwise re-derive it:
+
+| dark `--info` as text | `--background` | `--card` | `--muted` | `--info-muted` |
+|---|---|---|---|---|
+| blue-500 `#3B82F6` (now) | 4.82:1 | **4.47:1** | **4.05:1** | **4.00:1** |
+| blue-400 `#60A5FA` (was) | 6.97:1 | 6.46:1 | 5.86:1 | 5.78:1 |
+
+Blue text in dark mode now clears AA on the page background and misses it on every tinted surface — which is where the chip labels and the ETA banner copy live. **Darkening `--info-muted` to compensate is not available as a fix**: it would need to reach roughly `#111A3A` for blue-500 to clear 4.5:1, and that sits at 1.04 contrast against the page background, i.e. it stops reading as a panel at all. So the choice is genuinely between blue-500's hue and AA on tints; there is no third option inside the info tokens.
+
+Recorded, not litigated — this is the product owner's call and it was made explicitly. The one-line revert is `--info: var(--info-400)` in `.dark` if the chip and banner text read poorly in use.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 77 unit checks. Both scale steps confirmed present in the built CSS and both resolve per theme.
 
 ---
 
