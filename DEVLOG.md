@@ -55,6 +55,30 @@ It renders as a bare number, which makes it the one placeholder the renderer's e
 
 typecheck / lint / build green (22/22). `pnpm smoke` green, exit 0: 33/33 SSR, 3/3 DOM, **83** unit checks (up from 78).
 
+### Sub-step 3 — get_stage_notification_prompt RPC + integration test (complete)
+
+**Two deliberate deviations from the brief's signature, both about not duplicating something already tested.**
+
+**It does not render the template.** The brief says the RPC "renders the template and returns everything the modal needs". Rendering in plpgsql would be a second implementation of `lib/messaging/render-template.ts` — and that renderer is not trivial: single-pass substitution so a context value containing `{{…}}` is never re-expanded, case-insensitive tokens tolerating inner whitespace, and a tidy pass collapsing dangling punctuation around empty placeholders. Fourteen checks pin those behaviours. This log already contains two entries about exactly this failure — Task 6B's four drifting kind→color maps and Task 8's `KIND_DOT`. So the RPC returns the **raw** body and the caller renders with the one renderer that exists. Check 2 proves the round trip: the RPC's body, through `buildMessageContext` + `renderTemplate`, produces a message with no leftover tokens.
+
+**It takes the default template slug as a parameter** rather than knowing the transition→template map. Per Q5 that map lives in TypeScript beside `ORDER_STAGES`; encoding it in SQL too would be the same drift pointed the other way. The RPC owns what SQL is good at — pref precedence, template lookup, recipient snapshot, all in one round trip. `lib/validators/orders.ts` owns which transition means what.
+
+**Where `from_stage` comes from.** The brief's signature is `(order_id, new_stage)`, and by the time this is called `orders.stage` has already been updated — the previous stage is simply gone from the row. It is recovered from `order_stage_history`, which `tg_orders_after_update` (0009) wrote in the same transaction as the UPDATE. That is also what makes it safe to call immediately after `changeStage` returns, and it is a second reason sub-step 1's Q3 finding mattered: the history row is load-bearing here, not just an audit trail.
+
+**`reason` is not in the brief and earns its place.** Every `should_prompt: false` carries one of `order_not_found`, `terminal_stage`, `disabled_by_pref`, `no_template_configured`, `template_not_found`, `no_customer`, `customer_has_no_contact`. A boolean alone would make "why didn't my customer get notified?" unanswerable without a debugger, and seven of the ten checks assert on it.
+
+**Two no-prompt cases the brief did not specify**, both chosen so the UI never offers an action that cannot complete:
+- A **dangling `template_slug` override** returns `template_not_found` rather than a modal with an empty body. Migration 0026 deliberately made that column not-a-FK, so this state is reachable by design and has to degrade rather than crash.
+- A customer with **neither phone nor email** returns `customer_has_no_contact`. There is no channel to send on; prompting would be an offer with no follow-through.
+
+**Ten checks in a new `pnpm smoke:notify` stage, run against the real database** — the point of the sub-step is the SQL, so a mocked version would test nothing. Covered: absent-pref-means-enabled, the raw-body render round trip, from-any suppression, specific-beats-from-any precedence, slug override, dangling slug, terminal stage, unknown order, blank default slug, and a cross-check that all five shipped transitions resolve to a template that is actually seeded.
+
+**Mutation-tested.** Flipping the precedence `ORDER BY (p.from_stage IS NULL)` to `DESC` — the single subtlest line in the function — fails checks 4, 5 and 6, precisely the three that depend on specific outranking from-any. Restoring it returns 10/10.
+
+**Fixture hygiene.** The test creates only pref rows and one history row, tears them down in a `finally` so a mid-test failure cannot leak, and creates no customers or orders. Verified after the run: `stage_notification_prefs` back to 0 rows, zero `__TEST__` history rows, and `order_stage_history` back to its pre-task total of 17. That discipline is a direct consequence of TASK7-FOLLOWUP-03, where exercising a feature left three mock personas in the demo org as real customers.
+
+typecheck / lint / build green (22/22). `pnpm smoke` green, exit 0, now ten stages: 33/33 SSR, 3/3 DOM, **93** unit checks.
+
 ---
 
 ## Pre-deploy hardening (2026-09-01)

@@ -1,4 +1,9 @@
 import { z } from "zod";
+// Type-only, so it is erased at compile time and adds no runtime dependency
+// to a module that client components import. Same OrderStage the rest of the
+// app uses (order-stage-badge, lib/supabase/types) rather than a second
+// string union that happens to match.
+import type { OrderStage } from "@prisma/client";
 
 export const ORDER_STAGES = [
   "quote",
@@ -139,3 +144,54 @@ export const BulkChangeStageInput = z.object({
 export const DeleteOrderInput = z.object({
   id: z.string().uuid(),
 });
+
+// ---------------------------------------------------------------------------
+// Task 9 Feature A — the canonical stage-transition -> template map.
+//
+// This lives here, beside ORDER_STAGES, rather than in the database, because
+// stage_notification_prefs stores OVERRIDES ONLY (migration 0026, PLAN Q5):
+// an absent row means the transition prompts. Keeping the list in one place
+// means a new org needs no seeding and cannot drift from the code.
+//
+// get_stage_notification_prompt takes the resolved default slug as a
+// parameter for the same reason — the RPC owns pref precedence and template
+// lookup, this owns which transition means what.
+//
+// `paid` and `cancelled` are absent deliberately: they are terminal, the
+// brief specifies no prompt, and migration 0026 has a CHECK making a pref
+// row for them impossible.
+// ---------------------------------------------------------------------------
+
+export type StageNotificationTransition = {
+  /** null = "from any stage". No entry uses it yet; the schema allows it. */
+  from: OrderStage | null;
+  to: OrderStage;
+  /** Slug in message_templates. Pinned by smoke:messaging check 14. */
+  templateSlug: string;
+};
+
+export const STAGE_NOTIFICATION_TRANSITIONS: StageNotificationTransition[] = [
+  { from: "quote", to: "measurement", templateSlug: "measurement_scheduled" },
+  { from: "measurement", to: "fabrication", templateSlug: "in_fabrication" },
+  { from: "fabrication", to: "ready_for_install", templateSlug: "ready_for_install" },
+  { from: "ready_for_install", to: "installation", templateSlug: "install_eta" },
+  { from: "installation", to: "invoiced", templateSlug: "invoice_sent" },
+];
+
+/**
+ * The transition entry for a stage move, or undefined when the move is not
+ * one we notify about (a backwards move, a skip, or a terminal stage).
+ *
+ * Prefers an exact from->to match, then a "from any stage" entry for the
+ * same target — the same precedence get_stage_notification_prompt applies
+ * to pref rows, kept deliberately identical so the two cannot disagree.
+ */
+export function stageNotificationTransition(
+  from: OrderStage | null,
+  to: OrderStage,
+): StageNotificationTransition | undefined {
+  return (
+    STAGE_NOTIFICATION_TRANSITIONS.find((t) => t.to === to && t.from === from) ??
+    STAGE_NOTIFICATION_TRANSITIONS.find((t) => t.to === to && t.from === null)
+  );
+}

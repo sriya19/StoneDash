@@ -14,7 +14,7 @@
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
     "db:seed": "tsx --env-file=.env.local supabase/seed.ts",
-    "smoke": "pnpm smoke:ssr && pnpm smoke:dom && pnpm smoke:import && pnpm smoke:extraction && pnpm smoke:intake && pnpm smoke:messaging && pnpm smoke:eta && pnpm smoke:events",
+    "smoke": "pnpm smoke:ssr && pnpm smoke:dom && pnpm smoke:import && pnpm smoke:extraction && pnpm smoke:intake && pnpm smoke:messaging && pnpm smoke:eta && pnpm smoke:events && pnpm smoke:notify",
     "smoke:ssr": "tsx --env-file=.env.local scripts/smoke_pages.ts",
     "smoke:dom": "tsx --env-file=.env.local scripts/smoke_send_to_crew_dom.ts",
     "smoke:import": "tsx --env-file=.env.local scripts/smoke_import_parse.ts && tsx --env-file=.env.local scripts/smoke_import_customers.ts && tsx --env-file=.env.local scripts/smoke_import_contractors.ts && tsx --env-file=.env.local scripts/smoke_import_orders.ts && tsx --env-file=.env.local scripts/smoke_customer_collision.ts",
@@ -23,7 +23,8 @@
     "smoke:eta": "MOCK_ETA=1 tsx --env-file=.env.local scripts/test_eta.ts",
     "smoke:messaging": "tsx --env-file=.env.local scripts/test_message_templates.ts && tsx --env-file=.env.local scripts/test_message_context.ts",
     "smoke:intake:real": "tsx --env-file=.env.local scripts/smoke_intake_real.ts",
-    "smoke:events": "tsx --env-file=.env.local scripts/test_event_colors.ts"
+    "smoke:events": "tsx --env-file=.env.local scripts/test_event_colors.ts",
+    "smoke:notify": "tsx --env-file=.env.local scripts/test_stage_prompt.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
