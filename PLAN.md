@@ -57,7 +57,7 @@ Whisper is priced **per minute of audio** ($0.006/min), not per token. `costCent
 
 - **Fuzzy matching.** Migration 0023 ships `intake_match_customer_by_name`, `intake_match_order_by_project` and `intake_match_contractor_by_name` as pg_trgm RPCs, wrapped by `lib/intake/match.ts` with a `tierFor(score)` confidence banding. Feature B's Step 2 is close to a re-call, not a rebuild.
 - **Storage provisioning is in migrations.** `0005_storage_policies.sql` does `INSERT INTO storage.buckets` plus four RLS policies, and `0022` extends them. The `ai-notes` bucket follows that shape exactly — no manual dashboard step, no deployment surprise.
-- **Mock mode already exists.** `NEXT_PUBLIC_MOCK_AI` is the established convention across `lib/extraction/mock.ts`, `lib/intake/mock.ts` and both API routes. The brief's mock requirement needs no new mechanism.
+- **Mock mode already exists.** `MOCK_AI` is the established convention across `lib/extraction/mock.ts`, `lib/intake/mock.ts` and both API routes. The brief's mock requirement needs no new mechanism.
 
 ### 4. `changeStage` is a single chokepoint — but `bulkChangeStage` is a third path
 

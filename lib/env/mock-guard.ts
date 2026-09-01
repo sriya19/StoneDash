@@ -18,17 +18,27 @@
 //      use, so a future caller cannot reopen the hole by adding a read
 //      site and forgetting the startup hook.
 
-const FLAGS = ["NEXT_PUBLIC_MOCK_AI", "MOCK_ETA"] as const;
+const FLAGS = ["MOCK_AI", "MOCK_ETA"] as const;
 type MockFlag = (typeof FLAGS)[number];
 
-// Gated on NODE_ENV per the approved spec. Note this also fires on Vercel
-// *preview* deployments, which Vercel builds with NODE_ENV=production — so
-// a preview URL cannot be used to demo on canned data. If that becomes
-// unwanted, the narrower check is `process.env.VERCEL_ENV === "production"`
-// with this as the fallback; deliberately not done here because the
-// instruction named NODE_ENV.
+// Gated on VERCEL_ENV, not NODE_ENV, so preview deployments can run on
+// canned data while real production cannot. Vercel builds previews with
+// NODE_ENV=production too, which is why the narrower variable is the right
+// discriminator.
+//
+//   VERCEL_ENV=production  -> guard fires
+//   VERCEL_ENV=preview     -> allowed (demo a PR without burning credits)
+//   VERCEL_ENV unset       -> allowed (local dev, tsx smokes, CI)
+//
+// KNOWN GAP, deliberate: a production deploy that is not on Vercel — a
+// container on Fly/Railway/ECS, or `next start` on a VM — has no VERCEL_ENV,
+// so mocks would be permitted there. That is safe today because Vercel is
+// the only production target. If the app is ever hosted elsewhere, widen
+// this to also treat `NODE_ENV === "production"` as production and give
+// previews an explicit opt-in flag instead. Written down rather than
+// guessed at, because the failure mode is silent and customer-visible.
 function isProductionRuntime(): boolean {
-  return process.env.NODE_ENV === "production";
+  return process.env.VERCEL_ENV === "production";
 }
 
 function message(flags: readonly MockFlag[]): string {
@@ -57,8 +67,8 @@ function assertMockAllowed(flag: MockFlag): void {
 
 /** True when the AI mock short-circuit is active. Never true in production. */
 export function isMockAi(): boolean {
-  if (process.env.NEXT_PUBLIC_MOCK_AI !== "1") return false;
-  assertMockAllowed("NEXT_PUBLIC_MOCK_AI");
+  if (process.env.MOCK_AI !== "1") return false;
+  assertMockAllowed("MOCK_AI");
   return true;
 }
 

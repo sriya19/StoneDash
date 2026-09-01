@@ -61,7 +61,7 @@ function warnMissingKeyOnce(): void {
   missingKeyWarned = true;
   process.stderr.write(
     "[extraction] OPENAI_API_KEY is not set. Extractions will fail with " +
-      "status='failed' until you configure it. Set NEXT_PUBLIC_MOCK_AI=1 " +
+      "status='failed' until you configure it. Set MOCK_AI=1 " +
       "to develop UI without a real key.\n",
   );
 }

@@ -11,7 +11,7 @@
 //      internal call has no user session).
 //   3. Downloads the file bytes from Supabase Storage.
 //   4. If mime is a supported image or PDF: runs the pipeline.
-//      If NEXT_PUBLIC_MOCK_AI=1 or ?mode=mock: returns a canned
+//      If MOCK_AI=1 or ?mode=mock: returns a canned
 //      response without calling OpenAI (used by smoke).
 //      If mime is anything else: writes status='review',
 //      document_type='other', fields={}. No LLM call.

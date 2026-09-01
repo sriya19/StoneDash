@@ -1,4 +1,4 @@
-// Canned extractions for `NEXT_PUBLIC_MOCK_AI=1` mode + the smoke
+// Canned extractions for `MOCK_AI=1` mode + the smoke
 // test path. Shape-compatible with what the real OpenAI pipeline
 // returns so the downstream code (review sheet, apply.ts) doesn't
 // need a special-case path for mocked rows.
@@ -22,7 +22,7 @@ export function mockExtraction(): ExtractionResult {
       cooktop_cutouts: 1,
       edge_profile: "Eased",
       stone_type: "Calacatta Gold quartz",
-      notes: "Mocked extraction — NEXT_PUBLIC_MOCK_AI is enabled.",
+      notes: "Mocked extraction — MOCK_AI is enabled.",
     },
     raw: {
       mocked: true,

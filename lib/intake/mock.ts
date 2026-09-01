@@ -1,4 +1,4 @@
-// Mock fixtures for NEXT_PUBLIC_MOCK_AI mode + the intake smoke.
+// Mock fixtures for MOCK_AI mode + the intake smoke.
 // Three fixtures covering the three primary paths that sub-step 7's
 // dispatcher needs to exercise:
 //   whatsapp_new_job          — new customer, new job

@@ -4,6 +4,56 @@ Running log of decisions, assumptions, and deferred items. Newest first.
 
 ---
 
+## Pre-deploy hardening (2026-09-01)
+
+Four fixes ahead of the first Vercel import. None are feature work; all four are things that would have been discovered in production.
+
+### Mock mode could leak to production, and the damage would outlive the flag
+
+There was **no guard at all** — not a weak one. `NODE_ENV` appeared in exactly one file in the whole app (`lib/db.ts`, the Prisma singleton) and was never used to gate mock mode. Three unguarded read sites: both AI API routes and `isMockEta()`.
+
+Why it mattered more than "a fake number in a UI":
+
+1. `computeTravelTime` checks `isMockEta()` **above** the real-key read, so `MOCK_ETA=1` beats a correctly configured `GOOGLE_MAPS_SERVER_KEY`.
+2. The fabricated 12–71 minute value is **persisted** by `lib/actions/eta.ts` to `orders.estimated_travel_min`.
+3. `lib/messaging/build-context.ts` reads that column into the customer-facing `install_eta` template.
+
+So unsetting the env var later does not un-write the column. Cleanup would be a data fix, not a redeploy. That is the reason this is a throw rather than a warning.
+
+**Two layers**, in `lib/env/mock-guard.ts`: `instrumentation.ts` asserts once at server startup so a misconfigured deploy fails immediately, and `isMockEta()` / `isMockAi()` assert at the point of use so a future read site cannot reopen the hole by skipping the startup hook. Next 14 needs `experimental.instrumentationHook: true` for the first layer to run at all — without it the startup guard is silently a no-op, which is worth knowing about the layer you would otherwise trust most.
+
+**Gated on `VERCEL_ENV`, not `NODE_ENV`.** Vercel builds previews with `NODE_ENV=production` too, so the blunt check would have made preview URLs useless for demoing on canned data. `VERCEL_ENV=production` fires; `preview` and unset (local, tsx smokes, CI) do not.
+
+**Known gap, deliberate and written down in the module:** a production deploy that is *not* on Vercel — a container on Fly/Railway/ECS, or plain `next start` on a VM — has no `VERCEL_ENV`, so mocks would be permitted there. Safe today because Vercel is the only production target. If that ever changes, widen the check to treat `NODE_ENV === "production"` as production as well and give previews an explicit opt-in flag. Recorded rather than left implicit, because the failure mode is silent and customer-visible.
+
+Behaviour note: a throwing instrumentation hook makes Next serve 500 on every route rather than exiting the process. Loud and unservable, which is the point, but not a process exit — a Vercel health check would mark the deployment bad rather than the process dying.
+
+### `NEXT_PUBLIC_MOCK_AI` → `MOCK_AI`
+
+The prefix inlined the value into the client bundle, publishing the app's mock state, and bought nothing: no browser code ever read it. Task 5's DEVLOG records the prefix as an intentional choice "per the brief" — that decision is left in place as history rather than edited, which is why searching this file still turns up the old name in the Task 5 entries. This is the forward-pointer for anyone who lands there.
+
+`NEXT_PUBLIC_MOCK_ETA` never existed; the ETA flag has always been plain `MOCK_ETA`.
+
+### `images.remotePatterns` configured — but nothing needed it yet
+
+`next.config.mjs` was `{}`. The Storage host is now derived from `NEXT_PUBLIC_SUPABASE_URL` at build time rather than hardcoded, with a `*.supabase.co` fallback so a Vercel build with envs not yet wired does not hard-fail, and the URL parse wrapped so a malformed value cannot throw inside the config.
+
+**This fixed nothing that was broken.** Every uploaded image renders through a plain `<img>` — `file-gallery:71`, `file-lightbox:134`, `intake-list:129`, `intake-review-sheet:144` — which bypasses the optimizer and its allowlist entirely, and the only `next/image` in the tree is the marketing hero on a local `public/` asset. It is future-proofing that becomes load-bearing the moment an `<img>` is swapped for `<Image>`. Recorded plainly because "configured remotePatterns" reads like a bug fix and was not one.
+
+Both patterns are required and it is not redundancy: verified with Next's own `matchRemotePattern` that `/object/public/**` does **not** match a `/object/sign/` URL, so signed links need their own entry. The `*.supabase.co` wildcard was confirmed valid the same way rather than assumed.
+
+### Console cleanup was three lines, not thirty-one
+
+The figure this pass started from (6 keep-with-guard / 7 hot-path / 18 script) did not match the tree. Verified count across `app/`, `components/` and `lib/`: four grep matches, three of them actual calls. `scripts/` has zero — the convention there is `process.stdout.write`.
+
+Two Maps diagnostics in `location-autocomplete.tsx` are now dev-guarded; both are in a client component, so `NODE_ENV` is inlined at build time and the dead branch is stripped — verified against the built bundle, where both payload strings appear in **0** chunks. The retained `throw new Error("Google Maps SDK failed to load")` is real error handling in the SDK loader, untouched.
+
+`lib/supabase/query-error.ts`'s `console.error` is kept **unguarded** on purpose. It is not chatter: it tags the line with `[supabase] <queryName> failed: code=…` immediately before throwing, which is how an RLS misconfiguration gets found in production — the exact bug class that caused the dashboard/onboarding redirect loop this helper was written for. Errors belong in production logs.
+
+The commit subject for that one deviates from the one specified ("…remove hot-path noise") because nothing was removed. This repo's own DEVLOG carries a section titled *"The commit messages claimed otherwise"*; repeating that in a pre-deploy commit was not worth a tidier subject line.
+
+---
+
 ## Task 8 — Bright blue as secondary accent + calendar contrast bump (2026-08-31)
 
 Two visual changes. Fix 1 adds a second semantic color and enforces a split rule; Fix 2 makes calendar events scannable. No features, no schema, no layout.

@@ -476,7 +476,7 @@ creates a reminder without a human in the loop.
 Without it, uploads still land in Storage and the extraction row
 transitions to `status='failed'` with `error_message='OpenAI key
 missing'`. A one-time `process.stderr.write` at first-use makes
-the missing key discoverable in dev. Set `NEXT_PUBLIC_MOCK_AI=1`
+the missing key discoverable in dev. Set `MOCK_AI=1`
 to short-circuit the pipeline with canned extractions — used by
 the smoke script and by any local dev session that doesn't want
 to burn credits. (The `NEXT_PUBLIC_` prefix is a naming
@@ -653,7 +653,7 @@ techs know what's queued) but not INSERT / UPDATE / DELETE. All
 mutation happens through manager+ gated server actions +
 manager+-guarded RLS policies (belt and suspenders).
 
-**Mock mode.** `NEXT_PUBLIC_MOCK_AI=1` or `?mode=mock` short-circuits
+**Mock mode.** `MOCK_AI=1` or `?mode=mock` short-circuits
 Step A with a canned extraction. Steps B and C always run (PLAN Q8
 lock) so the local intelligence is exercised without burning credits.
 Three fixtures shipped; select via `?fixture=whatsapp_new_job` |
