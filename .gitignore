@@ -45,3 +45,10 @@ next-env.d.ts
 *-session.md
 claude-export-*.txt
 *-task-*.txt
+
+# Scratch verification scripts. Task 8 leaked `_verify_tmp.ts` into a
+# commit via `git add -A`; the underscore prefix is the convention for
+# throwaways that live in the repo root only so they can resolve
+# node_modules (tsx cannot from /tmp).
+_*.ts
+_*.mjs
