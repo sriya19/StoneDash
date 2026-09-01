@@ -186,6 +186,27 @@ So the surfaces that looked right were being colored by strings that happen to b
 
 **Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 71 unit checks. Week and day views shot in both themes; computed styles read back off the live DOM to confirm the tint, border, text color and stripe width are what the palette says rather than trusting a screenshot — which is what caught 5a.
 
+### Sub-step 6 — list-view dot + a real gate for the palette (complete)
+
+**`calendar-list.tsx`'s private `KIND_DOT` map is deleted.** It bypassed `getEventColor` entirely, and it had drifted three ways: `pickup` was `bg-sky-500` where the palette says teal, `other` was `bg-zinc-500` where the palette says slate, and **`repair` was missing altogether** — so repair events, whose default is amber, had been rendering the zinc `other` fallback since the kind was added in Task 6B. On top of that it ignored `order_events.color`, so a user-picked color had never once reached the list view.
+
+The dot is now `EVENT_COLOR_CLASSES[getEventColor(ev)].dot`. It was already `h-2 w-2` (8px), so the brief's "small 8px colored dot" needed no sizing change — the work was removing a second source of truth, not adding a dot.
+
+**The demo data happened to prove both halves of the brief's Verify section at once.** Exactly one seeded event carries an explicit color: an `install` (kind default green) with `color = 'purple'`. It renders purple in the week view and purple in the list view, while every other install renders green. That is the kind default applying on NULL and the user override winning when set, observed end to end on the same screen — and the list-view half of it is behavior that did not exist before this commit.
+
+**`scripts/test_event_colors.ts`**, wired in as `pnpm smoke:events` and chained into `pnpm smoke`. Six checks, pure, no DB or server, runs in milliseconds. It turns the brief's four Verify bullets into assertions and adds the two structural checks that map to the bugs this task actually found:
+
+1. `color IS NULL` → kind default, all 7 kinds including `repair`.
+2. A user-picked key overrides the default — all 70 kind×key combinations.
+3. Invalid stored colors and unknown kinds fall back rather than throwing.
+4. **All 10 keys define all 7 variants** — the check that would have caught `KIND_DOT` missing `repair` two tasks ago.
+5. Every `KIND_DEFAULT_COLOR` value is a real palette key.
+6. **WCAG AA on every tint**, parsed out of the palette strings themselves so the test cannot drift from the values it checks, alpha-blended over the real surface. Worst is `amber.pillBg.dark` at 8.58:1.
+
+**The gate was mutation-tested rather than assumed.** Three regressions injected — a dropped `stripe` variant, a `KIND_DEFAULT_COLOR` pointing at a nonexistent key, and a tint pushed past readable — and checks 4, 5 and 6 each caught their own with a precise message (`teal.stripe`, `repair -> chartreuse`, `slate.bg.light = 3.95:1`). Exit code confirmed 1 on failure and 0 clean, since `pnpm smoke` chains on `&&`. A green check that has never been seen red is not evidence of anything.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green across all nine stages: 33/33 SSR, 3/3 DOM, 77 unit checks. List view shot in both themes.
+
 ---
 
 ## Task 7 — Messaging polish + customer notify + templates + crew favorites (2026-08-23)

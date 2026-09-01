@@ -16,19 +16,11 @@ import {
 import { cn } from "@/lib/utils";
 import { formatInTimeZone } from "@/lib/tz";
 import type { CalendarEvent } from "@/lib/queries/events";
+import { EVENT_COLOR_CLASSES, getEventColor } from "@/lib/events/color";
 import { MapsLinks } from "./maps-links";
 import { EmptyState } from "./empty-state";
 
 const PAGE_SIZE = 50;
-
-const KIND_DOT: Record<string, string> = {
-  measurement: "bg-purple-500",
-  install: "bg-emerald-500",
-  delivery: "bg-blue-500",
-  pickup: "bg-sky-500",
-  other: "bg-zinc-500",
-  task: "bg-slate-500",
-};
 
 const STATUS_TONE: Record<string, string> = {
   scheduled: "text-foreground",
@@ -160,7 +152,10 @@ export function CalendarList({ events, timeZone }: Props) {
                 <TableCell>
                   <span className="inline-flex items-center gap-1.5 text-xs">
                     <span
-                      className={cn("h-2 w-2 rounded-full", KIND_DOT[ev.kind] ?? KIND_DOT.other)}
+                      className={cn(
+                        "h-2 w-2 rounded-full",
+                        EVENT_COLOR_CLASSES[getEventColor(ev)].dot,
+                      )}
                     />
                     {ev.kind}
                   </span>
