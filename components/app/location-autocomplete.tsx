@@ -18,8 +18,10 @@ import { Input } from "@/components/ui/input";
 // Graceful fallback: if NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is missing OR
 // the SDK fails to load (offline dev, ad-blocker, restricted referrer),
 // render a plain shadcn <Input>. The address still saves; user just
-// types it manually. One-time console.warn in dev so the missing key
-// is visible.
+// types it manually. One-time console.warn, dev-only (Task 9 pre-deploy
+// pass) so the missing key is visible locally without adding noise to
+// production Vercel logs. NODE_ENV is inlined at build time, so the dead
+// branch is stripped from the client bundle rather than shipped.
 //
 // Country restriction: US only (Top Marble's market). Configurable
 // later if we onboard non-US shops.
@@ -92,7 +94,7 @@ export function LocationAutocomplete({
 
   useEffect(() => {
     if (!API_KEY) {
-      if (!warnedMissingKey) {
+      if (!warnedMissingKey && process.env.NODE_ENV !== "production") {
         warnedMissingKey = true;
         // eslint-disable-next-line no-console
         console.warn(
@@ -163,11 +165,13 @@ export function LocationAutocomplete({
       })
       .catch((err) => {
         if (cancelled) return;
-        // eslint-disable-next-line no-console
-        console.warn(
-          "Google Maps SDK failed to load — falling back to plain location input.",
-          err,
-        );
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.warn(
+            "Google Maps SDK failed to load — falling back to plain location input.",
+            err,
+          );
+        }
         setFallback(true);
       });
 
