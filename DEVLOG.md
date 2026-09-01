@@ -246,6 +246,26 @@ Recorded, not litigated — this is the product owner's call and it was made exp
 
 **Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 77 unit checks. Both scale steps confirmed present in the built CSS and both resolve per theme.
 
+### Sub-step 9 — the color picker was lying about every swatch (complete)
+
+Asked for bright blue as an 11th picker option. Grounding it turned up two things that changed the answer.
+
+**The picker already had it.** `blue` has been one of the ten keys since Task 6B, and its swatch hex was `#2563EB` — the exact value now sitting in `--info-600`. An 11th "bright blue" would have been a near-duplicate circle beside it.
+
+**But 9 of the 10 swatches painted a color the calendar does not render.** The `hex` values were the Task-4-era brand hexes (`blue: #2563EB`, `green: #16A34A`, `terracotta: #C2410C`) while the classes render the `-500` ramp (`#3B82F6`, `#10B981`, `#F97316`). Only `brown` matched, by accident. The type comment directly above the field asserted the opposite — *"used by the picker's swatch circles so the color the user sees IS the color that stores"* — which is the tell that this was intended behavior that had silently stopped being true.
+
+Sub-step 5b's Q7 rebuild is what made it visible: moving the classes from the `-100` family to `-500` put the swatch and the rendered stripe in directly comparable territory for the first time. Against `bg-blue-100/80` nobody would have noticed the swatch was a different blue.
+
+**Fixed by aligning `hex` to `stripe`** — 9 values changed, no migration, no 11th key. `blue` is now genuinely bright blue at `#3B82F6`, and the circle you click is the color you get.
+
+**Pinned by check 7 in `pnpm smoke:events`**, mutation-tested like the rest: reverting `blue`'s hex to `#2563EB` fails with `blue: swatch #2563EB but renders #3B82F6` and exits 1.
+
+**Verified off the live DOM, not the source** — all ten swatch fills read back from `getComputedStyle` in the running app match their stripe color exactly. Worth noting what the same screenshot showed: **the picker's selection ring now renders at all.** `ring-*-500` was 0-of-10 compiled before sub-step 5a's content-glob fix, so the picker has never once shown which color was selected. Nobody filed that, which is its own small lesson about how much of a UI can quietly not work.
+
+The 11th key remains available if a genuinely distinct hue is wanted later — it needs migration `0026` to widen the `CHECK` on `order_events.color` plus the two RPC guards in `0020`, which is why it was worth asking rather than assuming.
+
+**Verification.** typecheck / lint / build green (22/22). `pnpm smoke` green: 33/33 SSR, 3/3 DOM, 78 unit checks.
+
 ---
 
 ## Task 8 — what shipped, and what I'd flag

@@ -136,7 +136,7 @@ function check(label: string, ok: boolean, detail?: string): void {
     "teal-500": "#14B8A6", "teal-950": "#042F2E", "teal-50": "#F0FDFA",
     "indigo-500": "#6366F1", "indigo-950": "#1E1B4B", "indigo-50": "#EEF2FF",
     "slate-500": "#64748B", "slate-950": "#020617", "slate-50": "#F8FAFC",
-    "amber-700": "#B45309",
+    "amber-700": "#B45309", "amber-800": "#92400E",
   };
   const LIGHT_SURFACE = "#FFFFFF";
   const DARK_SURFACE = "#1F1F23";
@@ -208,6 +208,36 @@ function check(label: string, ok: boolean, detail?: string): void {
   );
 }
 
-const total = 6;
+// --- 7. the picker swatch is the color that actually renders -------------
+//
+// `hex` paints the picker's circle; `stripe` paints the event. If they
+// disagree the picker lies about what you are choosing, which is exactly
+// what it did for 9 of 10 keys until Task 8 sub-step 9.
+{
+  const SWATCH: Record<string, string> = {
+    "orange-500": "#F97316", "emerald-500": "#10B981", "blue-500": "#3B82F6",
+    "purple-500": "#A855F7", "amber-500": "#F59E0B", "rose-500": "#F43F5E",
+    "teal-500": "#14B8A6", "indigo-500": "#6366F1", "slate-500": "#64748B",
+    "amber-700": "#B45309", "amber-800": "#92400E",
+  };
+  const wrong: string[] = [];
+  for (const key of ALL_COLOR_KEYS) {
+    const entry = EVENT_COLOR_CLASSES[key];
+    const family = entry.stripe.replace(/^bg-/, "");
+    const rendered = SWATCH[family];
+    if (!rendered) {
+      wrong.push(`${key}: stripe ${entry.stripe} is not in the swatch table`);
+    } else if (entry.hex.toUpperCase() !== rendered.toUpperCase()) {
+      wrong.push(`${key}: swatch ${entry.hex} but renders ${rendered}`);
+    }
+  }
+  check(
+    "7. every picker swatch hex equals the color its stripe renders",
+    wrong.length === 0,
+    wrong.join(", "),
+  );
+}
+
+const total = 7;
 process.stdout.write(`\n${total} check(s): ${total - failed} OK, ${failed} FAIL\n`);
 process.exit(failed > 0 ? 1 : 0);

@@ -854,7 +854,8 @@ Migrations don't run on deploy — apply them from your machine
   `getEventColor(event)` + `EVENT_COLOR_CLASSES[key][variant]` in
   `lib/events/color.ts` — the single source of truth, gated by
   `pnpm smoke:events`, which also pins the WCAG AA floor for every
-  key × variant × theme.
+  key × variant × theme and asserts that each picker swatch is the color
+  that key actually renders.
 - **`lib/` is in Tailwind's `content` globs.** It was not until Task 8, and
   because `lib/events/color.ts` is where the event palette lives, none of
   those classes compiled — the calendar rendered with no colors at all for

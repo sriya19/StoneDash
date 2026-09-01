@@ -38,8 +38,12 @@ type ColorVariants = {
   ring: string;
   stripe: string;
   pillBg: string;
-  // Raw hex — used by the picker's swatch circles so the color the
-  // user sees IS the color that stores.
+  // Raw hex for the picker's swatch circles. MUST equal the literal
+  // color of `stripe` — the circle you click is the color you get.
+  // It did not until Task 8 sub-step 9: 9 of 10 swatches painted the
+  // Task-4-era brand hex (blue #2563EB) while the calendar rendered the
+  // -500 ramp (#3B82F6), so the picker had been quietly lying. Pinned by
+  // check 7 in `pnpm smoke:events`.
   hex: string;
 };
 
@@ -51,7 +55,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-orange-100 text-orange-900 border-orange-300 dark:bg-orange-900/50 dark:text-orange-100 dark:border-orange-700",
     dot: "bg-orange-500",
     ring: "ring-orange-500",
-    hex: "#C2410C",
+    hex: "#F97316",
   },
   green: {
     bg: "bg-emerald-500/15 border-emerald-500/40 text-emerald-950 dark:bg-emerald-500/25 dark:border-emerald-500/50 dark:text-emerald-50",
@@ -60,7 +64,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/50 dark:text-emerald-100 dark:border-emerald-700",
     dot: "bg-emerald-500",
     ring: "ring-emerald-500",
-    hex: "#16A34A",
+    hex: "#10B981",
   },
   blue: {
     bg: "bg-blue-500/15 border-blue-500/40 text-blue-950 dark:bg-blue-500/25 dark:border-blue-500/50 dark:text-blue-50",
@@ -69,7 +73,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-900/50 dark:text-blue-100 dark:border-blue-700",
     dot: "bg-blue-500",
     ring: "ring-blue-500",
-    hex: "#2563EB",
+    hex: "#3B82F6",
   },
   purple: {
     bg: "bg-purple-500/15 border-purple-500/40 text-purple-950 dark:bg-purple-500/25 dark:border-purple-500/50 dark:text-purple-50",
@@ -78,7 +82,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-900/50 dark:text-purple-100 dark:border-purple-700",
     dot: "bg-purple-500",
     ring: "ring-purple-500",
-    hex: "#9333EA",
+    hex: "#A855F7",
   },
   amber: {
     bg: "bg-amber-500/15 border-amber-500/40 text-amber-950 dark:bg-amber-500/25 dark:border-amber-500/50 dark:text-amber-50",
@@ -87,7 +91,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/50 dark:text-amber-100 dark:border-amber-700",
     dot: "bg-amber-500",
     ring: "ring-amber-500",
-    hex: "#D97706",
+    hex: "#F59E0B",
   },
   rose: {
     bg: "bg-rose-500/15 border-rose-500/40 text-rose-950 dark:bg-rose-500/25 dark:border-rose-500/50 dark:text-rose-50",
@@ -96,7 +100,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-900/50 dark:text-rose-100 dark:border-rose-700",
     dot: "bg-rose-500",
     ring: "ring-rose-500",
-    hex: "#E11D48",
+    hex: "#F43F5E",
   },
   teal: {
     bg: "bg-teal-500/15 border-teal-500/40 text-teal-950 dark:bg-teal-500/25 dark:border-teal-500/50 dark:text-teal-50",
@@ -105,7 +109,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-900/50 dark:text-teal-100 dark:border-teal-700",
     dot: "bg-teal-500",
     ring: "ring-teal-500",
-    hex: "#0D9488",
+    hex: "#14B8A6",
   },
   indigo: {
     bg: "bg-indigo-500/15 border-indigo-500/40 text-indigo-950 dark:bg-indigo-500/25 dark:border-indigo-500/50 dark:text-indigo-50",
@@ -114,7 +118,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-900/50 dark:text-indigo-100 dark:border-indigo-700",
     dot: "bg-indigo-500",
     ring: "ring-indigo-500",
-    hex: "#4F46E5",
+    hex: "#6366F1",
   },
   slate: {
     bg: "bg-slate-500/15 border-slate-500/40 text-slate-950 dark:bg-slate-500/25 dark:border-slate-500/50 dark:text-slate-50",
@@ -123,7 +127,7 @@ export const EVENT_COLOR_CLASSES: Record<EventColorKey, ColorVariants> = {
     chip: "bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-900/50 dark:text-slate-100 dark:border-slate-700",
     dot: "bg-slate-500",
     ring: "ring-slate-500",
-    hex: "#475569",
+    hex: "#64748B",
   },
   brown: {
     // Tailwind doesn't have a "brown" palette; the amber-700/800 end is
